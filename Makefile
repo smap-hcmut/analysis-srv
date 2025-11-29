@@ -27,15 +27,15 @@ help:
 	@echo "  make dev-down                - Stop development environment"
 	@echo "  make dev-logs                - View development logs"
 	@echo ""
-	@echo "📥 WHISPER ARTIFACTS (Dynamic Model Loading):"
-	@echo "  make setup-artifacts         - Download Whisper library artifacts (default: small)"
-	@echo "  make setup-artifacts-small   - Download small model artifacts"
-	@echo "  make setup-artifacts-medium  - Download medium model artifacts"
+	@echo "🤖 PHOBERT ONNX:"
+	@echo "  make download-phobert        - Download PhoBERT ONNX model from MinIO"
+	@echo "  make test-phobert            - Run all PhoBERT tests"
+	@echo "  make test-phobert-unit       - Run unit tests only"
+	@echo "  make test-phobert-integration - Run integration tests (requires model)"
+	@echo "  make test-phobert-performance - Run performance tests (requires model)"
 	@echo ""
 	@echo "🧪 TESTING:"
 	@echo "  make test                    - Run all tests"
-	@echo "  make test-library            - Test Whisper library adapter"
-	@echo "  make test-integration        - Test model switching"
 	@echo ""
 	@echo "🐳 DOCKER:"
 	@echo "  make docker-build            - Build Docker images"
@@ -78,7 +78,7 @@ add:
 # "uv run" tự động load .venv và environment, không cần trỏ đường dẫn python thủ công
 # PYTHONPATH=. vẫn giữ để đảm bảo import các module gốc hoạt động đúng
 run-api:
-	PYTHONPATH=. uv run cmd/api/main.py
+	PYTHONPATH=. uv run commands/api/main.py
 
 run-api-refactored:
 	PYTHONPATH=. uv run cmd/api/main.py
@@ -88,7 +88,7 @@ run-analytics-api:
 	PYTHONPATH=. uv run cmd/api/main.py
 
 run-analytics-consumer:
-	PYTHONPATH=. uv run cmd/consumer/main.py
+	PYTHONPATH=. uv run commands/consumer/main.py
 
 # ==============================================================================
 # WHISPER SETUP
@@ -151,6 +151,29 @@ setup-artifacts-small:
 setup-artifacts-medium:
 	@echo "📦 Downloading MEDIUM model artifacts..."
 	PYTHONPATH=. uv run python scripts/download_whisper_artifacts.py medium
+
+# ==============================================================================
+# AI MODELS (Phase 0.5)
+# ==============================================================================
+download-phobert:
+	@echo "Downloading PhoBERT ONNX model..."
+	@bash scripts/download_phobert_model.sh
+
+test-phobert:
+	@echo "Running PhoBERT tests..."
+	@uv run pytest tests/phobert/ -v
+
+test-phobert-unit:
+	@echo "Running PhoBERT unit tests..."
+	@uv run pytest tests/phobert/test_unit.py -v
+
+test-phobert-integration:
+	@echo "Running PhoBERT integration tests (requires model)..."
+	@uv run pytest tests/phobert/test_integration.py -v
+
+test-phobert-performance:
+	@echo "Running PhoBERT performance tests (requires model)..."
+	@uv run pytest tests/phobert/test_performance.py -v -m benchmark
 
 # ==============================================================================
 # DOCKER OPERATIONS
@@ -253,10 +276,10 @@ test-medium:
 	WHISPER_MODEL_SIZE=medium PYTHONPATH=. uv run pytest tests/test_model_switching.py -v
 
 format:
-	uv run black core/ services/ cmd/ adapters/ internal/ tests/
+	uv run black core/ services/ commands/ adapters/ internal/ tests/
 
 lint:
-	uv run flake8 core/ services/ cmd/ adapters/ internal/ tests/ --max-line-length=100
+	uv run flake8 core/ services/ commands/ adapters/ internal/ tests/ --max-line-length=100
 
 # ==============================================================================
 # LOGS & SCALING
