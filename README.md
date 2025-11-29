@@ -369,3 +369,166 @@ MINIO_SECRET_KEY="your-secret-key"
 
 - **Email**: nguyentantai.dev@gmail.com
 - **Repository**: [GitHub](https://github.com/nguyentantai21042004/analytics_engine)
+
+---
+
+## Test API Endpoint
+
+The Analytics Engine provides a `/test/analytics` endpoint for testing the full analytics pipeline integration.
+
+### Endpoint Details
+
+**URL**: `POST /test/analytics`  
+**Description**: Test endpoint that accepts JSON input matching the master-proposal format and returns detailed analytics processing results.
+
+### Request Format
+
+```json
+{
+  "meta": {
+    "id": "post_123",
+    "platform": "facebook",
+    "lang": "vi",
+    "collected_at": "2025-01-15T10:30:00Z"
+  },
+  "content": {
+    "title": "Đánh giá sản phẩm",
+    "text": "Sản phẩm chất lượng cao, rất hài lòng!",
+    "media": []
+  },
+  "interaction": {
+    "likes": 42,
+    "shares": 5,
+    "comments_count": 3
+  },
+  "author": {
+    "id": "user_456",
+    "name": "John Doe"
+  },
+  "comments": []
+}
+```
+
+### Response Format
+
+```json
+{
+  "post_id": "post_123",
+  "preprocessing": {
+    "status": "not_implemented",
+    "message": "Text preprocessing will be implemented in a future proposal",
+    "input_text_length": 54
+  },
+  "keywords": {
+    "status": "success",
+    "model_available": true,
+    "keywords": [
+      {
+        "keyword": "sản phẩm",
+        "score": 0.95,
+        "rank": 1,
+        "type": "statistical"
+      }
+    ],
+    "metadata": {
+      "extraction_time": 0.123,
+      "total_candidates": 15
+    }
+  },
+  "sentiment": {
+    "status": "success",
+    "model_available": true,
+    "sentiment": {
+      "sentiment": "VERY_POSITIVE",
+      "confidence": 0.99,
+      "probabilities": {
+        "VERY_NEGATIVE": 0.001,
+        "NEGATIVE": 0.002,
+        "NEUTRAL": 0.007,
+        "POSITIVE": 0.01,
+        "VERY_POSITIVE": 0.98
+      }
+    }
+  },
+  "metadata": {
+    "platform": "facebook",
+    "language": "vi",
+    "collected_at": "2025-01-15T10:30:00Z",
+    "models_initialized": {
+      "phobert": true,
+      "spacyyake": true
+    }
+  }
+}
+```
+
+### Testing with curl
+
+```bash
+# Test with Vietnamese text
+curl -X POST http://localhost:8000/test/analytics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meta": {"id": "test_1", "platform": "facebook", "lang": "vi"},
+    "content": {"title": "Review", "text": "Sản phẩm tốt!"},
+    "interaction": {},
+    "author": {},
+    "comments": []
+  }'
+
+# Test with English text  
+curl -X POST http://localhost:8000/test/analytics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meta": {"id": "test_2", "platform": "twitter", "lang": "en"},
+    "content": {"title": "Product Review", "text": "Great quality product with excellent features!"},
+    "interaction": {},
+    "author": {},
+    "comments": []
+  }'
+```
+
+### Testing with Python
+
+```python
+import requests
+
+# Prepare test data
+test_data = {
+    "meta": {
+        "id": "test_post_123",
+        "platform": "facebook",
+        "lang": "vi",
+        "collected_at": "2025-01-15T10:30:00Z"
+    },
+    "content": {
+        "title": "Đánh giá sản phẩm",
+        "text": "Sản phẩm chất lượng cao, rất hài lòng!",
+        "media": []
+    },
+    "interaction": {"likes": 42, "shares": 5, "comments_count": 3},
+    "author": {"id": "user_456", "name": "John Doe"},
+    "comments": []
+}
+
+# Send request
+response = requests.post(
+    "http://localhost:8000/test/analytics",
+    json=test_data
+)
+
+# Process response
+result = response.json()
+print(f"Post ID: {result['post_id']}")
+print(f"Sentiment: {result['sentiment']['sentiment']['sentiment']}")
+print(f"Keywords: {len(result['keywords']['keywords'])} extracted")
+```
+
+### API Documentation
+
+Once the API is running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+- **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+---

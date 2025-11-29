@@ -7,8 +7,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-import pytest
-import torch
+import pytest  # type: ignore
+import torch  # type: ignore
 from unittest.mock import Mock, patch
 
 from infrastructure.ai.phobert_onnx import PhoBERTONNX

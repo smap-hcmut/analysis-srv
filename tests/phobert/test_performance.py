@@ -7,7 +7,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-import pytest
+import pytest  # type: ignore
 import time
 
 from infrastructure.ai.phobert_onnx import PhoBERTONNX
@@ -61,7 +61,7 @@ class TestPerformance:
     @pytest.mark.skip(reason="Requires psutil package")
     def test_memory_usage(self, phobert):
         """Test memory usage is reasonable."""
-        import psutil
+        import psutil  # type: ignore
         import os
 
         process = psutil.Process(os.getpid())

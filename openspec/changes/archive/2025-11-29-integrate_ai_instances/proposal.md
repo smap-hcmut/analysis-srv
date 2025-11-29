@@ -1,9 +1,22 @@
 # Integrate AI Model Instances
 
-**Change ID**: `integrate_ai_instances`  
-**Status**: Proposal  
-**Created**: 2025-11-29  
+**Change ID**: `integrate_ai_instances`
+**Status**: Proposal
+**Created**: 2025-11-29
 **Author**: Analytics Engine Team
+
+---
+
+## Why
+
+The Analytics Engine has PhoBERT ONNX and SpaCy-YAKE models implemented and tested in isolation, but they are not accessible in the API or Consumer services. This change integrates the AI models into the service lifecycle using FastAPI's lifespan pattern and dependency injection, enabling:
+
+1. **Production-ready API**: Models loaded once at startup and reused across all requests
+2. **Consumer service integration**: AI models available for message queue processing
+3. **Test endpoint**: Validate the full analytics pipeline with real JSON input
+4. **Development efficiency**: Fast feedback loop for testing model integration
+
+This unblocks the analytics pipeline by making AI models available to both API endpoints and background message processing.
 
 ---
 

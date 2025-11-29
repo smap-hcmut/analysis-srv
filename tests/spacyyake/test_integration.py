@@ -7,9 +7,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-import pytest
+import pytest  # type: ignore
 import tempfile
-import yaml
+import yaml  # type: ignore
 
 from infrastructure.ai.spacyyake_extractor import SpacyYakeExtractor
 from infrastructure.ai.aspect_mapper import AspectMapper
@@ -18,7 +18,8 @@ from infrastructure.ai.aspect_mapper import AspectMapper
 def check_spacy_model_available():
     """Check if SpaCy model is available."""
     try:
-        import spacy
+        import spacy  # type: ignore
+
         try:
             spacy.load("en_core_web_sm")
             return True
@@ -31,7 +32,8 @@ def check_spacy_model_available():
 def check_yake_available():
     """Check if YAKE is available."""
     try:
-        import yake
+        import yake  # type: ignore
+
         return True
     except ImportError:
         return False
@@ -59,12 +61,12 @@ class TestRealModelExtraction:
         assert result.confidence_score > 0.0
 
         # Check that we got diverse keyword types
-        keyword_types = set(kw['type'] for kw in result.keywords)
+        keyword_types = set(kw["type"] for kw in result.keywords)
         assert len(keyword_types) > 0
 
         # Verify metadata
-        assert 'method' in result.metadata
-        assert result.metadata['method'] == 'spacy_yake'
+        assert "method" in result.metadata
+        assert result.metadata["method"] == "spacy_yake"
 
     def test_extract_english_text_technical(self, extractor):
         """Test extraction with technical English text."""
@@ -80,9 +82,9 @@ class TestRealModelExtraction:
         assert len(result.keywords) >= 5
 
         # Check for expected keywords
-        keywords_text = [kw['keyword'].lower() for kw in result.keywords]
+        keywords_text = [kw["keyword"].lower() for kw in result.keywords]
         # At least one of these should be extracted
-        expected_terms = ['python', 'programming', 'language', 'data', 'artificial intelligence']
+        expected_terms = ["python", "programming", "language", "data", "artificial intelligence"]
         assert any(any(term in kw for term in expected_terms) for kw in keywords_text)
 
     def test_extract_with_named_entities(self, extractor):
@@ -94,11 +96,11 @@ class TestRealModelExtraction:
         assert len(result.keywords) > 0
 
         # Should have entity-type keywords
-        entity_keywords = [kw for kw in result.keywords if 'entity' in kw['type']]
+        entity_keywords = [kw for kw in result.keywords if "entity" in kw["type"]]
         assert len(entity_keywords) > 0
 
         # Check metadata
-        assert result.metadata['entities_count'] > 0
+        assert result.metadata["entities_count"] > 0
 
     def test_extract_short_text(self, extractor):
         """Test extraction with short text."""
@@ -126,7 +128,7 @@ class TestRealModelExtraction:
         assert len(result.keywords) > 10
 
         # Long text should have good diversity
-        keyword_types = set(kw['type'] for kw in result.keywords)
+        keyword_types = set(kw["type"] for kw in result.keywords)
         assert len(keyword_types) >= 2
 
         # Should respect max_keywords limit
@@ -190,23 +192,19 @@ class TestAspectMappingIntegration:
     def sample_dictionary(self):
         """Create a sample aspect dictionary."""
         return {
-            'aspects': {
-                'TECHNOLOGY': {
-                    'keywords': ['python', 'machine learning', 'data science', 'programming']
+            "aspects": {
+                "TECHNOLOGY": {
+                    "keywords": ["python", "machine learning", "data science", "programming"]
                 },
-                'BUSINESS': {
-                    'keywords': ['revenue', 'profit', 'investment', 'market']
-                },
-                'QUALITY': {
-                    'keywords': ['excellent', 'great', 'quality', 'good']
-                }
+                "BUSINESS": {"keywords": ["revenue", "profit", "investment", "market"]},
+                "QUALITY": {"keywords": ["excellent", "great", "quality", "good"]},
             }
         }
 
     def test_extraction_with_aspect_mapping(self, sample_dictionary):
         """Test extraction with aspect mapping enabled."""
         # Create temporary dictionary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(sample_dictionary, f)
             dict_path = f.name
 
@@ -224,7 +222,7 @@ class TestAspectMappingIntegration:
 
             # Manually map keywords to aspects
             for keyword in result.keywords:
-                aspect = mapper.map_keyword(keyword['keyword'])
+                aspect = mapper.map_keyword(keyword["keyword"])
                 # Aspect should be either known or UNKNOWN
                 assert isinstance(aspect, str)
 
@@ -234,7 +232,7 @@ class TestAspectMappingIntegration:
 
     def test_aspect_statistics(self, sample_dictionary):
         """Test aspect statistics from mapped keywords."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(sample_dictionary, f)
             dict_path = f.name
 
@@ -248,7 +246,7 @@ class TestAspectMappingIntegration:
             # Map keywords
             aspect_counts = {}
             for keyword in result.keywords:
-                aspect = mapper.map_keyword(keyword['keyword'])
+                aspect = mapper.map_keyword(keyword["keyword"])
                 aspect_counts[aspect] = aspect_counts.get(aspect, 0) + 1
 
             # Should have mapped some keywords
