@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     aspect_dictionary_path: str = "config/aspects.yaml"
     unknown_aspect_label: str = "UNKNOWN"
 
+    # RabbitMQ (for message queue)
+    rabbitmq_url: str = "amqp://guest:guest@localhost/"
+    rabbitmq_queue_name: str = "analytics_queue"
+    rabbitmq_prefetch_count: int = 1
+
     # MinIO (for model artifacts)
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = "minioadmin"

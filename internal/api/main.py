@@ -1,7 +1,9 @@
 """FastAPI application entry point for Analytics Engine."""
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # type: ignore
+from fastapi.middleware.cors import CORSMiddleware  # type: ignore
+
+from internal.api.routes import test
 
 app = FastAPI(
     title="Analytics Engine API",
@@ -17,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register routers
+app.include_router(test.router)
 
 
 @app.get("/health")
@@ -36,7 +41,7 @@ async def root():
 
 
 if __name__ == "__main__":
-    import uvicorn
+    import uvicorn  # type: ignore
 
     uvicorn.run(
         "internal.api.main:app",
