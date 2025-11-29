@@ -142,6 +142,67 @@ SENTIMENT_MAP = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5}
 
 ---
 
+## SpaCy-YAKE Keyword Extraction
+
+### Overview
+The Analytics Engine uses **SpaCy + YAKE** for keyword extraction, combining linguistic analysis with statistical methods to identify important keywords and phrases.
+
+### Usage Example
+```python
+from infrastructure.ai import SpacyYakeExtractor
+
+# Initialize extractor
+extractor = SpacyYakeExtractor()
+
+# Extract keywords
+text = "Machine learning is transforming data science and AI applications."
+result = extractor.extract(text)
+
+print(f"Keywords: {len(result.keywords)}")
+print(f"Confidence: {result.confidence_score:.2f}")
+
+for kw in result.keywords[:5]:
+    print(f"  - {kw['keyword']} (score: {kw['score']:.2f}, type: {kw['type']})")
+
+# Batch processing
+texts = ["Text 1", "Text 2", "Text 3"]
+results = extractor.extract_batch(texts)
+```
+
+### Model Specifications
+| Property | Value |
+|----------|-------|
+| **Method** | SpaCy + YAKE |
+| **Features** | NER, Noun Chunks, Statistical Keywords |
+| **Languages** | English (extensible) |
+| **Inference Time** | <500ms |
+| **Memory** | ~200-400MB |
+
+### Configuration
+Environment variables in `.env`:
+```bash
+SPACY_MODEL=en_core_web_sm
+YAKE_LANGUAGE=en
+YAKE_N=2
+MAX_KEYWORDS=30
+ENTITY_WEIGHT=0.7
+CHUNK_WEIGHT=0.5
+```
+
+### Commands
+```bash
+# Download SpaCy model
+make download-spacy-model
+
+# Run tests
+make test-spacyyake              # All tests (78 total)
+make test-spacyyake-unit         # Unit tests (58 tests)
+make test-spacyyake-integration  # Integration tests (14 tests)
+make test-spacyyake-performance  # Performance tests (6 tests)
+```
+
+---
+
 ## Project Structure
 
 ```

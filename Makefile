@@ -34,6 +34,13 @@ help:
 	@echo "  make test-phobert-integration - Run integration tests (requires model)"
 	@echo "  make test-phobert-performance - Run performance tests (requires model)"
 	@echo ""
+	@echo "🔍 SPACY-YAKE KEYWORD EXTRACTION:"
+	@echo "  make download-spacy-model    - Download SpaCy model"
+	@echo "  make test-spacyyake          - Run all SpaCy-YAKE tests"
+	@echo "  make test-spacyyake-unit     - Run unit tests only"
+	@echo "  make test-spacyyake-integration - Run integration tests (requires model)"
+	@echo "  make test-spacyyake-performance - Run performance tests"
+	@echo ""
 	@echo "🧪 TESTING:"
 	@echo "  make test                    - Run all tests"
 	@echo ""
@@ -174,6 +181,27 @@ test-phobert-integration:
 test-phobert-performance:
 	@echo "Running PhoBERT performance tests (requires model)..."
 	@uv run pytest tests/phobert/test_performance.py -v -m benchmark
+
+# SpaCy-YAKE Keyword Extraction (Phase 0.6)
+download-spacy-model:
+	@echo "Downloading SpaCy model..."
+	@uv run python -m spacy download en_core_web_sm
+
+test-spacyyake:
+	@echo "Running SpaCy-YAKE tests..."
+	@uv run pytest tests/spacyyake/ -v
+
+test-spacyyake-unit:
+	@echo "Running SpaCy-YAKE unit tests..."
+	@uv run pytest tests/spacyyake/test_unit.py tests/spacyyake/test_aspect_mapper.py -v
+
+test-spacyyake-integration:
+	@echo "Running SpaCy-YAKE integration tests (requires model)..."
+	@uv run pytest tests/spacyyake/test_integration.py -v
+
+test-spacyyake-performance:
+	@echo "Running SpaCy-YAKE performance tests..."
+	@uv run pytest tests/spacyyake/test_performance.py -v
 
 # ==============================================================================
 # DOCKER OPERATIONS

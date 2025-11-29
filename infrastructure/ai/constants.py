@@ -1,7 +1,11 @@
-"""Constants for PhoBERT ONNX model."""
+"""Constants for AI infrastructure (PhoBERT and SpaCy-YAKE)."""
 
 import os
 from pathlib import Path
+
+# ============================================================================
+# PhoBERT Configuration
+# ============================================================================
 
 # Model Configuration (loaded from environment or defaults)
 DEFAULT_MODEL_PATH = os.getenv("PHOBERT_MODEL_PATH", "infrastructure/phobert/models")
@@ -59,3 +63,31 @@ ERROR_MODEL_FILE_NOT_FOUND = (
     "Model file not found: {path}\nRun 'make download-phobert' to download the model."
 )
 ERROR_MODEL_LOAD_FAILED = "Failed to load PhoBERT model: {error}"
+
+# ============================================================================
+# SpaCy-YAKE Configuration
+# ============================================================================
+
+# SpaCy Model Configuration
+DEFAULT_SPACY_MODEL = os.getenv("SPACY_MODEL", "en_core_web_sm")
+
+# YAKE Configuration
+DEFAULT_YAKE_LANGUAGE = os.getenv("YAKE_LANGUAGE", "en")
+DEFAULT_YAKE_N = int(os.getenv("YAKE_N", "2"))
+DEFAULT_YAKE_DEDUP_LIM = float(os.getenv("YAKE_DEDUP_LIM", "0.8"))
+DEFAULT_YAKE_MAX_KEYWORDS = int(os.getenv("YAKE_MAX_KEYWORDS", "30"))
+
+# Extraction Configuration
+DEFAULT_MAX_KEYWORDS = int(os.getenv("MAX_KEYWORDS", "30"))
+DEFAULT_ENTITY_WEIGHT = float(os.getenv("ENTITY_WEIGHT", "0.7"))
+DEFAULT_CHUNK_WEIGHT = float(os.getenv("CHUNK_WEIGHT", "0.5"))
+
+# Aspect Mapping Configuration
+DEFAULT_ASPECT_DICTIONARY_PATH = os.getenv("ASPECT_DICTIONARY_PATH", "config/aspects.yaml")
+DEFAULT_UNKNOWN_ASPECT_LABEL = os.getenv("UNKNOWN_ASPECT_LABEL", "UNKNOWN")
+ENABLE_ASPECT_MAPPING = os.getenv("ENABLE_ASPECT_MAPPING", "false").lower() == "true"
+
+# Error Messages
+ERROR_MODEL_NOT_INITIALIZED = "SpaCy or YAKE models not initialized"
+ERROR_INVALID_INPUT = "Invalid input text"
+ERROR_ASPECT_DICTIONARY_NOT_FOUND = "Aspect dictionary file not found: {path}"

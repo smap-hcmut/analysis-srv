@@ -4,11 +4,19 @@
 Analytics Engine - A high-performance analytics processing service for social media content analysis, featuring Vietnamese sentiment analysis using PhoBERT ONNX.
 
 ## Tech Stack
-- **Backend**: Python 3.12+, FastAPI, SQLAlchemy
-- **Database**: PostgreSQL (with Alembic migrations)
-- **AI/ML**: PhoBERT ONNX (Vietnamese sentiment analysis)
-- **Package Manager**: uv
-- **Containerization**: Docker, Docker Compose
+
+- **Language**: Python 3.12+
+- **Package Manager**: `uv` (faster than Poetry)
+- **Web Framework**: FastAPI (planned)
+- **Database**: PostgreSQL with Alembic migrations
+- **Cache**: Redis (planned)
+- **Message Queue**: RabbitMQ (planned)
+- **Object Storage**: MinIO (for model artifacts)
+- **AI/ML**:
+  - PhoBERT ONNX - Vietnamese sentiment analysis (5-class)
+  - SpaCy + YAKE - Keyword extraction (English, extensible)
+  - PyVi - Vietnamese text segmentation
+  - ONNX Runtime - Optimized model inference, Docker Compose
 - **Storage**: MinIO (for model artifacts)
 
 ## Project Conventions
@@ -56,7 +64,12 @@ Analytics Engine - A high-performance analytics processing service for social me
 - **Python Version**: Minimum 3.10, recommended 3.12+
 
 ## External Dependencies
-- **MinIO**: Self-hosted object storage for model artifacts
-- **PhoBERT**: Pre-trained Vietnamese BERT model (fine-tuned for sentiment)
+
+- **MinIO**: Model artifact storage (PhoBERT ONNX models, SpaCy models)
+- **PostgreSQL**: Primary database
+- **Redis**: Caching layer (planned)
+- **RabbitMQ**: Message queue (planned)
+- **SpaCy**: NLP library for keyword extraction
+- **YAKE**: Statistical keyword extractionel (fine-tuned for sentiment)
 - **PyVi**: Vietnamese text segmentation library
 - **ONNX Runtime**: Optimized inference engine

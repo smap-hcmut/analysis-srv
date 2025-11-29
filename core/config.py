@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     phobert_max_length: int = 128
     phobert_model_file: str = "model_quantized.onnx"
 
+    # SpaCy-YAKE Keyword Extraction
+    spacy_model: str = "en_core_web_sm"
+    yake_language: str = "en"
+    yake_n: int = 2
+    yake_dedup_lim: float = 0.8
+    yake_max_keywords: int = 30
+    max_keywords: int = 30
+    entity_weight: float = 0.7
+    chunk_weight: float = 0.5
+
+    # Aspect Mapping
+    enable_aspect_mapping: bool = False
+    aspect_dictionary_path: str = "config/aspects.yaml"
+    unknown_aspect_label: str = "UNKNOWN"
+
     # MinIO (for model artifacts)
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = "minioadmin"
