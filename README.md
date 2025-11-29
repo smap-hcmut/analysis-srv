@@ -142,7 +142,35 @@ SENTIMENT_MAP = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5}
 
 ---
 
-## SpaCy-YAKE Keyword Extraction
+### 3. Text Preprocessing (New)
+
+The `TextPreprocessor` module standardizes and cleans input text before AI processing.
+
+**Features:**
+- **Content Merging**: Combines Transcription > Caption > Top Comments
+- **Normalization**: Unicode NFC, URL removal, Emoji removal, Hashtag handling
+- **Noise Detection**: Calculates stats like hashtag ratio and length to filter spam
+
+**Usage:**
+```python
+from services.analytics.preprocessing import TextPreprocessor
+
+preprocessor = TextPreprocessor()
+result = preprocessor.preprocess({
+    "content": {
+        "text": "Amazing product! 🔥 #review",
+        "transcription": "Video transcript here..."
+    },
+    "comments": [{"text": "Great!", "likes": 5}]
+})
+
+print(result.clean_text)
+# Output: "video transcript here... amazing product! review. great!"
+```
+
+---
+
+### 4. SpaCy-YAKE Keyword Extraction
 
 ### Overview
 The Analytics Engine uses **SpaCy + YAKE** for keyword extraction, combining linguistic analysis with statistical methods to identify important keywords and phrases.

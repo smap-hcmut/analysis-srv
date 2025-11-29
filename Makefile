@@ -13,6 +13,7 @@ help:
 	@echo "🚀 RUN SERVICES:"
 	@echo "  make run-api                 - Run API service locally"
 	@echo "  make run-consumer            - Run Consumer service locally"
+	@echo "  make run-example-preprocessing - Run Text Preprocessor example"
 	@echo ""
 	@echo "🐳 DEV ENVIRONMENT (Docker):"
 	@echo "  make dev-up                  - Start dev services (Postgres, Redis, MinIO, RabbitMQ)"
@@ -27,6 +28,7 @@ help:
 	@echo "  make test                    - Run all tests"
 	@echo "  make test-phobert            - Run PhoBERT tests"
 	@echo "  make test-spacyyake          - Run SpaCy-YAKE tests"
+	@echo "  make test-preprocessing      - Run Text Preprocessor tests"
 	@echo ""
 	@echo "🗄️  DATABASE:"
 	@echo "  make db-init                 - Initialize Alembic"
@@ -59,6 +61,10 @@ run-api:
 
 run-consumer:
 	PYTHONPATH=. uv run commands/consumer/main.py
+
+run-example-preprocessing:
+	@echo "Running Text Preprocessor example..."
+	@PYTHONPATH=. uv run examples/preprocess_example.py
 
 # ==============================================================================
 # DEV ENVIRONMENT
@@ -97,6 +103,22 @@ test-phobert:
 test-spacyyake:
 	@echo "Running SpaCy-YAKE tests..."
 	@uv run pytest tests/spacyyake/ -v
+
+test-preprocessing:
+	@echo "Running Text Preprocessor tests..."
+	@uv run pytest tests/preprocessing/ -v
+
+test-preprocessing-unit:
+	@echo "Running Text Preprocessor unit tests..."
+	@uv run pytest tests/preprocessing/test_unit.py -v
+
+test-preprocessing-integration:
+	@echo "Running Text Preprocessor integration tests..."
+	@uv run pytest tests/preprocessing/test_integration.py -v
+
+test-preprocessing-performance:
+	@echo "Running Text Preprocessor performance tests..."
+	@uv run pytest tests/preprocessing/test_performance.py -v
 
 # ==============================================================================
 # DATABASE

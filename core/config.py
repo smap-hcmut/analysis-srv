@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
 
+    # Text Preprocessor
+    preprocessor_min_text_length: int = 10
+    preprocessor_max_comments: int = 5
+
 
 settings = Settings()
 
