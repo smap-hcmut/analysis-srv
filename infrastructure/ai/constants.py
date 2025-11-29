@@ -1,11 +1,12 @@
 """Constants for PhoBERT ONNX model."""
 
+import os
 from pathlib import Path
 
-# Model Configuration
-DEFAULT_MODEL_PATH = "infrastructure/phobert/models"
-DEFAULT_MAX_LENGTH = 128
-MODEL_FILE_NAME = "model_quantized.onnx"
+# Model Configuration (loaded from environment or defaults)
+DEFAULT_MODEL_PATH = os.getenv("PHOBERT_MODEL_PATH", "infrastructure/phobert/models")
+DEFAULT_MAX_LENGTH = int(os.getenv("PHOBERT_MAX_LENGTH", "128"))
+MODEL_FILE_NAME = os.getenv("PHOBERT_MODEL_FILE", "model_quantized.onnx")
 
 # Required Model Files
 REQUIRED_MODEL_FILES = [

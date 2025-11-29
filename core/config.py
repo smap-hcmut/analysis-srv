@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     debug: bool = False
 
+    # PhoBERT Model
+    phobert_model_path: str = "infrastructure/phobert/models"
+    phobert_max_length: int = 128
+    phobert_model_file: str = "model_quantized.onnx"
+
+    # MinIO (for model artifacts)
+    minio_endpoint: str = "http://localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+
 
 settings = Settings()
 
