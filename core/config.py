@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     phobert_model_file: str = "model_quantized.onnx"
 
     # SpaCy-YAKE Keyword Extraction
-    spacy_model: str = "en_core_web_sm"
-    yake_language: str = "en"
+    spacy_model: str = "xx_ent_wiki_sm"  # Multilingual model (recommended for Vietnamese)
+    yake_language: str = "vi"  # Vietnamese language code
     yake_n: int = 2
     yake_dedup_lim: float = 0.8
     yake_max_keywords: int = 30

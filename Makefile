@@ -92,8 +92,16 @@ download-phobert:
 	@bash scripts/download_phobert_model.sh
 
 download-spacy-model:
-	@echo "Downloading SpaCy model..."
-	@uv run python -m spacy download en_core_web_sm
+	@echo "Downloading multilingual SpaCy model (xx_ent_wiki_sm)..."
+	@echo "This is the recommended model for Vietnamese text with spaCy 3.8.11"
+	@echo "Vietnamese models (vi_core_news_*) are community-built and may not work"
+	@echo ""
+	@echo "Ensuring pip is available..."
+	@uv pip install pip > /dev/null 2>&1 || true
+	@echo "Downloading model (this may take a minute)..."
+	@uv run python -m spacy download xx_ent_wiki_sm || \
+		(echo "⚠️  xx_ent_wiki_sm download failed. Code will use blank('vi') model.")
+	@echo "✅ SpaCy model installation completed."
 
 # ==============================================================================
 # TESTING
