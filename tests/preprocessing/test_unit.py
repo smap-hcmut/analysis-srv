@@ -64,6 +64,99 @@ class TestTextPreprocessorMerging:
         assert preprocessor.merge_content() == ""
         assert preprocessor.merge_content(caption="", transcription=None, comments=[]) == ""
 
+    def test_merge_cleanup_trailing_punctuation(self, preprocessor):
+        """Test that trailing punctuation is removed before joining."""
+        caption = "Great product."
+        transcription = "Video content..."
+        comments = [{"text": "Comment!", "likes": 10}]
+
+        result = preprocessor.merge_content(
+            caption=caption, transcription=transcription, comments=comments
+        )
+
+        # Should have clean separation with single periods
+        assert result == "Video content. Great product. Comment"
+        assert ".." not in result
+
+    def test_merge_cleanup_duplicate_periods(self, preprocessor):
+        """Test that duplicate periods are removed."""
+        # Create input that would naturally create duplicate periods
+        caption = "Test.."
+        transcription = "Content..."
+
+        result = preprocessor.merge_content(caption=caption, transcription=transcription)
+
+        # Should not have duplicate periods
+        assert ".." not in result
+        assert "..." not in result
+
+    def test_merge_cleanup_mixed_punctuation(self, preprocessor):
+        """Test cleanup with mixed trailing punctuation."""
+        caption = "Caption!!!"
+        transcription = "Video???"
+        comments = [{"text": "Comment;;;", "likes": 5}]
+
+        result = preprocessor.merge_content(
+            caption=caption, transcription=transcription, comments=comments
+        )
+
+        # Trailing punctuation should be stripped, clean periods added
+        assert result == "Video. Caption. Comment"
+
+
+class TestTextPreprocessorTeencode:
+    """Tests for teencode normalization functionality."""
+
+    @pytest.fixture
+    def preprocessor(self):
+        return TextPreprocessor()
+
+    def test_normalize_teencode_ko(self, preprocessor):
+        """Test 'ko' → 'không' replacement."""
+        text = "Tôi ko biết"
+        assert preprocessor._normalize_teencode(text) == "Tôi không biết"
+
+    def test_normalize_teencode_vkl(self, preprocessor):
+        """Test 'vkl' → 'rất' replacement."""
+        text = "Đẹp vkl"
+        assert preprocessor._normalize_teencode(text) == "Đẹp rất"
+
+    def test_normalize_teencode_ae(self, preprocessor):
+        """Test 'ae' → 'anh em' replacement."""
+        text = "ae ơi"
+        assert preprocessor._normalize_teencode(text) == "anh em ơi"
+
+    def test_normalize_teencode_multiple(self, preprocessor):
+        """Test multiple teencode replacements in one text."""
+        text = "ko biết vkl ae ơi"
+        assert preprocessor._normalize_teencode(text) == "không biết rất anh em ơi"
+
+    def test_normalize_teencode_word_boundary(self, preprocessor):
+        """Test word-boundary matching (avoid partial replacements)."""
+        # 'ko' should not match in 'koko' or 'korea'
+        text = "ko koko korea"
+        result = preprocessor._normalize_teencode(text)
+        # Only the first 'ko' should be replaced
+        assert "không" in result
+        assert "koko" in result.lower()  # koko should remain unchanged
+        assert "korea" in result.lower()  # korea should remain unchanged
+
+    def test_normalize_teencode_case_insensitive(self, preprocessor):
+        """Test case-insensitive matching."""
+        text = "Ko KO kO ko"
+        result = preprocessor._normalize_teencode(text)
+        # All variants should be replaced
+        assert result.count("không") == 4
+
+    def test_normalize_teencode_integrated(self, preprocessor):
+        """Test teencode normalization in full normalize() pipeline."""
+        text = "Sản phẩm ko tốt vkl ae ơi"
+        normalized = preprocessor.normalize(text)
+        # Should have teencode replaced and be lowercased
+        assert "không" in normalized
+        assert "rất" in normalized
+        assert "anh em" in normalized
+
 
 class TestTextPreprocessorNormalization:
     """Tests for text normalization functionality."""
@@ -109,11 +202,89 @@ class TestTextPreprocessorNormalization:
         assert norm_composed == norm_decomposed
         assert norm_composed == "tiếng việt"
 
+    def test_normalize_special_fonts(self, preprocessor):
+        """Test NFKC conversion of mathematical alphanumeric symbols (special fonts)."""
+        # Mathematical Alphanumeric Symbols (common in TikTok/Facebook stylized text)
+        text = "𝐻𝑜𝑡 𝑇𝑟𝑒𝑛𝑑"  # Special font
+        normalized = preprocessor.normalize(text)
+        # Should convert to regular ASCII letters
+        assert "hot" in normalized
+        assert "trend" in normalized
+        assert normalized == "hot trend"
+
+    def test_normalize_special_fonts_mixed(self, preprocessor):
+        """Test NFKC with special fonts mixed with Vietnamese."""
+        text = "𝑋𝑒 𝑉𝑖𝑛𝐹𝑎𝑠𝑡 rất đẹp"
+        normalized = preprocessor.normalize(text)
+        # Special fonts converted, Vietnamese preserved
+        assert "xe" in normalized
+        assert "vinfast" in normalized
+        assert "đẹp" in normalized
+
     def test_normalize_combined(self, preprocessor):
         """Test all normalization steps together."""
         text = "  HOT DEAL!!! 🔥 #Sale tại https://shop.com  "
         # Expected: lowercase, no emoji, no url, no #, clean spaces
         assert preprocessor.normalize(text) == "hot deal!!! sale tại"
+
+
+class TestTextPreprocessorSpamDetection:
+    """Tests for spam detection functionality."""
+
+    @pytest.fixture
+    def preprocessor(self):
+        return TextPreprocessor()
+
+    def test_detect_phone_number(self, preprocessor):
+        """Test Vietnamese phone number detection."""
+        # Test various phone number formats (10 digits total)
+        assert preprocessor._detect_spam_signals("Liên hệ 0912345678")["has_phone"] == True
+        assert preprocessor._detect_spam_signals("Call 0398765432")["has_phone"] == True
+        assert preprocessor._detect_spam_signals("Zalo 0812345678")["has_phone"] == True
+        assert preprocessor._detect_spam_signals("Số: 0712345678")["has_phone"] == True
+        assert preprocessor._detect_spam_signals("No phone here")["has_phone"] == False
+
+    def test_detect_spam_keywords(self, preprocessor):
+        """Test spam keyword detection."""
+        assert preprocessor._detect_spam_signals("Vay vốn nhanh")["has_spam_keyword"] == True
+        assert preprocessor._detect_spam_signals("Lãi suất thấp")["has_spam_keyword"] == True
+        assert preprocessor._detect_spam_signals("Giải ngân trong ngày")["has_spam_keyword"] == True
+        assert preprocessor._detect_spam_signals("Bán sim đẹp")["has_spam_keyword"] == True
+        assert preprocessor._detect_spam_signals("Tuyển dụng gấp")["has_spam_keyword"] == True
+        assert preprocessor._detect_spam_signals("Normal content")["has_spam_keyword"] == False
+
+    def test_detect_spam_keywords_case_insensitive(self, preprocessor):
+        """Test spam keyword detection is case-insensitive."""
+        assert preprocessor._detect_spam_signals("VAY VỐN nhanh")["has_spam_keyword"] == True
+        assert preprocessor._detect_spam_signals("LÃI SUẤT thấp")["has_spam_keyword"] == True
+
+    def test_detect_both_phone_and_spam(self, preprocessor):
+        """Test detection of both phone and spam keywords."""
+        result = preprocessor._detect_spam_signals("Vay vốn 0912345678")
+        assert result["has_phone"] == True
+        assert result["has_spam_keyword"] == True
+
+    def test_calculate_stats_with_spam_signals(self, preprocessor):
+        """Test that calculate_stats includes spam signals."""
+        original = "Vay vốn lãi suất thấp. Liên hệ 0912345678"
+        clean = "vay vốn lãi suất thấp. liên hệ 0912345678"
+
+        stats = preprocessor.calculate_stats(original, clean, has_transcription=False)
+
+        assert "has_phone" in stats
+        assert "has_spam_keyword" in stats
+        assert stats["has_phone"] == True
+        assert stats["has_spam_keyword"] == True
+
+    def test_calculate_stats_no_spam(self, preprocessor):
+        """Test that calculate_stats detects no spam in clean content."""
+        original = "Xe chạy rất êm và tiết kiệm nhiên liệu"
+        clean = "xe chạy rất êm và tiết kiệm nhiên liệu"
+
+        stats = preprocessor.calculate_stats(original, clean, has_transcription=False)
+
+        assert stats["has_phone"] == False
+        assert stats["has_spam_keyword"] == False
 
 
 class TestTextPreprocessorStats:

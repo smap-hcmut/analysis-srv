@@ -1,51 +1,10 @@
-# text_preprocessing Specification
-
-## Purpose
-TBD - created by archiving change implement_text_preprocessor. Update Purpose after archive.
-## Requirements
-### Requirement: Content Merging
-
-The Analytics Engine SHALL merge content from multiple sources (caption, transcription, comments) into a unified text input for AI processing.
-
-**Rationale**: Social media posts contain information across multiple fields. Video transcriptions (STT output) often contain the most detailed content, while comments provide user reactions. Merging these sources provides richer context for AI models.
-
-#### Scenario: Merge with All Sources
-
-**Given** a post with caption, transcription, and comments  
-**When** the preprocessor merges content  
-**Then** transcription SHALL appear first (highest priority)  
-**And** caption SHALL appear second  
-**And** top N comments (sorted by likes) SHALL appear last  
-**And** sections SHALL be separated by period and space
-
-#### Scenario: Merge with Transcription Only
-
-**Given** a post with transcription but no caption or comments  
-**When** the preprocessor merges content  
-**Then** only transcription text SHALL be returned  
-**And** no extra separators SHALL be added
-
-#### Scenario: Merge with Comments Limit
-
-**Given** a post with 20 comments  
-**When** the preprocessor merges content with max_comments=5  
-**Then** only the top 5 most-liked comments SHALL be included  
-**And** comments SHALL be sorted by likes in descending order
-
-#### Scenario: Handle Empty Inputs
-
-**Given** a post with all empty/None fields  
-**When** the preprocessor merges content  
-**Then** an empty string SHALL be returned  
-**And** no errors SHALL be raised
-
----
+## MODIFIED Requirements
 
 ### Requirement: Text Normalization
 
-The Analytics Engine SHALL normalize text by removing noise and standardizing format for AI processing.
+The Analytics Engine SHALL normalize text by removing noise and standardizing format for AI processing, including handling Vietnamese slang and special Unicode fonts.
 
-**Rationale**: Raw social media text contains URLs, emojis, and inconsistent formatting that can confuse AI models. Normalization ensures clean, consistent input.
+**Rationale**: Raw social media text contains URLs, emojis, inconsistent formatting, Vietnamese slang (teencode), and special Unicode fonts that can confuse AI models. Normalization ensures clean, consistent input optimized for PhoBERT sentiment analysis.
 
 #### Scenario: Remove URLs
 
@@ -73,9 +32,20 @@ The Analytics Engine SHALL normalize text by removing noise and standardizing fo
 
 **Given** Vietnamese text with composed Unicode characters  
 **When** the preprocessor normalizes the text  
-**Then** text SHALL be converted to NFC form  
+**Then** text SHALL be converted to NFKC form (Compatibility Decomposition)  
 **And** diacritics SHALL be preserved correctly  
+**And** special Unicode fonts (e.g., Mathematical Alphanumeric Symbols) SHALL be converted to standard characters  
 **And** text SHALL be lowercase
+
+#### Scenario: Normalize Vietnamese Slang
+
+**Given** Vietnamese text containing slang abbreviations "ko uổng tiền vkl ae ơi"  
+**When** the preprocessor normalizes the text  
+**Then** slang terms SHALL be replaced with formal equivalents  
+**And** "ko" SHALL become "không"  
+**And** "vkl" SHALL become "rất"  
+**And** "ae" SHALL become "anh em"  
+**And** replacements SHALL use word boundaries to avoid false matches
 
 #### Scenario: Normalize Whitespace
 
@@ -85,6 +55,50 @@ The Analytics Engine SHALL normalize text by removing noise and standardizing fo
 **And** leading/trailing whitespace SHALL be removed
 
 ---
+
+## MODIFIED Requirements
+
+### Requirement: Content Merging
+
+The Analytics Engine SHALL merge content from multiple sources (caption, transcription, comments) into a unified text input for AI processing, with clean separation between sections.
+
+**Rationale**: Social media posts contain information across multiple fields. Video transcriptions (STT output) often contain the most detailed content, while comments provide user reactions. Merging these sources provides richer context for AI models. Clean separation prevents artifacts that confuse tokenizers.
+
+#### Scenario: Merge with All Sources
+
+**Given** a post with caption, transcription, and comments  
+**When** the preprocessor merges content  
+**Then** transcription SHALL appear first (highest priority)  
+**And** caption SHALL appear second  
+**And** top N comments (sorted by likes) SHALL appear last  
+**And** sections SHALL be separated by period and space  
+**And** each part SHALL be stripped of leading/trailing whitespace and trailing punctuation before joining  
+**And** duplicate periods SHALL be removed (e.g., `..` → `.`)
+
+#### Scenario: Merge with Transcription Only
+
+**Given** a post with transcription but no caption or comments  
+**When** the preprocessor merges content  
+**Then** only transcription text SHALL be returned  
+**And** no extra separators SHALL be added
+
+#### Scenario: Merge with Comments Limit
+
+**Given** a post with 20 comments  
+**When** the preprocessor merges content with max_comments=5  
+**Then** only the top 5 most-liked comments SHALL be included  
+**And** comments SHALL be sorted by likes in descending order
+
+#### Scenario: Handle Empty Inputs
+
+**Given** a post with all empty/None fields  
+**When** the preprocessor merges content  
+**Then** an empty string SHALL be returned  
+**And** no errors SHALL be raised
+
+---
+
+## MODIFIED Requirements
 
 ### Requirement: Noise Statistics
 
@@ -138,60 +152,7 @@ The Analytics Engine SHALL calculate statistics to identify spam and low-quality
 
 ---
 
-### Requirement: Source Breakdown
-
-The Analytics Engine SHALL track the origin of text content for debugging and analysis.
-
-**Rationale**: Understanding where text comes from (caption vs transcription vs comments) helps debug issues and analyze content quality.
-
-#### Scenario: Track Source Lengths
-
-**Given** a post with caption, transcription, and comments  
-**When** preprocessing is performed  
-**Then** source_breakdown SHALL include caption_len  
-**And** source_breakdown SHALL include transcript_len  
-**And** source_breakdown SHALL include comments_len  
-**And** lengths SHALL be measured before merging
-
-#### Scenario: Identify Primary Source
-
-**Given** source breakdown data  
-**When** analyzing the breakdown  
-**Then** the largest length indicates the primary content source  
-**And** this helps understand content type (video vs text post)
-
----
-
-### Requirement: Full Preprocessing Pipeline
-
-The Analytics Engine SHALL provide a complete preprocessing pipeline that combines all operations.
-
-**Rationale**: Callers need a single method to perform all preprocessing steps in the correct order.
-
-#### Scenario: Process Complete Post
-
-**Given** a post with all content fields  
-**When** the preprocess() method is called  
-**Then** content SHALL be merged in priority order  
-**And** text SHALL be normalized  
-**And** statistics SHALL be calculated  
-**And** source breakdown SHALL be provided  
-**And** a PreprocessingResult SHALL be returned
-
-#### Scenario: Handle Missing Fields
-
-**Given** a post with some missing fields  
-**When** the preprocess() method is called  
-**Then** missing fields SHALL be treated as empty  
-**And** no errors SHALL be raised  
-**And** processing SHALL continue with available data
-
-#### Scenario: Performance Requirement
-
-**Given** a typical post (500 characters)  
-**When** the preprocess() method is called  
-**Then** processing SHALL complete in < 10 milliseconds  
-**And** memory usage SHALL be minimal (no large intermediate objects)
+## ADDED Requirements
 
 ### Requirement: Teencode Normalization
 

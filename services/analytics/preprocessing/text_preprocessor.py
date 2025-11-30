@@ -110,6 +110,121 @@ class TextPreprocessor:
         # Whitespace normalization pattern
         self.whitespace_pattern = re.compile(r"\s+")
 
+        # Vietnamese phone number pattern - matches common phone formats
+        # Matches: 03x, 05x, 07x, 08x, 09x, 012x, 016x, 018x, 019x + 8 digits
+        self.phone_pattern = re.compile(r"(03|05|07|08|09|01[2689])\d{8}")
+
+        # Spam keywords - common in loan/SEO spam
+        self.spam_keywords = [
+            "vay vốn",
+            "lãi suất",
+            "giải ngân",
+            "bán sim",
+            "tuyển dụng",
+        ]
+
+        # Teencode dictionary - common Vietnamese slang/abbreviations
+        self.teencode_dict = {
+            "ko": "không",
+            "k": "không",
+            "khg": "không",
+            "hk": "không",
+            "vkl": "rất",
+            "vcl": "rất",
+            "ae": "anh em",
+            "tml": "thì",
+            "thì ml": "thì",
+            "dc": "được",
+            "đc": "được",
+            "vs": "với",
+            "mik": "mình",
+            "mk": "mình",
+            "e": "em",
+            "a": "anh",
+            "c": "chị",
+            "m": "mày",
+            "t": "tao",
+            "nc": "nói chuyện",
+            "nch": "nói chuyện",
+            "oke": "ok",
+            "okie": "ok",
+            "uk": "ừ",
+            "uhm": "ừ",
+            "uh": "ừ",
+            "ny": "người yêu",
+            "cx": "cũng",
+            "cg": "cũng",
+            "j": "gì",
+            "gi": "gì",
+        }
+
+    def _normalize_teencode(self, text: str) -> str:
+        """Normalize Vietnamese teencode/slang to formal text.
+
+        Replaces common Vietnamese abbreviations and slang with their
+        formal equivalents using word-boundary matching to avoid
+        partial replacements.
+
+        Args:
+            text: Input text containing teencode/slang
+
+        Returns:
+            Text with teencode replaced by formal Vietnamese
+
+        Example:
+            >>> preprocessor = TextPreprocessor()
+            >>> preprocessor._normalize_teencode("ko biết vkl ae ơi")
+            'không biết rất anh em ơi'
+        """
+        if not text:
+            return ""
+
+        # Create word-boundary regex pattern for each teencode term
+        # This ensures we match whole words only (not substrings)
+        result = text
+        for slang, formal in self.teencode_dict.items():
+            # Use word boundaries to match whole words only
+            # Case-insensitive matching
+            pattern = r"\b" + re.escape(slang) + r"\b"
+            result = re.sub(pattern, formal, result, flags=re.IGNORECASE)
+
+        return result
+
+    def _detect_spam_signals(self, text: str) -> Dict[str, bool]:
+        """Detect spam signals in text.
+
+        Checks for:
+        - Vietnamese phone numbers
+        - Spam keywords (loan, SEO, recruitment spam)
+
+        Args:
+            text: Input text to check for spam signals
+
+        Returns:
+            Dictionary with spam signal flags:
+            - has_phone: True if phone number detected
+            - has_spam_keyword: True if spam keyword detected
+
+        Example:
+            >>> preprocessor = TextPreprocessor()
+            >>> preprocessor._detect_spam_signals("Vay vốn 0912345678")
+            {'has_phone': True, 'has_spam_keyword': True}
+        """
+        if not text:
+            return {"has_phone": False, "has_spam_keyword": False}
+
+        # Detect phone numbers
+        has_phone = bool(self.phone_pattern.search(text))
+
+        # Detect spam keywords (case-insensitive)
+        text_lower = text.lower()
+        has_spam_keyword = any(keyword in text_lower for keyword in self.spam_keywords)
+
+        return {
+            "has_phone": has_phone,
+            "has_spam_keyword": has_spam_keyword,
+        }
+
     def merge_content(
         self,
         caption: Optional[str] = None,
@@ -153,11 +268,17 @@ class TextPreprocessor:
 
         # Priority 1: Transcription (if available)
         if transcription and transcription.strip():
-            parts.append(transcription.strip())
+            # Strip whitespace and trailing punctuation
+            cleaned = transcription.strip().rstrip('.!?;:,')
+            if cleaned:
+                parts.append(cleaned)
 
         # Priority 2: Caption
         if caption and caption.strip():
-            parts.append(caption.strip())
+            # Strip whitespace and trailing punctuation
+            cleaned = caption.strip().rstrip('.!?;:,')
+            if cleaned:
+                parts.append(cleaned)
 
         # Priority 3: Top comments sorted by likes
         if comments:
@@ -167,22 +288,31 @@ class TextPreprocessor:
             for comment in sorted_comments[:max_comments]:
                 comment_text = comment.get("text", "").strip()
                 if comment_text:
-                    parts.append(comment_text)
+                    # Strip trailing punctuation
+                    cleaned = comment_text.rstrip('.!?;:,')
+                    if cleaned:
+                        parts.append(cleaned)
 
         # Join with period separator
-        return ". ".join(parts) if parts else ""
+        merged = ". ".join(parts) if parts else ""
+
+        # Remove duplicate periods (.. → .)
+        merged = re.sub(r'\.{2,}', '.', merged)
+
+        return merged
 
     def normalize(self, text: str) -> str:
         """Normalize text for AI model consumption.
 
         Normalization steps:
         1. Unicode NFC normalization (handles Vietnamese characters)
-        2. Remove URLs
-        3. Remove emojis
-        4. Convert hashtags to plain text (remove # but keep word)
-        5. Normalize whitespace (multiple spaces → single space)
-        6. Convert to lowercase
-        7. Strip leading/trailing whitespace
+        2. Normalize teencode/slang to formal Vietnamese
+        3. Remove URLs
+        4. Remove emojis
+        5. Convert hashtags to plain text (remove # but keep word)
+        6. Normalize whitespace (multiple spaces → single space)
+        7. Convert to lowercase
+        8. Strip leading/trailing whitespace
 
         Args:
             text: Raw text to normalize
@@ -200,25 +330,29 @@ class TextPreprocessor:
         if not text:
             return ""
 
-        # Step 1: Unicode NFC normalization (important for Vietnamese)
-        text = unicodedata.normalize("NFC", text)
+        # Step 1: Unicode NFKC normalization (compatibility decomposition)
+        # Converts special fonts (𝐻𝑜𝑡 → Hot) while preserving Vietnamese diacritics
+        text = unicodedata.normalize("NFKC", text)
 
-        # Step 2: Remove URLs
+        # Step 2: Normalize teencode/slang (before punctuation removal)
+        text = self._normalize_teencode(text)
+
+        # Step 3: Remove URLs
         text = self.url_pattern.sub("", text)
 
-        # Step 3: Remove emojis
+        # Step 4: Remove emojis
         text = self.emoji_pattern.sub("", text)
 
-        # Step 4: Convert hashtags to plain text (keep the word, remove #)
+        # Step 5: Convert hashtags to plain text (keep the word, remove #)
         text = self.hashtag_pattern.sub(r"\1", text)
 
-        # Step 5: Normalize whitespace
+        # Step 6: Normalize whitespace
         text = self.whitespace_pattern.sub(" ", text)
 
-        # Step 6: Convert to lowercase
+        # Step 7: Convert to lowercase
         text = text.lower()
 
-        # Step 7: Strip leading/trailing whitespace
+        # Step 8: Strip leading/trailing whitespace
         text = text.strip()
 
         return text
@@ -234,6 +368,8 @@ class TextPreprocessor:
         - hashtag_ratio: Ratio of hashtags to total words in original
         - reduction_ratio: How much text was removed during cleaning
         - has_transcription: Whether transcription was available
+        - has_phone: Whether phone number detected (spam signal)
+        - has_spam_keyword: Whether spam keywords detected (spam signal)
 
         Args:
             original_text: Raw merged text before cleaning
@@ -275,6 +411,11 @@ class TextPreprocessor:
 
         # Has transcription flag
         stats["has_transcription"] = has_transcription
+
+        # Detect spam signals
+        spam_signals = self._detect_spam_signals(original_text)
+        stats["has_phone"] = spam_signals["has_phone"]
+        stats["has_spam_keyword"] = spam_signals["has_spam_keyword"]
 
         return stats
 

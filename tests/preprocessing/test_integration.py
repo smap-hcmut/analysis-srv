@@ -27,9 +27,9 @@ class TestTextPreprocessorIntegration:
 
         result = preprocessor.preprocess(input_data)
 
-        # Check normalization
+        # Check normalization (teencode "ae" → "anh em")
         assert "vinfast vf3 chạy quá ngon" in result.clean_text
-        assert "ae nên chốt đơn ngay" in result.clean_text
+        assert "anh em nên chốt đơn ngay" in result.clean_text
         assert "giá lăn bánh bao nhiêu shop" in result.clean_text
 
         # Check hashtags removed but words kept
