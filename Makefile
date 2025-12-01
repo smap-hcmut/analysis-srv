@@ -1,4 +1,4 @@
-.PHONY: help install dev-install upgrade run-api run-consumer run-example-preprocessing run-example-intent dev-up dev-down dev-logs download-phobert download-spacy-model test test-phobert test-spacyyake test-preprocessing test-intent clean format lint db-init db-migrate db-upgrade db-downgrade
+.PHONY: help install dev-install upgrade run-api run-consumer run-example-preprocessing run-example-intent dev-up dev-down dev-logs download-phobert download-spacy-model test test-phobert test-spacyyake test-preprocessing test-intent test-sentiment test-impact example-sentiment example-impact clean format lint db-init db-migrate db-upgrade db-downgrade
 
 # ==============================================================================
 # HELPERS
@@ -31,6 +31,8 @@ help:
 	@echo "  make test-spacyyake          - Run SpaCy-YAKE tests"
 	@echo "  make test-preprocessing      - Run Text Preprocessor tests"
 	@echo "  make test-intent             - Run Intent Classifier tests"
+	@echo "  make test-sentiment          - Run Sentiment (ABSA) tests"
+	@echo "  make test-impact             - Run Impact & Risk Calculator tests"
 	@echo ""
 	@echo "🗄️  DATABASE:"
 	@echo "  make db-init                 - Initialize Alembic"
@@ -160,6 +162,15 @@ test-sentiment:
 example-sentiment:
 	@echo "Running SentimentAnalyzer example..."
 	PYTHONPATH=. uv run python examples/sentiment_example.py
+
+example-impact:
+	@echo "Running ImpactCalculator example..."
+	PYTHONPATH=. uv run python examples/impact_calculator_example.py
+
+# Impact module tests
+test-impact:
+	@echo "Running Impact & Risk Calculator tests..."
+	@uv run pytest tests/impact -v
 
 # ==============================================================================
 # DATABASE

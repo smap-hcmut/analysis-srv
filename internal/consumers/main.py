@@ -15,6 +15,7 @@ except ImportError:
 
 from core.logger import logger
 from infrastructure.ai import PhoBERTONNX, SpacyYakeExtractor
+from services.analytics.impact import ImpactCalculator
 
 
 def create_message_handler(
@@ -38,6 +39,8 @@ def create_message_handler(
         >>> await rabbitmq_client.consume(handler)
     """
 
+    impact_calculator = ImpactCalculator()
+
     async def message_handler(message: IncomingMessage) -> None:
         """Process incoming message from RabbitMQ.
 
@@ -55,7 +58,7 @@ def create_message_handler(
 
                 # Log message metadata
                 post_id = data.get("meta", {}).get("id", "unknown")
-                platform = data.get("meta", {}).get("platform", "unknown")
+                platform = data.get("meta", {}).get("platform", "UNKNOWN")
                 logger.info(f"Processing post {post_id} from {platform}")
 
                 # Extract text content
@@ -64,6 +67,7 @@ def create_message_handler(
                 combined_text = f"{title} {text}".strip()
 
                 # Process with AI models if available
+                sentiment_overall: dict[str, Any] | None = None
                 if spacyyake and combined_text:
                     logger.info("Extracting keywords...")
                     keyword_result = spacyyake.extract(combined_text)
@@ -75,7 +79,38 @@ def create_message_handler(
                 if phobert and combined_text:
                     logger.info("Analyzing sentiment...")
                     sentiment_result = phobert.predict(combined_text)
-                    logger.info(f"Sentiment: {sentiment_result.get('sentiment', 'unknown')}")
+                    sentiment_overall = sentiment_result.get("overall") or sentiment_result
+                    logger.info(
+                        "Sentiment: %s (score=%s)",
+                        sentiment_overall.get("label", sentiment_result.get("sentiment", "unknown")),
+                        sentiment_overall.get("score"),
+                    )
+
+                # Compute impact & risk if we have minimal inputs
+                try:
+                    interaction = data.get("metrics", {}) or {}
+                    author = data.get("author", {}) or {}
+
+                    if sentiment_overall is not None and interaction and author:
+                        impact_result = impact_calculator.calculate(
+                            interaction=interaction,
+                            author=author,
+                            sentiment=sentiment_overall,
+                            platform=platform,
+                        )
+                        logger.info(
+                            "Impact calculated: score=%s, risk=%s, viral=%s, kol=%s",
+                            impact_result["impact_score"],
+                            impact_result["risk_level"],
+                            impact_result["is_viral"],
+                            impact_result["is_kol"],
+                        )
+                    else:
+                        logger.info(
+                            "Skipping impact calculation (missing sentiment/metrics/author)."
+                        )
+                except Exception as e:  # pragma: no cover - defensive logging
+                    logger.error(f"Impact calculation failed: {e}")
 
                 # TODO: Save results to database (future work)
                 logger.info(f"Message processed successfully: {post_id}")

@@ -69,6 +69,31 @@ class Settings(BaseSettings):
     intent_classifier_confidence_threshold: float = 0.5
     intent_patterns_path: str = "config/intent_patterns.yaml"
 
+    # Impact & Risk Calculator (Module 5)
+    # Interaction weights (EngagementScore)
+    impact_weight_view: float = 0.01
+    impact_weight_like: float = 1.0
+    impact_weight_comment: float = 2.0
+    impact_weight_save: float = 3.0
+    impact_weight_share: float = 5.0
+
+    # Platform multipliers
+    impact_platform_weight_tiktok: float = 1.0
+    impact_platform_weight_facebook: float = 1.2
+    impact_platform_weight_youtube: float = 1.5
+    impact_platform_weight_instagram: float = 1.1
+    impact_platform_weight_unknown: float = 1.0
+
+    # Sentiment amplifiers
+    impact_amp_negative: float = 1.5
+    impact_amp_neutral: float = 1.0
+    impact_amp_positive: float = 1.1
+
+    # Thresholds
+    impact_viral_threshold: float = 70.0
+    impact_kol_follower_threshold: int = 50000
+    impact_max_raw_score_ceiling: float = 100000.0
+
 
 settings = Settings()
 

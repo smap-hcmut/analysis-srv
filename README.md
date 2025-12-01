@@ -258,6 +258,67 @@ Memory: ~10KB (patterns only)
 Pattern count: 75+ (vs 40 hardcoded defaults)
 ```
 
+---
+
+### 5. Impact & Risk Calculator (New)
+
+The **ImpactCalculator** (Module 5) turns raw engagement, reach and sentiment into a
+normalized **Impact Score (0–100)** and a discrete **Risk Level**.
+
+**Inputs:**
+- Interaction metrics: `views`, `likes`, `comments_count`, `shares`, `saves`
+- Author metrics: `followers`, `is_verified`
+- Overall sentiment: `{"label": "NEGATIVE|NEUTRAL|POSITIVE", "score": float}`
+- Platform: `"TIKTOK" | "FACEBOOK" | "YOUTUBE" | "INSTAGRAM" | "UNKNOWN"`
+
+**Core formula:**
+- EngagementScore:
+  \[
+  E = views \cdot W_v + likes \cdot W_l + comments \cdot W_c + saves \cdot W_s + shares \cdot W_{sh}
+  \]
+- ReachScore:
+  \[
+  R = \log_{10}(followers + 1) \times (1.2 \text{ if verified else } 1.0)
+  \]
+- Raw impact:
+  \[
+  RawImpact = E \cdot R \cdot M_{platform} \cdot M_{sentiment}
+  \]
+- Normalized ImpactScore:
+  \[
+  ImpactScore = \min\left(100,\ \max\left(0,\ \frac{RawImpact}{MAX\_RAW\_SCORE\_CEILING} \cdot 100\right)\right)
+  \]
+
+**Risk levels:**
+- `CRITICAL`: High impact (≥70), NEGATIVE, KOL (followers ≥ 50,000)
+- `HIGH`: High impact (≥70), NEGATIVE, non‑KOL
+- `MEDIUM`: Medium impact (≥40 & <70) with NEGATIVE, or high impact (≥60) with NEUTRAL/POSITIVE
+- `LOW`: All other cases
+
+**Usage:**
+```python
+from services.analytics.impact import ImpactCalculator
+
+calc = ImpactCalculator()
+result = calc.calculate(
+    interaction={
+        "views": 100_000,
+        "likes": 5_000,
+        "comments_count": 800,
+        "shares": 300,
+        "saves": 150,
+    },
+    author={"followers": 100_000, "is_verified": True},
+    sentiment={"label": "NEGATIVE", "score": -0.9},
+    platform="TIKTOK",
+)
+
+print(result["impact_score"], result["risk_level"], result["is_viral"], result["is_kol"])
+print(result["impact_breakdown"])
+```
+
+For more details, see `documents/impact_risk_module.md`.
+
 **Edge Cases Handled:**
 - ✅ Native ads / Seeding trá hình (subtle marketing)
 - ✅ Sarcasm / Complaint mỉa mai (sarcastic complaints)
