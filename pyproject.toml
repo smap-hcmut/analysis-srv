@@ -22,6 +22,7 @@ dependencies = [
     "spacy>=3.7.0",
     "yake>=0.4.8",
     "minio>=7.2.10",
+    "zstandard>=0.22.0",
     "aio-pika>=9.0.0",
     "pyyaml>=6.0.1",
     "httpx>=0.24.0",

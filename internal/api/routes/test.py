@@ -4,7 +4,7 @@ This module provides test endpoints to verify that AI models are properly
 initialized and can process JSON input matching the master-proposal.md format.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status  # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, Request, status  # type: ignore
 from pydantic import BaseModel, Field  # type: ignore
 from typing import Dict, Any, List, Optional
 
@@ -86,11 +86,33 @@ class AnalyticsTestResponse(BaseModel):
     metadata: Dict[str, Any] = Field(..., description="Request metadata")
 
 
+def get_phobert_optional(request: Request) -> Optional[PhoBERTONNX]:
+    """Get PhoBERT model if available, return None if not.
+
+    Unlike get_phobert(), this doesn't raise an exception if the model
+    is unavailable, allowing the test endpoint to report status gracefully.
+    """
+    if hasattr(request.app.state, "phobert"):
+        return request.app.state.phobert
+    return None
+
+
+def get_spacyyake_optional(request: Request) -> Optional[SpacyYakeExtractor]:
+    """Get SpaCy-YAKE extractor if available, return None if not.
+
+    Unlike get_spacyyake(), this doesn't raise an exception if the model
+    is unavailable, allowing the test endpoint to report status gracefully.
+    """
+    if hasattr(request.app.state, "spacyyake"):
+        return request.app.state.spacyyake
+    return None
+
+
 @router.post("/analytics", response_model=AnalyticsTestResponse)
 async def test_analytics(
     request: AnalyticsTestRequest,
-    phobert: Optional[PhoBERTONNX] = Depends(lambda req: get_phobert_optional(req)),
-    spacyyake: Optional[SpacyYakeExtractor] = Depends(lambda req: get_spacyyake_optional(req)),
+    phobert: Optional[PhoBERTONNX] = Depends(get_phobert_optional),
+    spacyyake: Optional[SpacyYakeExtractor] = Depends(get_spacyyake_optional),
 ):
     """Test endpoint for analytics pipeline validation.
 
@@ -218,25 +240,3 @@ async def test_analytics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing analytics request: {str(e)}",
         )
-
-
-def get_phobert_optional(request) -> Optional[PhoBERTONNX]:
-    """Get PhoBERT model if available, return None if not.
-
-    Unlike get_phobert(), this doesn't raise an exception if the model
-    is unavailable, allowing the test endpoint to report status gracefully.
-    """
-    if hasattr(request.app.state, "phobert"):
-        return request.app.state.phobert
-    return None
-
-
-def get_spacyyake_optional(request) -> Optional[SpacyYakeExtractor]:
-    """Get SpaCy-YAKE extractor if available, return None if not.
-
-    Unlike get_spacyyake(), this doesn't raise an exception if the model
-    is unavailable, allowing the test endpoint to report status gracefully.
-    """
-    if hasattr(request.app.state, "spacyyake"):
-        return request.app.state.spacyyake
-    return None

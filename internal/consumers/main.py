@@ -91,7 +91,20 @@ def create_message_handler(
                     path = ref.get("path")
                     if not bucket or not path:
                         raise ValueError("Invalid data_ref: bucket and path are required")
-                    post_data = minio_adapter.download_json(bucket, path)
+                    try:
+                        # download_json() auto-decompresses if file is compressed
+                        post_data = minio_adapter.download_json(bucket, path)
+                    except RuntimeError as e:
+                        error_msg = str(e)
+                        if "decompress" in error_msg.lower():
+                            logger.error(
+                                "Decompression failed for MinIO object %s/%s: %s",
+                                bucket,
+                                path,
+                                error_msg,
+                            )
+                            raise ValueError(f"Decompression failed: {error_msg}") from e
+                        raise
                 else:
                     post_data = envelope
 

@@ -843,8 +843,93 @@ print(f"Keywords: {len(result['keywords']['keywords'])} extracted")
 ### API Documentation
 
 Once the API is running, visit:
-- **Swagger UI**: http://localhost:8000/docs
+- **Swagger UI**: http://localhost:8000/swagger or http://localhost:8000/swagger/index.html
 - **ReDoc**: http://localhost:8000/redoc
 - **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+---
+
+## MinIO Compression
+
+The Analytics Engine supports **Zstd compression** for MinIO storage, providing automatic decompression when downloading JSON files.
+
+### Features
+- **Zstd Algorithm**: High compression ratio (60-95% for JSON) with fast decompression
+- **Auto-Detection**: Automatically detects compressed files via metadata
+- **Backward Compatible**: Uncompressed files continue to work without changes
+- **Configurable**: Compression level and settings can be customized
+
+### Configuration
+
+Environment variables in `.env`:
+
+```bash
+# Compression Settings
+COMPRESSION_ENABLED=true           # Enable/disable compression
+COMPRESSION_DEFAULT_LEVEL=2        # Compression level (0-3)
+COMPRESSION_ALGORITHM=zstd         # Compression algorithm
+COMPRESSION_MIN_SIZE_BYTES=1024    # Minimum size to compress
+```
+
+### Compression Levels
+
+| Level | Description | Compression Ratio | Speed |
+|-------|-------------|-------------------|-------|
+| 0 | No compression | 0% | Fastest |
+| 1 | Fast compression | ~50-70% | Fast |
+| **2** | **Balanced (default)** | **~70-85%** | **Good** |
+| 3 | Best compression | ~85-95% | Slower |
+
+### Usage
+
+The `MinioAdapter` automatically handles compression/decompression:
+
+```python
+from infrastructure.storage.minio_client import MinioAdapter
+
+# Initialize adapter
+adapter = MinioAdapter()
+
+# Download JSON - auto-decompresses if compressed
+data = adapter.download_json("bucket-name", "path/to/file.json")
+
+# Compression methods (for advanced usage)
+compressed = adapter._compress_data(b"raw data", level=2)
+decompressed = adapter._decompress_data(compressed)
+
+# Check if file is compressed
+is_compressed = adapter._is_compressed(metadata)
+
+# Build metadata for upload
+metadata = adapter._build_compression_metadata(
+    original_size=1000,
+    compressed_size=500,
+    level=2
+)
+```
+
+### Metadata Structure
+
+Compression metadata is stored in MinIO object headers:
+
+| Header | Description |
+|--------|-------------|
+| `x-amz-meta-compression-algorithm` | Algorithm used (e.g., "zstd") |
+| `x-amz-meta-compression-level` | Compression level (0-3) |
+| `x-amz-meta-original-size` | Original uncompressed size in bytes |
+| `x-amz-meta-compressed-size` | Compressed size in bytes |
+
+### Testing
+
+```bash
+# Run compression tests
+uv run pytest tests/storage/test_compression.py -v
+
+# Run integration tests
+uv run pytest tests/storage/test_integration.py -v
+
+# Run all storage tests
+uv run pytest tests/storage/ -v
+```
 
 ---

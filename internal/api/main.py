@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI  # type: ignore
 from fastapi.middleware.cors import CORSMiddleware  # type: ignore
+from fastapi.responses import RedirectResponse  # type: ignore
 
 from core.config import settings
 from core.logger import logger
@@ -67,6 +68,9 @@ app = FastAPI(
     description="Social media analytics processing service",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/swagger",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # CORS middleware
@@ -97,6 +101,12 @@ async def root():
         "version": "0.1.0",
         "status": "running",
     }
+
+
+@app.get("/swagger/index.html", include_in_schema=False)
+async def swagger_redirect():
+    """Redirect /swagger/index.html to /swagger for Swagger UI access."""
+    return RedirectResponse(url="/swagger")
 
 
 if __name__ == "__main__":

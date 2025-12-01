@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
 
+    # Compression settings
+    compression_enabled: bool = True
+    compression_default_level: int = 2
+    compression_algorithm: str = "zstd"
+    compression_min_size_bytes: int = 1024
+
     # Text Preprocessor
     preprocessor_min_text_length: int = 10
     preprocessor_max_comments: int = 5
