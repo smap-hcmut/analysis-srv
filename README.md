@@ -342,6 +342,89 @@ make test-spacyyake-performance  # Performance tests (6 tests)
 
 ---
 
+### 6. Aspect-Based Sentiment Analyzer (ABSA)
+
+The `SentimentAnalyzer` module implements **Aspect-Based Sentiment Analysis (ABSA)** on top of the existing PhoBERT ONNX wrapper.
+It provides:
+- **Overall sentiment** for the full post
+- **Aspect-level sentiment** for each business aspect (DESIGN, PERFORMANCE, PRICE, SERVICE, GENERAL)
+
+#### Features
+- **Context Windowing**: Extracts a smart context window (±N characters) around each keyword, with boundary snapping to avoid cutting words.
+- **Weighted Aggregation**: Aggregates multiple mentions of the same aspect using confidence-weighted average.
+- **Graceful Degradation**: If aspect analysis fails, falls back to overall sentiment instead of crashing.
+- **Configurable Thresholds**: POSITIVE / NEGATIVE thresholds can be tuned via environment variables.
+
+#### Usage
+
+```python
+from infrastructure.ai.phobert_onnx import PhoBERTONNX
+from services.analytics.sentiment import SentimentAnalyzer
+
+# 1. Initialize PhoBERT ONNX model
+phobert = PhoBERTONNX()
+
+# 2. Initialize SentimentAnalyzer (ABSA)
+analyzer = SentimentAnalyzer(phobert)
+
+text = "Xe thiết kế rất đẹp nhưng giá quá cao, pin thì hơi yếu."
+keywords = [
+    {"keyword": "thiết kế", "aspect": "DESIGN", "position": text.find("thiết kế")},
+    {"keyword": "giá", "aspect": "PRICE", "position": text.find("giá")},
+    {"keyword": "pin", "aspect": "PERFORMANCE", "position": text.find("pin")},
+]
+
+result = analyzer.analyze(text, keywords)
+
+print("Overall:", result["overall"])
+print("Aspects:")
+for aspect, data in result["aspects"].items():
+    print(f"  - {aspect}: {data}")
+```
+
+#### Configuration
+
+ABSA configuration is defined in `infrastructure/ai/constants.py` and can be overridden via environment variables:
+
+```python
+# Context Windowing
+DEFAULT_CONTEXT_WINDOW_SIZE = int(os.getenv("CONTEXT_WINDOW_SIZE", "60"))
+
+# Sentiment Thresholds (3-class mapping)
+THRESHOLD_POSITIVE = float(os.getenv("THRESHOLD_POSITIVE", "0.25"))
+THRESHOLD_NEGATIVE = float(os.getenv("THRESHOLD_NEGATIVE", "-0.25"))
+
+# Score Mapping (5-class rating → numeric score)
+SCORE_MAP = {
+    1: -1.0,  # VERY_NEGATIVE
+    2: -0.5,  # NEGATIVE
+    3: 0.0,   # NEUTRAL
+    4: 0.5,   # POSITIVE
+    5: 1.0,   # VERY_POSITIVE
+}
+```
+
+Environment variables in `.env`:
+
+```bash
+# ABSA / Sentiment Analyzer
+CONTEXT_WINDOW_SIZE=60          # characters around keyword
+THRESHOLD_POSITIVE=0.25         # > 0.25 → POSITIVE
+THRESHOLD_NEGATIVE=-0.25        # < -0.25 → NEGATIVE
+```
+
+#### Commands
+
+```bash
+# Run sentiment (ABSA) tests
+uv run pytest tests/sentiment -q
+
+# Run example script (requires PhoBERT model)
+uv run python examples/sentiment_example.py
+```
+
+---
+
 ## Project Structure
 
 ```

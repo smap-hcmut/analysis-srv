@@ -94,3 +94,30 @@ ENABLE_ASPECT_MAPPING = os.getenv("ENABLE_ASPECT_MAPPING", "false").lower() == "
 ERROR_MODEL_NOT_INITIALIZED = "SpaCy or YAKE models not initialized"
 ERROR_INVALID_INPUT = "Invalid input text"
 ERROR_ASPECT_DICTIONARY_NOT_FOUND = "Aspect dictionary file not found: {path}"
+
+# ============================================================================
+# Sentiment Analysis Configuration (ABSA)
+# ============================================================================
+
+# Context Windowing
+DEFAULT_CONTEXT_WINDOW_SIZE = int(os.getenv("CONTEXT_WINDOW_SIZE", "60"))
+
+# Sentiment Thresholds (for 3-class mapping)
+THRESHOLD_POSITIVE = float(os.getenv("THRESHOLD_POSITIVE", "0.25"))
+THRESHOLD_NEGATIVE = float(os.getenv("THRESHOLD_NEGATIVE", "-0.25"))
+
+# Score Mapping (5-class rating to numeric score)
+SCORE_MAP = {
+    1: -1.0,  # VERY_NEGATIVE
+    2: -0.5,  # NEGATIVE
+    3: 0.0,  # NEUTRAL
+    4: 0.5,  # POSITIVE
+    5: 1.0,  # VERY_POSITIVE
+}
+
+# 3-Class Sentiment Labels (for ABSA)
+ABSA_LABELS = {
+    "POSITIVE": "POSITIVE",
+    "NEGATIVE": "NEGATIVE",
+    "NEUTRAL": "NEUTRAL",
+}

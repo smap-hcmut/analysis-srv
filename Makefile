@@ -151,6 +151,17 @@ test-intent-performance:
 	@uv run pytest tests/intent/test_performance.py -v
 
 # ==============================================================================
+# SENTIMENT (ABSA)
+# ==============================================================================
+test-sentiment:
+	@echo "Running SentimentAnalyzer (ABSA) tests..."
+	@uv run pytest tests/sentiment -v
+
+example-sentiment:
+	@echo "Running SentimentAnalyzer example..."
+	PYTHONPATH=. uv run python examples/sentiment_example.py
+
+# ==============================================================================
 # DATABASE
 # ==============================================================================
 db-init:
