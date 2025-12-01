@@ -1,7 +1,10 @@
 """Integration tests for API service with AI models."""
 
-import pytest # type: ignore
-from fastapi.testclient import TestClient # type: ignore
+import uuid
+
+import pytest  # type: ignore
+from fastapi.testclient import TestClient  # type: ignore
+
 from commands.api.main import app, lifespan
 
 
@@ -33,6 +36,74 @@ class TestAPIIntegration:
         openapi = response.json()
         assert openapi["info"]["title"] == "Analytics Engine API"
         assert "/test/analytics" in openapi["paths"]
+
+    def test_dev_orchestrator_endpoint_runs_full_pipeline(self, client, monkeypatch):
+        """Dev orchestrator endpoint should run full pipeline and return analytics payload."""
+        from internal.api.routes import orchestrator as dev_route
+
+        saved = {}
+
+        class FakeRepository:
+            def __init__(self, db):
+                self.db = db
+
+            def save(self, analytics_data):
+                saved["data"] = analytics_data
+                return analytics_data
+
+        # Patch repository to avoid hitting a real database
+        monkeypatch.setattr(dev_route, "AnalyticsRepository", FakeRepository)
+
+        test_post_id = "api_integration_post_1"
+        project_id = str(uuid.uuid4())
+
+        test_data = {
+            "meta": {
+                "id": test_post_id,
+                "project_id": project_id,
+                "platform": "facebook",
+                "lang": "vi",
+                "collected_at": "2025-01-15T10:30:00Z",
+            },
+            "content": {
+                "text": "Xe thiết kế đẹp, giá hơi cao nhưng vẫn chấp nhận được.",
+                "transcription": "",
+            },
+            "interaction": {
+                "views": 5000,
+                "likes": 120,
+                "comments_count": 15,
+                "shares": 10,
+                "saves": 4,
+            },
+            "author": {
+                "id": "author_1",
+                "name": "API Tester",
+                "followers": 10000,
+                "is_verified": False,
+            },
+            "comments": [
+                {"text": "đẹp quá", "likes": 3},
+                {"text": "giá cao", "likes": 1},
+            ],
+        }
+
+        response = client.post("/dev/process-post-direct", json=test_data)
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload["status"] == "SUCCESS"
+        assert payload["data"]["id"] == test_post_id
+        assert payload["data"]["platform"] == "FACEBOOK"
+
+        # Verify repository was called with PostAnalytics-shaped payload
+        assert "data" in saved
+        analytics = saved["data"]
+        assert analytics["id"] == test_post_id
+        assert analytics["project_id"] == project_id
+        assert analytics["platform"] == "FACEBOOK"
+        assert "impact_score" in analytics
+        assert "risk_level" in analytics
 
     def test_analytics_endpoint_with_valid_json(self, client):
         """Test analytics endpoint with valid JSON input."""
@@ -67,9 +138,7 @@ class TestAPIIntegration:
 
     def test_analytics_endpoint_with_invalid_json(self, client):
         """Test analytics endpoint with invalid JSON input."""
-        invalid_data = {
-            "invalid_field": "test"
-        }
+        invalid_data = {"invalid_field": "test"}
 
         response = client.post("/test/analytics", json=invalid_data)
         assert response.status_code == 422  # Validation error
@@ -151,4 +220,7 @@ class TestModelReuse:
 
         # Both requests should succeed
         # Models should not be reloaded (verified by no additional loading logs)
-        assert response1.json()["metadata"]["models_initialized"] == response2.json()["metadata"]["models_initialized"]
+        assert (
+            response1.json()["metadata"]["models_initialized"]
+            == response2.json()["metadata"]["models_initialized"]
+        )

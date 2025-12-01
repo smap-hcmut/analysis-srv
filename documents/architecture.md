@@ -288,6 +288,57 @@ class AnalyticsService:
         pass
 ```
 
+#### 7.1 Analytics Orchestrator (`services/analytics/orchestrator.py`)
+
+**Role**: Central coordinator for the full analytics pipeline.
+
+**Pipeline**:
+- Input: A single Atomic JSON post (`meta`, `content`, `interaction`, `author`, `comments`).
+- Steps:
+  1. **Preprocessing** (`TextPreprocessor`):
+     - Merge caption, transcription, and top comments.
+     - Normalize Vietnamese text and compute noise stats (spam, too short, etc.).
+  2. **Intent** (`IntentClassifier`):
+     - Classify post intent and produce a `should_skip` signal.
+  3. **Skip Logic**:
+     - Combines preprocessor stats + intent to decide whether to skip spam/noise/seeding posts.
+     - Skipped posts still persist a minimal `PostAnalytics` record with neutral sentiment and low risk.
+  4. **Keyword Extraction** (`KeywordExtractor`):
+     - Hybrid dictionary + SpaCy-YAKE extraction with aspect mapping.
+  5. **Sentiment** (`SentimentAnalyzer`):
+     - Overall + aspect-based sentiment using PhoBERT with smart context windowing.
+  6. **Impact & Risk** (`ImpactCalculator`):
+     - Compute engagement, reach, impact score (0–100), and risk level (LOW→CRITICAL).
+  7. **Persistence** (`AnalyticsRepository`):
+     - Save final `PostAnalytics` payload (overall, aspects, keywords, impact, raw metrics).
+
+**Entry Points**:
+- **Queue Consumer** (`internal/consumers/main.py`):
+  - Reads messages from RabbitMQ.
+  - If message contains `data_ref`:
+    - Uses `MinioAdapter` (`infrastructure/storage/minio_client.py`) to download the Atomic JSON from MinIO.
+  - Otherwise treats the message body as a full Atomic JSON post.
+  - Creates a DB session (via `settings.database_url_sync` and `models.database.Base`), wraps it with `AnalyticsRepository`, and delegates processing to:
+    - `AnalyticsOrchestrator.process_post(post_data)`.
+- **Dev/Test API** (`internal/api/routes/orchestrator.py`):
+  - `POST /dev/process-post-direct`
+  - Accepts a full Atomic JSON body directly from the client (bypasses MinIO and queue).
+  - Constructs an `AnalyticsRepository` with a sync session and an optional `SentimentAnalyzer` (if PhoBERT is available).
+  - Delegates to `AnalyticsOrchestrator.process_post(post_data)` and returns the final analytics payload for debugging.
+
+**End-to-End Flow**:
+```text
+MinIO (Atomic JSON) ──▶ internal/consumers/main.py
+    │                         │
+    │                         ├─▶ MinioAdapter.download_json()
+    │                         └─▶ AnalyticsOrchestrator.process_post()
+    │                                  └─▶ AnalyticsRepository.save() ──▶ PostgreSQL (PostAnalytics)
+    │
+    └──(dev/test)──▶ internal/api/routes/orchestrator.py (POST /dev/process-post-direct)
+                              └─▶ AnalyticsOrchestrator.process_post()
+                                       └─▶ AnalyticsRepository.save() ──▶ PostgreSQL (PostAnalytics)
+```
+
 ### 5. Migrations Layer (`migrations/`)
 
 **Purpose**: Database schema versioning with Alembic.

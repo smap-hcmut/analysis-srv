@@ -1,10 +1,12 @@
 """Message queue consumer entry point for Analytics Engine."""
 
 import json
-from typing import Optional, Callable, Any, TYPE_CHECKING
+from contextlib import contextmanager
+from typing import Optional, Callable, Any, TYPE_CHECKING, Iterator
 
 try:
     from aio_pika import IncomingMessage  # type: ignore
+
     AIO_PIKA_AVAILABLE = True
 except ImportError:
     AIO_PIKA_AVAILABLE = False
@@ -14,8 +16,32 @@ except ImportError:
         IncomingMessage = Any
 
 from core.logger import logger
+from core.config import settings
 from infrastructure.ai import PhoBERTONNX, SpacyYakeExtractor
-from services.analytics.impact import ImpactCalculator
+from infrastructure.storage.minio_client import MinioAdapter
+from models.database import Base
+from repositories.analytics_repository import AnalyticsRepository
+from services.analytics.orchestrator import AnalyticsOrchestrator
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+
+
+def _create_session_factory() -> sessionmaker:
+    """Create a synchronous SQLAlchemy session factory."""
+    engine = create_engine(settings.database_url_sync)
+    Base.metadata.bind = engine
+    return sessionmaker(bind=engine)
+
+
+@contextmanager
+def _db_session(session_factory: sessionmaker) -> Iterator[Session]:
+    """Context manager yielding a DB session and ensuring cleanup."""
+    session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 def create_message_handler(
@@ -39,7 +65,8 @@ def create_message_handler(
         >>> await rabbitmq_client.consume(handler)
     """
 
-    impact_calculator = ImpactCalculator()
+    minio_adapter = MinioAdapter()
+    session_factory = _create_session_factory()
 
     async def message_handler(message: IncomingMessage) -> None:
         """Process incoming message from RabbitMQ.
@@ -53,67 +80,41 @@ def create_message_handler(
                 body = message.body.decode()
                 logger.info(f"Received message: {body[:100]}...")
 
-                # Parse JSON
-                data = json.loads(body)
+                # Parse JSON envelope
+                envelope = json.loads(body)
 
-                # Log message metadata
-                post_id = data.get("meta", {}).get("id", "unknown")
-                platform = data.get("meta", {}).get("platform", "UNKNOWN")
-                logger.info(f"Processing post {post_id} from {platform}")
+                # Determine data source: direct post_data or MinIO reference
+                post_data: dict[str, Any]
+                if "data_ref" in envelope:
+                    ref = envelope["data_ref"] or {}
+                    bucket = ref.get("bucket")
+                    path = ref.get("path")
+                    if not bucket or not path:
+                        raise ValueError("Invalid data_ref: bucket and path are required")
+                    post_data = minio_adapter.download_json(bucket, path)
+                else:
+                    post_data = envelope
 
-                # Extract text content
-                title = data.get("content", {}).get("title", "")
-                text = data.get("content", {}).get("text", "")
-                combined_text = f"{title} {text}".strip()
+                post_id = post_data.get("meta", {}).get("id", "unknown")
+                platform = post_data.get("meta", {}).get("platform", "UNKNOWN")
+                logger.info("Processing post %s from %s via orchestrator", post_id, platform)
 
-                # Process with AI models if available
-                sentiment_overall: dict[str, Any] | None = None
-                if spacyyake and combined_text:
-                    logger.info("Extracting keywords...")
-                    keyword_result = spacyyake.extract(combined_text)
-                    if keyword_result.success:
-                        logger.info(f"Extracted {len(keyword_result.keywords)} keywords")
-                    else:
-                        logger.warning(f"Keyword extraction failed: {keyword_result.error_message}")
+                # Create DB-backed repository and orchestrator per message
+                with _db_session(session_factory) as db:
+                    repo = AnalyticsRepository(db)
 
-                if phobert and combined_text:
-                    logger.info("Analyzing sentiment...")
-                    sentiment_result = phobert.predict(combined_text)
-                    sentiment_overall = sentiment_result.get("overall") or sentiment_result
-                    logger.info(
-                        "Sentiment: %s (score=%s)",
-                        sentiment_overall.get("label", sentiment_result.get("sentiment", "unknown")),
-                        sentiment_overall.get("score"),
+                    # SentimentAnalyzer is built from provided PhoBERT model if available
+                    sentiment_analyzer = None
+                    if phobert is not None:
+                        sentiment_analyzer = SentimentAnalyzer(phobert)  # type: ignore[name-defined]
+
+                    orchestrator = AnalyticsOrchestrator(
+                        repository=repo,
+                        sentiment_analyzer=sentiment_analyzer,
                     )
+                    result = orchestrator.process_post(post_data)
 
-                # Compute impact & risk if we have minimal inputs
-                try:
-                    interaction = data.get("metrics", {}) or {}
-                    author = data.get("author", {}) or {}
-
-                    if sentiment_overall is not None and interaction and author:
-                        impact_result = impact_calculator.calculate(
-                            interaction=interaction,
-                            author=author,
-                            sentiment=sentiment_overall,
-                            platform=platform,
-                        )
-                        logger.info(
-                            "Impact calculated: score=%s, risk=%s, viral=%s, kol=%s",
-                            impact_result["impact_score"],
-                            impact_result["risk_level"],
-                            impact_result["is_viral"],
-                            impact_result["is_kol"],
-                        )
-                    else:
-                        logger.info(
-                            "Skipping impact calculation (missing sentiment/metrics/author)."
-                        )
-                except Exception as e:  # pragma: no cover - defensive logging
-                    logger.error(f"Impact calculation failed: {e}")
-
-                # TODO: Save results to database (future work)
-                logger.info(f"Message processed successfully: {post_id}")
+                logger.info("Message processed successfully and persisted: %s", post_id)
 
                 # Message will be auto-acked when context exits without exception
 
