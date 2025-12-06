@@ -17,11 +17,6 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://dev:dev123@localhost:5432/analytics_dev"
     database_url_sync: str = "postgresql://dev:dev123@localhost:5432/analytics_dev"
 
-    # API
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
-    api_reload: bool = True
-
     # Service
     service_name: str = "analytics-engine"
     service_version: str = "0.1.0"
@@ -99,6 +94,33 @@ class Settings(BaseSettings):
     impact_viral_threshold: float = 70.0
     impact_kol_follower_threshold: int = 50000
     impact_max_raw_score_ceiling: float = 100000.0
+
+    # Event Queue Settings
+    event_exchange: str = "smap.events"
+    event_routing_key: str = "data.collected"
+    event_queue_name: str = "analytics.data.collected"
+
+    # Batch Processing Settings
+    max_concurrent_batches: int = 5
+    batch_timeout_seconds: int = 30
+    expected_batch_size_tiktok: int = 50
+    expected_batch_size_youtube: int = 20
+
+    # MinIO Crawl Results Settings
+    minio_crawl_results_bucket: str = "crawl-results"
+
+    # Error Handling Settings
+    max_retries_per_item: int = 3
+    error_backoff_base_seconds: float = 1.0
+    error_backoff_max_seconds: float = 60.0
+
+    # Metrics Settings
+    metrics_enabled: bool = True
+    metrics_port: int = 9090
+
+    # Database Pool Settings (for batch processing)
+    database_pool_size: int = 20
+    database_max_overflow: int = 10
 
 
 settings = Settings()

@@ -2,69 +2,95 @@
 
 ## Overview
 
-This document describes the project structure and architectural patterns used in the Analytics Engine service. This structure can be replicated across other repositories for consistency.
+This document describes the project structure and architectural patterns used in the Analytics Engine service. This structure can be replicated across other repository for consistency.
 
 ## Directory Structure
 
 ```
 analytics_engine/
-├── cmd/                        # Entry Points (Command Layer)
-│   ├── api/                    # API service entry point
-│   │   ├── __init__.py
-│   │   └── main.py            # Loads config, initializes instances, starts FastAPI
+├── command/                   # Entry Points (Command Layer)
 │   └── consumer/               # Consumer service entry point
 │       ├── __init__.py
 │       └── main.py            # Loads config, initializes instances, starts consumer
 │
 ├── internal/                   # Internal Implementation Layer
-│   ├── api/                    # API route registration
-│   │   ├── __init__.py
-│   │   └── main.py            # Registers FastAPI routes and middleware
 │   └── consumers/              # Consumer registration
 │       ├── __init__.py
-│       └── main.py            # Registers message queue consumers
+│       └── main.py            # Event consumer (data.collected events)
 │
 ├── core/                       # Core Shared Layer
 │   ├── __init__.py
 │   ├── config.py              # Application settings (Pydantic Settings)
 │   ├── logger.py              # Logging configuration (Loguru)
-│   ├── constants.py           # Application constants
+│   ├── constants.py           # Error codes, categories, enums
 │   ├── dependencies.py        # Dependency injection
 │   └── errors.py              # Custom exceptions
 │
 ├── models/                     # Data Models Layer
 │   ├── __init__.py
-│   ├── database.py            # SQLAlchemy database models
-│   └── schemas.py             # Pydantic schemas (API DTOs) - future
+│   ├── database.py            # SQLAlchemy models (PostAnalytics, CrawlError)
+│   └── schemas.py             # Pydantic schemas (API DTOs)
 │
 ├── interfaces/                 # Interface Layer (Abstractions)
 │   ├── __init__.py
 │   ├── repository.py          # Abstract repository interface
 │   ├── storage.py             # Abstract storage interface (MinIO)
-│   ├── queue.py               # Abstract message queue interface
-│   └── cache.py               # Abstract cache interface (Redis)
+│   └── queue.py               # Abstract message queue interface
 │
-├── repositories/               # Repository Implementations
+├── repository/               # Repository Implementations
 │   ├── __init__.py
-│   └── analytics_repository.py # PostAnalytics repository (future)
+│   ├── analytics_repository.py # PostAnalytics repository
+│   └── crawl_error_repository.py # CrawlError repository
 │
 ├── services/                   # Business Logic Layer
-│   └── (future: analytics_service.py, etc.)
+│   └── analytics/
+│       ├── orchestrator.py    # Central analytics pipeline coordinator
+│       ├── preprocessor.py    # Text preprocessing
+│       ├── intent.py          # Intent classification
+│       ├── keyword.py         # Keyword extraction
+│       ├── sentiment.py       # Sentiment analysis
+│       └── impact.py          # Impact calculation
 │
 ├── infrastructure/             # Infrastructure Implementations
-│   ├── storage/               # Storage implementations (MinIO)
-│   ├── queue/                 # Queue implementations (RabbitMQ)
-│   └── cache/                 # Cache implementations (Redis)
+│   ├── storage/               # Storage implementations
+│   │   ├── minio_client.py    # MinIO adapter (download_json, download_batch)
+│   │   └── constants.py       # Storage constants
+│   ├── messaging/             # Message queue implementations
+│   │   └── rabbitmq.py        # RabbitMQ connection and binding
+│   └── ai/                    # AI model implementations
+│       └── phobert.py         # PhoBERT ONNX model
+│
+├── utils/                      # Utility Functions
+│   └── project_id_extractor.py # Extract project_id from job_id
 │
 ├── migrations/                 # Database Migrations (Alembic)
 │   ├── versions/
 │   └── env.py                 # Alembic environment configuration
 │
+├── config/                     # Configuration Files
+│   ├── archive/               # Archived configurations
+│   │   └── legacy_queue_config.yaml
+│   └── canary_deployment.yaml # Canary deployment config
+│
 ├── document/                   # Documentation
+│   ├── analytics-service-behavior.md
+│   ├── analytics-service-integration-guide.md
+│   ├── architecture.md        # This file
+│   └── ...
+│
+├── scripts/                    # Utility Scripts
+│   ├── backup_database.sh
+│   └── validate_migration.py
+│
+├── tests/                      # Test Suite
+│   ├── unit/
+│   ├── integration/
+│   └── performance/
+│
 ├── openspec/                   # OpenSpec specifications
 ├── pyproject.toml             # Python project configuration (uv)
 ├── docker-compose.dev.yml     # Development environment
-├── Makefile                   # Common commands
+├── Makefile                   # Common command
 └── README.md
 ```
 
@@ -85,61 +111,55 @@ analytics_engine/
 **Pattern**:
 
 ```python
-# cmd/analytics_api/main.py
+# command/consumer/main.py
 from core.config import settings
 from core.logger import logger
-from internal.api.main import app
+from internal.consumers.main import create_message_handler
 
-def create_app():
+def main():
     # Load config, initialize instances
     logger.info(f"Starting {settings.service_name}")
-    return app
-
-app = create_app()
+    # Start consumer with message handler
+    ...
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("cmd.analytics_api.main:app", ...)
+    main()
 ```
 
 **Key Points**:
 
-- One entry point per service (API, Consumer, Worker, etc.)
+- One entry point per service (Consumer, Worker, etc.)
 - Minimal logic - just wiring and initialization
 - Uses `internal/` for actual implementation
 
 ### 2. Internal Layer (`internal/`)
 
-**Purpose**: Internal implementation of services. Registers routes, consumers, and handlers.
+**Purpose**: Internal implementation of services. Registers consumers and handlers.
 
 **Responsibilities**:
 
-- Register API routes (FastAPI routers)
 - Register message queue consumers
-- Define middleware and exception handlers
+- Define message handlers
 - Implement service-specific logic
 
 **Pattern**:
 
 ```python
-# internal/api/main.py
-from fastapi import FastAPI
+# internal/consumers/main.py
+from aio_pika import IncomingMessage
 
-app = FastAPI(title="Analytics Engine")
-
-# Register routes
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
-
-# More route registrations...
+def create_message_handler(phobert, spacyyake):
+    async def message_handler(message: IncomingMessage):
+        # Process incoming message
+        ...
+    return message_handler
 ```
 
 **Key Points**:
 
 - Contains the actual service implementation
-- Separated by service type (api, consumers, workers)
-- Does NOT handle initialization - that's `cmd/`'s job
+- Separated by service type (consumers, workers)
+- Does NOT handle initialization - that's `command/`'s job
 
 ### 3. Core Layer (`core/`)
 
@@ -225,7 +245,7 @@ class PostAnalyticsCreate(BaseModel):
 
 **Responsibilities**:
 
-- Define contracts for repositories
+- Define contracts for repository
 - Define contracts for external services (storage, queue, cache)
 - Enable dependency injection and testing
 
@@ -251,7 +271,7 @@ class IAnalyticsRepository(ABC):
 - Enables easy mocking for tests
 - Decouples business logic from infrastructure
 
-### 6. Repositories Layer (`repositories/`)
+### 6. Repository Layer (`repository/`)
 
 **Purpose**: Implement data access patterns.
 
@@ -264,7 +284,7 @@ class IAnalyticsRepository(ABC):
 **Pattern** (Future):
 
 ```python
-# repositories/analytics_repository.py
+# repository/analytics_repository.py
 from interfaces.repository import IAnalyticsRepository
 from models.database import PostAnalytics
 
@@ -314,7 +334,7 @@ class AnalyticsService:
 
 **Pipeline**:
 
-- Input: A single Atomic JSON post (`meta`, `content`, `interaction`, `author`, `comments`).
+- Input: A single Atomic JSON post (`meta`, `content`, `interaction`, `author`, `comments`), enriched with batch context from crawler events.
 - Steps:
   1. **Preprocessing** (`TextPreprocessor`):
      - Merge caption, transcription, and top comments.
@@ -332,34 +352,44 @@ class AnalyticsService:
      - Compute engagement, reach, impact score (0–100), and risk level (LOW→CRITICAL).
   7. **Persistence** (`AnalyticsRepository`):
      - Save final `PostAnalytics` payload (overall, aspects, keywords, impact, raw metrics).
+     - Includes batch context: `job_id`, `batch_index`, `task_type`, `keyword_source`, `crawled_at`, `pipeline_version`.
 
-**Entry Points**:
+**Entry Point**:
 
-- **Queue Consumer** (`internal/consumers/main.py`):
-  - Reads messages from RabbitMQ.
-  - If message contains `data_ref`:
-    - Uses `MinioAdapter` (`infrastructure/storage/minio_client.py`) to download the Atomic JSON from MinIO.
-  - Otherwise treats the message body as a full Atomic JSON post.
-  - Creates a DB session (via `settings.database_url_sync` and `models.database.Base`), wraps it with `AnalyticsRepository`, and delegates processing to:
-    - `AnalyticsOrchestrator.process_post(post_data)`.
-- **Dev/Test API** (`internal/api/routes/orchestrator.py`):
-  - `POST /dev/process-post-direct`
-  - Accepts a full Atomic JSON body directly from the client (bypasses MinIO and queue).
-  - Constructs an `AnalyticsRepository` with a sync session and an optional `SentimentAnalyzer` (if PhoBERT is available).
-  - Delegates to `AnalyticsOrchestrator.process_post(post_data)` and returns the final analytics payload for debugging.
+- **Event Consumer** (`internal/consumers/main.py`):
+  - Consumes `data.collected` events from `smap.events` exchange.
+  - Event contains `payload.minio_path` pointing to batch file in MinIO.
+  - Uses `MinioAdapter.download_batch()` to fetch batch of 20-50 items.
+  - Extracts `project_id` from `job_id` using `utils/project_id_extractor.py`.
+  - Processes each item independently:
+    - Success items (`fetch_status: "success"`) → `AnalyticsOrchestrator.process_post()`
+    - Error items (`fetch_status: "error"`) → `CrawlErrorRepository.save()`
+  - Acknowledges message after batch completion.
 
-**End-to-End Flow**:
+**Event-Driven Flow**:
 
 ```text
-MinIO (Atomic JSON) ──▶ internal/consumers/main.py
-    │                         │
-    │                         ├─▶ MinioAdapter.download_json()
-    │                         └─▶ AnalyticsOrchestrator.process_post()
-    │                                  └─▶ AnalyticsRepository.save() ──▶ PostgreSQL (PostAnalytics)
+Crawler Services (TikTok/YouTube)
     │
-    └──(dev/test)──▶ internal/api/routes/orchestrator.py (POST /dev/process-post-direct)
-                              └─▶ AnalyticsOrchestrator.process_post()
-                                       └─▶ AnalyticsRepository.save() ──▶ PostgreSQL (PostAnalytics)
+    ├─▶ Upload batch to MinIO (crawl-results bucket)
+    └─▶ Publish data.collected event to smap.events exchange
+                │
+                ▼
+RabbitMQ (analytics.data.collected queue)
+                │
+                ▼
+internal/consumers/main.py
+    │
+    ├─▶ Parse event metadata (event_id, job_id, minio_path)
+    ├─▶ MinioAdapter.download_batch() ──▶ MinIO (crawl-results)
+    ├─▶ extract_project_id(job_id)
+    │
+    └─▶ For each item in batch:
+            │
+            ├─▶ [Success] AnalyticsOrchestrator.process_post()
+            │                   └─▶ AnalyticsRepository.save() ──▶ PostgreSQL (post_analytics)
+            │
+            └─▶ [Error] CrawlErrorRepository.save() ──▶ PostgreSQL (crawl_errors)
 ```
 
 ### 5. Migrations Layer (`migrations/`)
@@ -380,9 +410,9 @@ config.set_main_option("sqlalchemy.url", settings.database_url_sync)
 ## Dependency Flow
 
 ```
-cmd/analytics_api/main.py
+command/consumer/main.py
     ↓ imports
-internal/api/main.py
+internal/consumers/main.py
     ↓ uses
 core/config.py, core/logger.py, core/models.py
     ↓ uses
@@ -393,14 +423,14 @@ services/ (business logic)
 
 ### 1. Separation of Concerns
 
-- **cmd/**: Process management and initialization
+- **command/**: Process management and initialization
 - **internal/**: Service implementation
 - **core/**: Shared utilities
 - **services/**: Business logic
 
 ### 2. Dependency Injection
 
-- Configuration loaded once in `cmd/`
+- Configuration loaded once in `command/`
 - Passed down to `internal/` and `services/`
 - No global state in business logic
 
@@ -408,12 +438,11 @@ services/ (business logic)
 
 - `internal/` and `services/` can be tested independently
 - Mock `core/` components for unit tests
-- Integration tests use `cmd/` entry points
+- Integration tests use `command/` entry points
 
 ### 4. Scalability
 
-- Easy to add new services (new `cmd/` entry point)
-- Easy to add new routes (register in `internal/api/`)
+- Easy to add new services (new `command/` entry point)
 - Easy to add new consumers (register in `internal/consumers/`)
 
 ## Configuration Management
@@ -425,10 +454,6 @@ Managed via `.env` file and `core/config.py`:
 ```bash
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/db
-
-# API
-API_HOST=0.0.0.0
-API_PORT=8000
 
 # Logging
 LOG_LEVEL=INFO
@@ -445,7 +470,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str
-    api_host: str = "0.0.0.0"
+    service_name: str = "analytics-engine"
     # ...
 ```
 
@@ -457,11 +482,10 @@ class Settings(BaseSettings):
 make dev-up  # Starts Docker services
 ```
 
-### 2. Run Services
+### 2. Run Consumer Service
 
 ```bash
-make run-analytics-api       # Start API
-make run-analytics-consumer  # Start consumer
+make run-consumer  # Start consumer
 ```
 
 ### 3. Database Migrations
@@ -528,8 +552,75 @@ run-new-service:
 - **Migrations**: Alembic
 - **Logging**: Loguru
 - **Configuration**: Pydantic Settings
-- **Message Queue**: RabbitMQ (future)
-- **Storage**: MinIO (future)
+- **Message Queue**: RabbitMQ (aio-pika)
+- **Storage**: MinIO (boto3-compatible)
+- **Compression**: Zstandard (zstd)
+- **AI/ML**: PhoBERT (ONNX), SpaCy-YAKE
+
+## Event-Driven Architecture
+
+### Overview
+
+Analytics Service sử dụng event-driven architecture để consume data từ Crawler services:
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Crawler        │     │   RabbitMQ      │     │   Analytics     │
+│  Services       │────▶│   smap.events   │────▶│   Service       │
+│  (TikTok/YT)    │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                                               │
+        ▼                                               ▼
+┌─────────────────┐                           ┌─────────────────┐
+│     MinIO       │◀──────────────────────────│   PostgreSQL    │
+│  crawl-results  │                           │  post_analytics │
+└─────────────────┘                           └─────────────────┘
+```
+
+### Event Schema
+
+```json
+{
+  "event_id": "evt_abc123",
+  "event_type": "data.collected",
+  "timestamp": "2025-12-06T10:15:30Z",
+  "payload": {
+    "minio_path": "crawl-results/tiktok/proj_xyz/brand/batch_000.json",
+    "project_id": "proj_xyz",
+    "job_id": "proj_xyz-brand-0",
+    "batch_index": 1,
+    "content_count": 50,
+    "platform": "tiktok"
+  }
+}
+```
+
+### Queue Configuration
+
+| Setting        | Value                      |
+| -------------- | -------------------------- |
+| Exchange       | `smap.events`              |
+| Exchange Type  | `topic`                    |
+| Routing Key    | `data.collected`           |
+| Queue Name     | `analytics.data.collected` |
+| Prefetch Count | `1`                        |
+
+### Batch Processing
+
+- **TikTok**: 50 items per batch
+- **YouTube**: 20 items per batch
+- **Processing**: Per-item with independent error handling
+- **Throughput**: ~1000 items/min (TikTok), ~300 items/min (YouTube)
+
+### Error Handling
+
+Error items (`fetch_status: "error"`) are stored in `crawl_errors` table with:
+
+- 17 error codes across 7 categories
+- Error categorization for monitoring
+- Per-item failures don't crash batch
+
+See `document/analytics-service-behavior.md` for detailed behavior specification.
 
 ## Best Practices
 
@@ -541,7 +632,7 @@ import os
 import sys
 
 # Third-party
-from fastapi import FastAPI
+from aio_pika import IncomingMessage
 from sqlalchemy import Column
 
 # Local - core
@@ -549,10 +640,10 @@ from core.config import settings
 from core.logger import logger
 
 # Local - internal
-from internal.api.main import app
+from internal.consumers.main import create_message_handler
 
 # Local - services
-from services.analytics_service import AnalyticsService
+from services.analytics.orchestrator import AnalyticsOrchestrator
 ```
 
 ### 2. Error Handling

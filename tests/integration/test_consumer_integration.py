@@ -79,14 +79,17 @@ def _make_sample_post() -> Dict[str, Any]:
 class TestConsumerIntegration:
     """Integration tests for consumer message handler."""
 
-    def test_consumer_processes_minio_ref_and_calls_repository(self, monkeypatch) -> None:
-        """Message handler should process MinIO-backed message and call repository.save."""
+    def test_consumer_processes_event_and_calls_repository(self, monkeypatch) -> None:
+        """Message handler should process data.collected event and call repository.save."""
         # Prepare fake MinIO adapter
         sample_post = _make_sample_post()
 
         class FakeMinioAdapter:
             def download_json(self, bucket: str, object_path: str) -> Dict[str, Any]:
-                return sample_post
+                return [sample_post]  # Return as batch (list)
+
+            def download_batch(self, bucket: str, object_path: str) -> List[Dict[str, Any]]:
+                return [sample_post]
 
         # Patch consumer module to use fake MinIO and fake repository
         import internal.consumers.main as consumer_main
@@ -111,17 +114,36 @@ class TestConsumerIntegration:
                 saved.append(analytics_data)
                 return analytics_data
 
+        class FakeErrorRepository:
+            def __init__(self, db: Any) -> None:
+                self.db = db
+
+            def save(self, error_data: Dict[str, Any]) -> Dict[str, Any]:
+                return error_data
+
         monkeypatch.setattr(consumer_main, "AnalyticsRepository", FakeRepository)
+        monkeypatch.setattr(consumer_main, "CrawlErrorRepository", FakeErrorRepository)
 
         # Create message handler with no AI models (sentiment will degrade gracefully)
         handler = consumer_main.create_message_handler(phobert=None, spacyyake=None)
 
-        # Build synthetic message envelope referencing MinIO object
-        envelope = {"data_ref": {"bucket": "test-bucket", "path": "posts/post_1.json"}}
+        # Build synthetic data.collected event envelope
+        envelope = {
+            "event_id": "evt_test_001",
+            "event_type": "data.collected",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "payload": {
+                "minio_path": "test-bucket/posts/post_1.json",
+                "project_id": "11111111-1111-1111-1111-111111111111",
+                "job_id": "proj_test-brand-0",
+                "batch_index": 0,
+                "content_count": 1,
+                "platform": "facebook",
+            },
+        }
         body = json.dumps(envelope).encode("utf-8")
         message = FakeIncomingMessage(body)
 
-        # Run handler
         # Run handler in event loop
         asyncio.run(handler(message))
 

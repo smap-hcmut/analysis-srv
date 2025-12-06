@@ -70,10 +70,19 @@ class RabbitMQClient:
 
         logger.info(f"RabbitMQ client initialized (queue={queue_name}, prefetch={prefetch_count})")
 
-    async def connect(self) -> None:
+    async def connect(
+        self,
+        exchange_name: Optional[str] = None,
+        routing_key: Optional[str] = None,
+    ) -> None:
         """Establish robust connection to RabbitMQ.
 
         Creates a connection and channel with automatic reconnection support.
+        Optionally binds queue to an exchange with routing key.
+
+        Args:
+            exchange_name: Optional exchange to bind queue to
+            routing_key: Optional routing key for exchange binding
 
         Raises:
             Exception: If connection fails
@@ -100,6 +109,23 @@ class RabbitMQClient:
             )
 
             logger.info(f"Queue '{self.queue_name}' declared (durable=True)")
+
+            # Bind to exchange if specified
+            if exchange_name and routing_key:
+                # Declare exchange (topic type for routing key patterns)
+                exchange = await self.channel.declare_exchange(
+                    exchange_name,
+                    aio_pika.ExchangeType.TOPIC,
+                    durable=True,
+                )
+                logger.info(f"Exchange '{exchange_name}' declared (type=topic, durable=True)")
+
+                # Bind queue to exchange with routing key
+                await queue.bind(exchange, routing_key=routing_key)
+                logger.info(
+                    f"Queue '{self.queue_name}' bound to exchange '{exchange_name}' "
+                    f"with routing_key='{routing_key}'"
+                )
 
         except Exception as e:
             logger.error(f"Failed to connect to RabbitMQ: {e}")

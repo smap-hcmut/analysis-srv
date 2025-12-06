@@ -1,32 +1,33 @@
-.PHONY: help install dev-install upgrade run-api run-consumer run-example-preprocessing run-example-intent dev-up dev-down dev-logs download-phobert download-spacy-model test test-phobert test-spacyyake test-preprocessing test-intent test-sentiment test-impact example-sentiment example-impact clean format lint db-init db-migrate db-upgrade db-downgrade
+.PHONY: help install dev-install upgrade run-api run-consumer run-example-preprocessing run-example-intent dev-up dev-down dev-logs download-phobert download-spacy-model test test-phobert test-spacyyake test-preprocessing test-intent test-sentiment test-impact test-integration test-integration-minio test-integration-e2e test-integration-performance test-integration-crawler test-unit test-models example-sentiment example-impact clean format lint db-init db-migrate db-upgrade db-downgrade validate-config validate-migration backup-db
 
 # ==============================================================================
 # HELPERS
 # ==============================================================================
 help:
-	@echo "Available commands (Managed by uv):"
+	@echo "Available command (Managed by uv):"
 	@echo ""
-	@echo "📦 DEPENDENCIES:"
+	@echo "DEPENDENCIES:"
 	@echo "  make install                 - Install dependencies (Sync environment)"
 	@echo "  make upgrade                 - Upgrade all packages in lock file"
 	@echo ""
-	@echo "🚀 RUN SERVICES:"
-	@echo "  make run-api                 - Run API service locally"
+	@echo "RUN SERVICES:"
 	@echo "  make run-consumer            - Run Consumer service locally"
 	@echo "  make run-example-preprocessing - Run Text Preprocessor example"
 	@echo "  make run-example-intent      - Run Intent Classifier example"
 	@echo ""
-	@echo "🐳 DEV ENVIRONMENT (Docker):"
+	@echo "DEV ENVIRONMENT (Docker):"
 	@echo "  make dev-up                  - Start dev services (Postgres, Redis, MinIO, RabbitMQ)"
 	@echo "  make dev-down                - Stop dev services"
 	@echo "  make dev-logs                - View dev services logs"
 	@echo ""
-	@echo "🤖 AI MODELS:"
+	@echo "AI MODELS:"
 	@echo "  make download-phobert        - Download PhoBERT ONNX model"
 	@echo "  make download-spacy-model    - Download SpaCy model"
 	@echo ""
-	@echo "🧪 TESTING:"
+	@echo "TESTING:"
 	@echo "  make test                    - Run all tests"
+	@echo "  make test-unit               - Run all unit tests"
+	@echo "  make test-models             - Run database model tests"
 	@echo "  make test-phobert            - Run PhoBERT tests"
 	@echo "  make test-spacyyake          - Run SpaCy-YAKE tests"
 	@echo "  make test-preprocessing      - Run Text Preprocessor tests"
@@ -34,13 +35,25 @@ help:
 	@echo "  make test-sentiment          - Run Sentiment (ABSA) tests"
 	@echo "  make test-impact             - Run Impact & Risk Calculator tests"
 	@echo ""
-	@echo "🗄️  DATABASE:"
+	@echo "INTEGRATION TESTS (Crawler Integration):"
+	@echo "  make test-integration        - Run all integration tests"
+	@echo "  make test-integration-minio  - Run MinIO batch fetching tests"
+	@echo "  make test-integration-e2e    - Run end-to-end event processing tests"
+	@echo "  make test-integration-performance - Run performance & load tests"
+	@echo "  make test-integration-crawler - Run crawler format compatibility tests"
+	@echo ""
+	@echo "MIGRATION & VALIDATION:"
+	@echo "  make validate-config         - Validate configuration on startup"
+	@echo "  make validate-migration      - Run migration validation script"
+	@echo "  make backup-db               - Create database backup"
+	@echo ""
+	@echo "DATABASE:"
 	@echo "  make db-init                 - Initialize Alembic"
 	@echo "  make db-migrate              - Create new migration"
 	@echo "  make db-upgrade              - Apply migrations"
 	@echo "  make db-downgrade            - Rollback last migration"
 	@echo ""
-	@echo "✨ CODE QUALITY:"
+	@echo "CODE QUALITY:"
 	@echo "  make format                  - Format code (black)"
 	@echo "  make lint                    - Lint code (flake8)"
 	@echo "  make clean                   - Clean up cache files"
@@ -60,11 +73,8 @@ upgrade:
 # ==============================================================================
 # RUN SERVICES
 # ==============================================================================
-run-api:
-	PYTHONPATH=. uv run commands/api/main.py
-
 run-consumer:
-	PYTHONPATH=. uv run commands/consumer/main.py
+	PYTHONPATH=. uv run command/consumer/main.py
 
 run-example-preprocessing:
 	@echo "Running Text Preprocessor example..."
@@ -102,14 +112,14 @@ download-spacy-model:
 	@uv pip install pip > /dev/null 2>&1 || true
 	@echo "Downloading model (this may take a minute)..."
 	@uv run python -m spacy download xx_ent_wiki_sm || \
-		(echo "⚠️  xx_ent_wiki_sm download failed. Code will use blank('vi') model.")
-	@echo "✅ SpaCy model installation completed."
+		(echo "xx_ent_wiki_sm download failed. Code will use blank('vi') model.")
+	@echo "SpaCy model installation completed."
 
 # ==============================================================================
 # TESTING
 # ==============================================================================
 test:
-	@echo "🧪 Running all tests..."
+	@echo "Running all tests..."
 	PYTHONPATH=. uv run pytest -v
 
 test-phobert:
@@ -172,6 +182,54 @@ test-impact:
 	@echo "Running Impact & Risk Calculator tests..."
 	@uv run pytest tests/impact -v
 
+# Unit tests
+test-unit:
+	@echo "Running all unit tests..."
+	@uv run pytest tests/ -v --ignore=tests/integration
+
+# Database model tests
+test-models:
+	@echo "Running database model tests..."
+	@uv run pytest tests/test_models/ -v
+
+# ==============================================================================
+# INTEGRATION TESTS (Crawler Integration)
+# ==============================================================================
+test-integration:
+	@echo "Running all integration tests..."
+	@uv run pytest tests/integration/ -v
+
+test-integration-minio:
+	@echo "Running MinIO batch fetching tests..."
+	@uv run pytest tests/integration/test_minio_batch_fetching.py -v
+
+test-integration-e2e:
+	@echo "Running end-to-end event processing tests..."
+	@uv run pytest tests/integration/test_e2e_event_processing.py -v
+
+test-integration-performance:
+	@echo "Running performance & load tests..."
+	@uv run pytest tests/integration/test_performance.py -v
+
+test-integration-crawler:
+	@echo "Running crawler format compatibility tests..."
+	@uv run pytest tests/integration/test_crawler_format_compatibility.py -v
+
+# ==============================================================================
+# MIGRATION & VALIDATION
+# ==============================================================================
+validate-config:
+	@echo "Validating configuration..."
+	@PYTHONPATH=. uv run python -c "from core.config_validation import validate_config_on_startup; import sys; sys.exit(0 if validate_config_on_startup() else 1)"
+
+validate-migration:
+	@echo "Running migration validation..."
+	@PYTHONPATH=. uv run python scripts/validate_migration.py
+
+backup-db:
+	@echo "Creating database backup..."
+	@./scripts/backup_database.sh
+
 # ==============================================================================
 # DATABASE
 # ==============================================================================
@@ -192,7 +250,7 @@ db-downgrade:
 # CODE QUALITY
 # ==============================================================================
 clean:
-	@echo "🧹 Cleaning up compiled files and caches..."
+	@echo "Cleaning up compiled files and caches..."
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 	find . -type f -name "*.pyo" -delete
@@ -206,7 +264,7 @@ clean:
 	uv cache clean
 
 format:
-	uv run black core/ infrastructure/ commands/ internal/ tests/
+	uv run black core/ infrastructure/ command/ internal/ tests/
 
 lint:
-	uv run flake8 core/ infrastructure/ commands/ internal/ tests/ --max-line-length=100
+	uv run flake8 core/ infrastructure/ command/ internal/ tests/ --max-line-length=100

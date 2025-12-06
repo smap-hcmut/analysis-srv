@@ -2,6 +2,7 @@
 
 **Change ID**: `analytic_orchestrator`  
 **Related Docs**:
+
 - `analytic_orchestrator.md`
 - `documents/master-proposal.md`
 - `documents/implement_plan.md`
@@ -9,6 +10,7 @@
 ### 1. Context
 
 The Analytics Engine already has:
+
 - Module 1: `TextPreprocessor` (clean & merge content).
 - Module 2: `IntentClassifier` (noise/intent filter).
 - Module 3: `KeywordExtractor` (aspect-aware keywords).
@@ -17,6 +19,7 @@ The Analytics Engine already has:
 
 `documents/master-proposal.md` and `analytic_orchestrator.md` describe an
 **Analytics Orchestrator** that:
+
 - Receives **Atomic JSON** posts (from MinIO or directly via API).
 - Executes the 5-stage pipeline sequentially.
 - Applies skip logic (spam/seeding/noise).
@@ -28,6 +31,7 @@ codebase and how entry points (RabbitMQ consumer, dev API) will delegate to it.
 ### 2. Goals / Non-Goals
 
 **Goals**
+
 - Provide a single orchestration component that:
   - Processes one Atomic JSON post at a time.
   - Uses existing modules via their public APIs.
@@ -39,6 +43,7 @@ codebase and how entry points (RabbitMQ consumer, dev API) will delegate to it.
   that belongs inside Modules 1–5.
 
 **Non-Goals**
+
 - No new AI capabilities (all ML logic remains in existing modules).
 - No major changes to `PostAnalytics` schema (reuse current columns).
 - No full batch-processing or retry framework (reserved for later phases).
@@ -48,6 +53,7 @@ codebase and how entry points (RabbitMQ consumer, dev API) will delegate to it.
 **Class**: `AnalyticsOrchestrator` (in `services/analytics/orchestrator.py`)
 
 Responsibilities:
+
 - Accept a single `post_data: dict` representing an Atomic JSON file.
 - Extract required sections:
   - `meta`: id, platform, project_id, published_at, etc.
@@ -138,6 +144,7 @@ The orchestrator returns a dict that can be passed to `PostAnalytics` and API:
 #### 5.3 Skip Result Contract
 
 When a post is **skipped** (spam/seeding/noise), the orchestrator will:
+
 - Still persist a record with:
   - Neutral sentiment defaults.
   - LOW impact and LOW risk.
@@ -154,9 +161,10 @@ When a post is **skipped** (spam/seeding/noise), the orchestrator will:
   - `services.analytics.keyword.KeywordExtractor`.
   - `services.analytics.sentiment.SentimentAnalyzer`.
   - `services.analytics.impact.ImpactCalculator`.
-  - `repositories.analytics_repository.AnalyticsRepository`.
+  - `repository.analytics_repository.AnalyticsRepository`.
 
 Construction options:
+
 - For API/dev:
   - Use dependency-injection helpers (e.g. in `core/dependencies.py`) to
     create orchestrator with a DB session and shared model instances.
@@ -182,5 +190,3 @@ Construction options:
 - How much of the skip logic should be configurable (e.g. thresholds from config)?
 - When batch-processing is implemented, should multiple posts share a single
   orchestrator instance, or is per-post instantiation acceptable?
-
-

@@ -3,6 +3,7 @@
 **Change ID**: `analytic_orchestrator`  
 **Status**: Proposal  
 **Related Docs**:
+
 - `analytic_orchestrator.md`
 - `documents/implement_plan.md`
 - `documents/master-proposal.md`
@@ -10,6 +11,7 @@
 ## Why
 
 The Analytics Engine already implements the core processing modules:
+
 - Module 1: `TextPreprocessor`
 - Module 2: `IntentClassifier`
 - Module 3: `KeywordExtractor`
@@ -17,6 +19,7 @@ The Analytics Engine already implements the core processing modules:
 - Module 5: `ImpactCalculator`
 
 However, the system still lacks a **single, cohesive orchestration layer** that:
+
 - Accepts **Atomic JSON** posts (from MinIO or directly via API).
 - Runs the 5-stage pipeline **sequentially and consistently**.
 - Applies **gatekeeping rules** (skip spam/seeding/noise before expensive AI).
@@ -27,6 +30,7 @@ However, the system still lacks a **single, cohesive orchestration layer** that:
   - Developer-friendly API for direct JSON testing (no MinIO/queue).
 
 Without this orchestrator:
+
 - Each entry point has to re-implement ad-hoc glue logic between modules.
 - There is no single place to enforce cross-cutting rules (skip logic, metrics, error handling).
 - The implementation plan in `documents/implement_plan.md` (Phase 1) and the
@@ -34,12 +38,14 @@ Without this orchestrator:
   remain partially theoretical.
 
 This change introduces a **first-class `AnalyticsOrchestrator`** and entry points to:
+
 - Close the loop from MinIO → Processing Pipeline → PostgreSQL.
 - Make it trivial for developers to exercise the full pipeline over sample JSON.
 
 ## What Changes
 
 - **New core orchestrator**:
+
   - Implement `AnalyticsOrchestrator` in `services/analytics/orchestrator.py` that:
     - Accepts a single **Atomic Post JSON** dict (`post_data`).
     - Runs Modules 1–5 in order:
@@ -55,12 +61,14 @@ This change introduces a **first-class `AnalyticsOrchestrator`** and entry point
     - Persists results via a dedicated repository abstraction.
 
 - **MinIO storage adapter**:
+
   - Implement a small `MinioAdapter` in `infrastructure/storage/minio_client.py` that:
     - Reads JSON objects from MinIO based on `bucket` + `object_path`.
     - Streams content and parses into Python dicts without temporary files.
 
 - **Entry point: RabbitMQ consumer (production flow)**:
-  - Implement a queue-based entry point (e.g. `commands/consumer/orchestrated_main.py` or
+
+  - Implement a queue-based entry point (e.g. `command/consumer/orchestrated_main.py` or
     extend `internal/consumers/main.py`) that:
     - Receives messages containing `data_ref` (bucket/path).
     - Uses `MinioAdapter` to fetch the Atomic JSON.
@@ -68,12 +76,14 @@ This change introduces a **first-class `AnalyticsOrchestrator`** and entry point
     - Acks/Nacks messages based on success/failure.
 
 - **Entry point: Dev/Test API endpoint**:
+
   - Add a dev/test-only FastAPI endpoint (e.g. under `internal/api/routes/test.py`) that:
     - Accepts an entire Atomic JSON payload in the request body.
     - Delegates to `AnalyticsOrchestrator` and returns the enriched analytics result.
     - Does not depend on MinIO or RabbitMQ, to simplify debugging.
 
 - **Repository alignment & persistence**:
+
   - Implement/align `AnalyticsRepository` so that:
     - It can save full analytics records into the existing `PostAnalytics` model.
     - It abstracts DB access from the orchestrator and entry points.
@@ -85,6 +95,7 @@ This change introduces a **first-class `AnalyticsOrchestrator`** and entry point
 ## Impact
 
 - **Capabilities**:
+
   - Adds a new **Analytics Orchestration** capability:
     - Single responsibility: transform one Atomic JSON post into a persisted analytics record.
     - Entry-point agnostic: works for both queue-based and API-based flows.
@@ -92,6 +103,7 @@ This change introduces a **first-class `AnalyticsOrchestrator`** and entry point
     impact) into a coherent, testable pipeline.
 
 - **Architecture**:
+
   - Realizes the orchestrator design in `documents/master-proposal.md` Section 3.2/3.3:
     - Orchestrator sits between entry points and the 5-stage pipeline.
     - Persistence handled via repository and `PostAnalytics` schema.
@@ -106,5 +118,3 @@ This change introduces a **first-class `AnalyticsOrchestrator`** and entry point
   - We must avoid blocking the consumer loop with DB/MinIO/AI bottlenecks; the orchestrator
     will be synchronous but small, relying on existing async/infra layers where appropriate.
   - API entry point is for dev/test only and should be clearly documented as such.
-
-

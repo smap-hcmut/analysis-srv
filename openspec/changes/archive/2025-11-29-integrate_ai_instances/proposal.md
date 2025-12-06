@@ -41,12 +41,14 @@ Integrate AI model instances (PhoBERT ONNX and SpaCy-YAKE) into the Analytics En
 ### Key Design Decisions
 
 **Why Lifespan + Dependency Injection?**
+
 - **Performance**: Models loaded once, reused for all requests (~2-5s startup vs 50-200ms per request)
 - **Testability**: Easy to mock AI instances in unit tests
 - **FastAPI Best Practice**: Standard pattern for managing application state
 - **Resource Management**: Proper cleanup on shutdown
 
 **Why Test Endpoint?**
+
 - **Development**: Validate JSON input format and pipeline integration
 - **Debugging**: See full analytics output (preprocessing → keywords → sentiment)
 - **Documentation**: Living example of expected input/output format
@@ -56,6 +58,7 @@ Integrate AI model instances (PhoBERT ONNX and SpaCy-YAKE) into the Analytics En
 ## Scope
 
 ### In Scope
+
 - ✅ Initialize PhoBERT ONNX in API service lifespan
 - ✅ Initialize SpaCy-YAKE in API service lifespan
 - ✅ Initialize PhoBERT ONNX in Consumer service lifespan
@@ -66,6 +69,7 @@ Integrate AI model instances (PhoBERT ONNX and SpaCy-YAKE) into the Analytics En
 - ✅ Return full analytics debug response
 
 ### Out of Scope
+
 - ❌ TextPreprocessor implementation (separate proposal)
 - ❌ Full pipeline orchestration (separate proposal)
 - ❌ Production analytics processing (separate proposal)
@@ -77,7 +81,7 @@ Integrate AI model instances (PhoBERT ONNX and SpaCy-YAKE) into the Analytics En
 
 ### 1. Service Lifecycle Integration
 
-**File**: `commands/api/main.py`
+**File**: `command/api/main.py`
 
 ```python
 from infrastructure.ai import PhoBERTONNX, SpacyYakeExtractor
@@ -87,19 +91,19 @@ async def lifespan(app: FastAPI):
     """Manage AI model lifecycle."""
     try:
         logger.info("Loading AI models...")
-        
+
         # Initialize models (expensive operation, done once)
         app.state.phobert = PhoBERTONNX()
         app.state.spacyyake = SpacyYakeExtractor()
-        
+
         logger.info("AI models loaded successfully")
         yield
-        
+
         # Cleanup
         logger.info("Shutting down AI models...")
         del app.state.phobert
         del app.state.spacyyake
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize AI models: {e}")
         raise
@@ -125,7 +129,7 @@ class RabbitMQClient:
         self.url = url
         self.connection: Optional[aio_pika.Connection] = None
         self.channel: Optional[aio_pika.Channel] = None
-        
+
     async def connect(self) -> None:
         """Establish connection to RabbitMQ."""
         try:
@@ -149,14 +153,14 @@ class RabbitMQClient:
     async def consume(self, queue_name: str, callback: Callable[[aio_pika.IncomingMessage], Awaitable[None]]) -> None:
         """
         Start consuming messages from a queue.
-        
+
         Args:
             queue_name: Name of the queue to consume from
             callback: Async function to handle messages
         """
         if not self.channel:
             raise RuntimeError("RabbitMQ channel not initialized. Call connect() first.")
-            
+
         queue = await self.channel.declare_queue(queue_name, durable=True)
         await queue.consume(callback)
         logger.info(f"Started consuming from queue: {queue_name}")
@@ -164,7 +168,7 @@ class RabbitMQClient:
 
 ### 3. Consumer Service Integration
 
-**File**: `commands/consumer/main.py`
+**File**: `command/consumer/main.py`
 
 ```python
 import asyncio
@@ -181,30 +185,30 @@ rabbitmq: RabbitMQClient = None
 async def main():
     """Entry point for the Analytics Engine consumer."""
     global phobert, spacyyake, rabbitmq
-    
+
     try:
         logger.info("Starting Consumer service...")
-        
+
         # 1. Initialize AI models
         logger.info("Loading AI models...")
         phobert = PhoBERTONNX()
         spacyyake = SpacyYakeExtractor()
         logger.info("AI models loaded successfully")
-        
+
         # 2. Initialize Infrastructure
         rabbitmq = RabbitMQClient(settings.rabbitmq_url)
         await rabbitmq.connect()
-        
+
         # 3. Start consuming messages
         # Pass models to the handler wrapper
         from internal.consumers.handler import create_message_handler
-        
+
         handler = create_message_handler(phobert, spacyyake)
         await rabbitmq.consume(settings.queue_name, handler)
-        
+
         # Keep running
         await asyncio.Future()
-        
+
     except KeyboardInterrupt:
         logger.info("Consumer stopped by user")
     except Exception as e:
@@ -213,13 +217,13 @@ async def main():
     finally:
         # Cleanup
         logger.info("Shutting down Consumer service...")
-        
+
         if rabbitmq:
             await rabbitmq.close()
-            
+
         if phobert: del phobert
         if spacyyake: del spacyyake
-        
+
         logger.info("Consumer service stopped")
 ```
 
@@ -278,17 +282,17 @@ async def test_analytics(
 ):
     """
     Test endpoint for analytics pipeline.
-    
+
     Accepts JSON input matching master-proposal.md format and returns
     full analytics output for debugging.
     """
     try:
         # Extract post ID
         post_id = request.meta.get("id", "unknown")
-        
+
         # For now, just validate models are accessible
         # Full processing will be implemented in future proposals
-        
+
         return AnalyticsTestResponse(
             post_id=post_id,
             preprocessing={
@@ -309,7 +313,7 @@ async def test_analytics(
                 "models_initialized": True
             }
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 ```
@@ -330,6 +334,7 @@ app.include_router(test.router)
 ## Success Criteria
 
 ### Functional Requirements
+
 - [ ] PhoBERT model initializes successfully on API startup
 - [ ] SpaCy-YAKE model initializes successfully on API startup
 - [ ] PhoBERT model initializes successfully on Consumer startup
@@ -342,6 +347,7 @@ app.include_router(test.router)
 - [ ] Test endpoint response time < 1 second
 
 ### Non-Functional Requirements
+
 - [ ] Models loaded once, not per-request
 - [ ] Proper error handling for model initialization failures
 - [ ] Logging for model lifecycle events
@@ -362,14 +368,17 @@ See `tasks.md` for detailed breakdown.
 ## Dependencies
 
 ### Required
+
 - ✅ PhoBERT ONNX implementation (`infrastructure/ai/phobert_onnx.py`)
 - ✅ SpaCy-YAKE implementation (`infrastructure/ai/spacyyake_extractor.py`)
 - ✅ FastAPI application structure
 
 ### Blocked By
+
 - None
 
 ### Blocks
+
 - TextPreprocessor integration (future proposal)
 - Full analytics pipeline (future proposal)
 
@@ -377,23 +386,26 @@ See `tasks.md` for detailed breakdown.
 
 ## Risks & Mitigations
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Model loading fails on startup | High | Implement retry logic + fallback mode |
-| Memory usage too high | Medium | Monitor memory, consider lazy loading |
-| Startup time too slow | Low | Acceptable for dev/test, optimize later |
+| Risk                           | Impact | Mitigation                              |
+| ------------------------------ | ------ | --------------------------------------- |
+| Model loading fails on startup | High   | Implement retry logic + fallback mode   |
+| Memory usage too high          | Medium | Monitor memory, consider lazy loading   |
+| Startup time too slow          | Low    | Acceptable for dev/test, optimize later |
 
 ---
 
 ## Alternatives Considered
 
 ### Alternative 1: Singleton Pattern
+
 **Rejected**: Less testable, not FastAPI idiomatic
 
 ### Alternative 2: Lazy Loading
+
 **Rejected**: First request would be slow, unpredictable latency
 
 ### Alternative 3: Separate Model Service
+
 **Rejected**: Over-engineering for current scale
 
 ---

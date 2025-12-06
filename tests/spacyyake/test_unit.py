@@ -19,7 +19,10 @@ class TestSpacyYakeExtractorInitialization:
     """Test SpacyYakeExtractor initialization."""
 
     def test_initialization_with_defaults(self):
-        """Test initialization with default parameters."""
+        """Test initialization with default parameters.
+        
+        Default model changed to xx_ent_wiki_sm (multilingual) for Vietnamese support.
+        """
         with (
             patch("infrastructure.ai.spacyyake_extractor.spacy") as mock_spacy,
             patch("infrastructure.ai.spacyyake_extractor.yake"),
@@ -28,11 +31,11 @@ class TestSpacyYakeExtractorInitialization:
 
             extractor = SpacyYakeExtractor()
 
-            assert extractor.spacy_model == "en_core_web_sm"
+            assert extractor.spacy_model == "xx_ent_wiki_sm"  # Multilingual model for Vietnamese
             assert extractor.max_keywords == 30
             assert extractor.entity_weight == 0.7
             assert extractor.chunk_weight == 0.5
-            mock_spacy.load.assert_called_once_with("en_core_web_sm")
+            mock_spacy.load.assert_called_once_with("xx_ent_wiki_sm")
 
     def test_initialization_with_custom_params(self):
         """Test initialization with custom parameters."""
@@ -52,19 +55,29 @@ class TestSpacyYakeExtractorInitialization:
             assert extractor.chunk_weight == 0.6
             mock_spacy.load.assert_called_once_with("en_core_web_md")
 
-    def test_initialization_downloads_missing_model(self):
-        """Test that missing SpaCy model is downloaded."""
+    def test_initialization_fallback_chain(self):
+        """Test that SpaCy model loading uses fallback chain.
+        
+        Implementation uses fallback chain instead of downloading:
+        1. User specified model (xx_ent_wiki_sm)
+        2. en_core_web_sm
+        3. Blank 'vi' model
+        """
         with (
             patch("infrastructure.ai.spacyyake_extractor.spacy") as mock_spacy,
             patch("infrastructure.ai.spacyyake_extractor.yake"),
         ):
-            # First call raises OSError, second succeeds
+            # First call (xx_ent_wiki_sm) fails, second call (en_core_web_sm) succeeds
             mock_spacy.load.side_effect = [OSError("Model not found"), MagicMock()]
 
             extractor = SpacyYakeExtractor()
 
+            # Should try fallback models (no download call)
             assert mock_spacy.load.call_count == 2
-            mock_spacy.cli.download.assert_called_once_with("en_core_web_sm")
+            # First call is default model, second is fallback
+            calls = mock_spacy.load.call_args_list
+            assert calls[0][0][0] == "xx_ent_wiki_sm"
+            assert calls[1][0][0] == "en_core_web_sm"
 
     def test_initialization_handles_import_error(self):
         """Test handling of missing spaCy library."""
@@ -219,44 +232,81 @@ class TestNounChunkExtraction:
         assert "great product" in chunks
         assert "excellent quality" in chunks
 
-    def test_extract_noun_chunks_filter_single_word(self, extractor):
-        """Test filtering of single-word chunks."""
+    def test_extract_noun_chunks_filter_single_char(self, extractor):
+        """Test filtering of single-character chunks.
+        
+        Implementation filters chunks with len(text) <= 1.
+        Single words are now allowed (for Vietnamese noun extraction).
+        """
+        mock_chunk = MagicMock()
+        mock_chunk.text = "x"  # Single character
+
+        mock_doc = MagicMock()
+        mock_doc.has_annotation = MagicMock(return_value=True)
+        mock_doc.noun_chunks = [mock_chunk]
+        mock_doc.__iter__ = MagicMock(return_value=iter([]))
+
+        chunks = extractor._extract_noun_chunks(mock_doc)
+
+        # Should be filtered out (single character)
+        assert len(chunks) == 0
+
+    def test_extract_noun_chunks_accepts_single_word(self, extractor):
+        """Test that single-word chunks are now accepted.
+        
+        Implementation changed to support Vietnamese nouns which are often single words.
+        """
         mock_chunk = MagicMock()
         mock_chunk.text = "product"
 
         mock_doc = MagicMock()
+        mock_doc.has_annotation = MagicMock(return_value=True)
         mock_doc.noun_chunks = [mock_chunk]
+        mock_doc.__iter__ = MagicMock(return_value=iter([]))
 
         chunks = extractor._extract_noun_chunks(mock_doc)
 
-        # Should be filtered out (only 1 word)
-        assert len(chunks) == 0
+        # Single words are now accepted (len > 1)
+        assert len(chunks) == 1
+        assert "product" in chunks
 
-    def test_extract_noun_chunks_filter_too_long(self, extractor):
-        """Test filtering of chunks with too many words."""
+    def test_extract_noun_chunks_accepts_long_phrases(self, extractor):
+        """Test that long noun phrases are accepted.
+        
+        Implementation no longer filters by word count.
+        """
         mock_chunk = MagicMock()
         mock_chunk.text = "the very long noun chunk phrase"
 
         mock_doc = MagicMock()
+        mock_doc.has_annotation = MagicMock(return_value=True)
         mock_doc.noun_chunks = [mock_chunk]
+        mock_doc.__iter__ = MagicMock(return_value=iter([]))
 
         chunks = extractor._extract_noun_chunks(mock_doc)
 
-        # Should be filtered out (more than 4 words)
-        assert len(chunks) == 0
+        # Long phrases are now accepted
+        assert len(chunks) == 1
+        assert "the very long noun chunk phrase" in chunks
 
-    def test_extract_noun_chunks_filter_short_text(self, extractor):
-        """Test filtering of very short chunks."""
+    def test_extract_noun_chunks_accepts_short_text(self, extractor):
+        """Test that short text (> 1 char) is accepted.
+        
+        Implementation only filters single characters.
+        """
         mock_chunk = MagicMock()
         mock_chunk.text = "ab"
 
         mock_doc = MagicMock()
+        mock_doc.has_annotation = MagicMock(return_value=True)
         mock_doc.noun_chunks = [mock_chunk]
+        mock_doc.__iter__ = MagicMock(return_value=iter([]))
 
         chunks = extractor._extract_noun_chunks(mock_doc)
 
-        # Should be filtered out (less than 4 chars)
-        assert len(chunks) == 0
+        # Short text (> 1 char) is now accepted
+        assert len(chunks) == 1
+        assert "ab" in chunks
 
     def test_extract_noun_chunks_limit_to_20(self, extractor):
         """Test that only top 20 chunks are returned."""

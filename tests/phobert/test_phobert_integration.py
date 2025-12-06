@@ -18,58 +18,42 @@ def test_imports():
         from infrastructure.ai import PhoBERTONNX
 
         print("✅ PhoBERTONNX imported successfully")
-        return True
+        assert True  # Use assert instead of return for pytest
     except Exception as e:
         print(f"❌ Import failed: {e}")
-        return False
+        assert False, f"Import failed: {e}"
 
 
 def test_class_structure():
     """Test that the class has the expected structure."""
     print("\nTesting class structure...")
-    try:
-        from infrastructure.ai import PhoBERTONNX
+    from infrastructure.ai import PhoBERTONNX
+    from infrastructure.ai.constants import SENTIMENT_MAP, SENTIMENT_LABELS
 
-        # Check class attributes
-        assert hasattr(PhoBERTONNX, "SENTIMENT_MAP"), "Missing SENTIMENT_MAP"
-        assert hasattr(PhoBERTONNX, "SENTIMENT_LABELS"), "Missing SENTIMENT_LABELS"
-        assert len(PhoBERTONNX.SENTIMENT_MAP) == 5, "SENTIMENT_MAP should have 5 entries"
-        assert len(PhoBERTONNX.SENTIMENT_LABELS) == 5, "SENTIMENT_LABELS should have 5 entries"
+    # Check constants are available
+    assert len(SENTIMENT_MAP) == 3, "SENTIMENT_MAP should have 3 entries (3-class model)"
+    assert len(SENTIMENT_LABELS) == 5, "SENTIMENT_LABELS should have 5 entries"
 
-        # Check methods
-        assert hasattr(PhoBERTONNX, "predict"), "Missing predict method"
-        assert hasattr(PhoBERTONNX, "predict_batch"), "Missing predict_batch method"
+    # Check methods
+    assert hasattr(PhoBERTONNX, "predict"), "Missing predict method"
+    assert hasattr(PhoBERTONNX, "predict_batch"), "Missing predict_batch method"
+    assert hasattr(PhoBERTONNX, "_segment_text"), "Missing _segment_text method"
+    assert hasattr(PhoBERTONNX, "_postprocess"), "Missing _postprocess method"
 
-        print("✅ Class structure is correct")
-        return True
-    except AssertionError as e:
-        print(f"❌ Structure test failed: {e}")
-        return False
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        return False
+    print("✅ Class structure is correct")
 
 
 def test_initialization_without_model():
     """Test that initialization fails gracefully without model."""
     print("\nTesting initialization without model...")
-    try:
-        from infrastructure.ai import PhoBERTONNX
+    import pytest
+    from infrastructure.ai import PhoBERTONNX
 
-        try:
-            model = PhoBERTONNX(model_path="/nonexistent/path")
-            print("❌ Should have raised FileNotFoundError")
-            return False
-        except FileNotFoundError as e:
-            if "Model directory not found" in str(e):
-                print("✅ Correctly raises FileNotFoundError with proper message")
-                return True
-            else:
-                print(f"❌ Wrong error message: {e}")
-                return False
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        return False
+    with pytest.raises(FileNotFoundError) as exc_info:
+        model = PhoBERTONNX(model_path="/nonexistent/path")
+
+    assert "Model directory not found" in str(exc_info.value)
+    print("✅ Correctly raises FileNotFoundError with proper message")
 
 
 def main():

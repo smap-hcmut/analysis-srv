@@ -1,0 +1,155 @@
+# Canary Deployment Configuration for Analytics Service
+# This file defines the staged rollout strategy for the crawler integration
+
+# Deployment Stages
+stages:
+  # Stage 1: Initial canary (10% traffic)
+  canary_10:
+    name: "Canary 10%"
+    traffic_percentage: 10
+    duration_hours: 4
+    success_criteria:
+      error_rate_max: 5.0  # percent
+      latency_p95_max_ms: 5000
+      success_rate_min: 95.0
+    rollback_criteria:
+      error_rate_threshold: 10.0
+      consecutive_failures: 3
+    feature_flags:
+      new_mode_enabled: true
+      legacy_mode_enabled: true
+
+  # Stage 2: Expanded canary (50% traffic)
+  canary_50:
+    name: "Canary 50%"
+    traffic_percentage: 50
+    duration_hours: 8
+    success_criteria:
+      error_rate_max: 5.0
+      latency_p95_max_ms: 5000
+      success_rate_min: 95.0
+    rollback_criteria:
+      error_rate_threshold: 8.0
+      consecutive_failures: 5
+    feature_flags:
+      new_mode_enabled: true
+      legacy_mode_enabled: true
+
+  # Stage 3: Full rollout (100% traffic)
+  full_rollout:
+    name: "Full Rollout"
+    traffic_percentage: 100
+    duration_hours: 24
+    success_criteria:
+      error_rate_max: 5.0
+      latency_p95_max_ms: 5000
+      success_rate_min: 95.0
+    rollback_criteria:
+      error_rate_threshold: 10.0
+      consecutive_failures: 10
+    feature_flags:
+      new_mode_enabled: true
+      legacy_mode_enabled: false  # Disable legacy after full rollout
+
+# Monitoring Configuration
+monitoring:
+  # Metrics to track during deployment
+  metrics:
+    - name: error_rate
+      query: "rate(analytics_errors_total[5m]) / rate(analytics_requests_total[5m]) * 100"
+      threshold: 5.0
+      
+    - name: latency_p95
+      query: "histogram_quantile(0.95, rate(analytics_batch_duration_seconds_bucket[5m]))"
+      threshold: 5.0
+      
+    - name: success_rate
+      query: "rate(analytics_batch_success_total[5m]) / rate(analytics_batch_total[5m]) * 100"
+      threshold: 95.0
+      
+    - name: throughput
+      query: "rate(analytics_items_processed_total[5m])"
+      min_threshold: 100  # items per second
+
+  # Alert configuration
+  alerts:
+    - name: high_error_rate
+      condition: "error_rate > 10"
+      severity: critical
+      action: auto_rollback
+      
+    - name: high_latency
+      condition: "latency_p95 > 10"
+      severity: warning
+      action: notify
+      
+    - name: low_throughput
+      condition: "throughput < 50"
+      severity: warning
+      action: notify
+
+# Rollback Configuration
+rollback:
+  # Automatic rollback settings
+  auto_rollback:
+    enabled: true
+    cooldown_minutes: 5
+    max_rollbacks: 3
+    
+  # Manual rollback command
+  command: |
+    # Set feature flags
+    export NEW_MODE_ENABLED=false
+    export LEGACY_MODE_ENABLED=true
+    
+    # Restart service
+    docker-compose restart analytics-consumer
+
+# Health Check Configuration
+health_checks:
+  # Readiness probe
+  readiness:
+    endpoint: /health
+    interval_seconds: 10
+    timeout_seconds: 5
+    failure_threshold: 3
+    
+  # Liveness probe
+  liveness:
+    endpoint: /health
+    interval_seconds: 30
+    timeout_seconds: 10
+    failure_threshold: 5
+
+# Notification Configuration
+notifications:
+  channels:
+    - type: slack
+      webhook: "${SLACK_WEBHOOK_URL}"
+      events:
+        - stage_started
+        - stage_completed
+        - rollback_triggered
+        - deployment_completed
+        
+    - type: email
+      recipients:
+        - analytics-team@example.com
+      events:
+        - rollback_triggered
+        - deployment_failed
+
+# Schedule (optional)
+schedule:
+  # Preferred deployment windows
+  preferred_hours:
+    - start: "09:00"
+      end: "17:00"
+      timezone: "Asia/Ho_Chi_Minh"
+      
+  # Blackout periods (no deployments)
+  blackout_periods:
+    - name: "Weekend"
+      days: ["Saturday", "Sunday"]
+    - name: "Holidays"
+      dates: ["2025-01-01", "2025-02-01"]  # Add specific dates

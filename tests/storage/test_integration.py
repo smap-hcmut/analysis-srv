@@ -133,19 +133,43 @@ class TestDownloadJsonWithCompression:
         with pytest.raises(MinioAdapterError, match="Invalid JSON"):
             adapter.download_json("test-bucket", "test/path.json")
 
-    def test_download_json_non_dict_json(self, adapter):
-        """Test error handling when JSON is not a dict."""
+    def test_download_json_array_format(self, adapter):
+        """Test downloading JSON array format (Crawler format support).
+
+        Since Phase 7 Crawler Format Compatibility, download_json() now supports
+        both dict and list return types to handle Crawler's JSON array format.
+        """
         # Mock stat_object with no compression
         mock_stat = MagicMock()
         mock_stat.metadata = {}
         adapter._client.stat_object.return_value = mock_stat
 
-        # Mock get_object to return JSON array
+        # Mock get_object to return JSON array (Crawler format)
+        test_array = [{"id": 1}, {"id": 2}, {"id": 3}]
         mock_response = MagicMock()
-        mock_response.read.return_value = b'[1, 2, 3]'
+        mock_response.read.return_value = json.dumps(test_array).encode("utf-8")
         adapter._client.get_object.return_value = mock_response
 
-        # Execute - should raise MinioAdapterError
+        # Execute - should return list (not raise error)
+        result = adapter.download_json("test-bucket", "test/path.json")
+
+        # Verify it returns the array
+        assert isinstance(result, list)
+        assert result == test_array
+
+    def test_download_json_invalid_type(self, adapter):
+        """Test error handling when JSON is not dict or list."""
+        # Mock stat_object with no compression
+        mock_stat = MagicMock()
+        mock_stat.metadata = {}
+        adapter._client.stat_object.return_value = mock_stat
+
+        # Mock get_object to return JSON string (invalid type)
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'"just a string"'
+        adapter._client.get_object.return_value = mock_response
+
+        # Execute - should raise MinioAdapterError for non-dict/list types
         with pytest.raises(MinioAdapterError, match="Expected JSON object"):
             adapter.download_json("test-bucket", "test/path.json")
 
@@ -170,9 +194,7 @@ class TestCompressionRoundtrip:
 
     def test_json_roundtrip_large(self, adapter):
         """Test roundtrip with large JSON data."""
-        original = {
-            "posts": [{"id": i, "content": f"Post content {i}" * 10} for i in range(100)]
-        }
+        original = {"posts": [{"id": i, "content": f"Post content {i}" * 10} for i in range(100)]}
         json_bytes = json.dumps(original).encode("utf-8")
         compressed = adapter._compress_data(json_bytes)
         decompressed = adapter._decompress_data(compressed)

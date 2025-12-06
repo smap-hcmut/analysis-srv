@@ -3,13 +3,17 @@
 This module wraps the MinIO Python SDK behind a small adapter so that
 callers (e.g. orchestrated consumers) can fetch JSON objects from MinIO
 without depending directly on the SDK.
+
+Supports both Analytics service format and Crawler service format:
+- Analytics: Uses compression-algorithm metadata
+- Crawler: Uses compressed="true" metadata with JSON arrays
 """
 
 from __future__ import annotations
 
 import io
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import zstandard as zstd
 from minio import Minio  # type: ignore
@@ -18,6 +22,7 @@ from minio.error import S3Error  # type: ignore
 from core.config import settings
 from core.logger import logger
 from infrastructure.storage.constants import (
+    METADATA_COMPRESSED,
     METADATA_COMPRESSED_SIZE,
     METADATA_COMPRESSION_ALGORITHM,
     METADATA_COMPRESSION_LEVEL,
@@ -91,14 +96,29 @@ class MinioAdapter:
     def _is_compressed(self, metadata: Dict[str, str]) -> bool:
         """Check if object metadata indicates compression.
 
+        Supports both Analytics and Crawler metadata formats:
+        - Analytics: compression-algorithm == "zstd"
+        - Crawler: compressed == "true"
+
         Args:
             metadata: Object metadata dictionary from MinIO.
 
         Returns:
             True if the object is compressed, False otherwise.
         """
-        algorithm = self._get_compression_metadata(metadata).get("algorithm")
-        return algorithm == "zstd"
+        compression_meta = self._get_compression_metadata(metadata)
+
+        # Check Analytics format: compression-algorithm == "zstd"
+        algorithm = compression_meta.get("algorithm")
+        if algorithm == "zstd":
+            return True
+
+        # Check Crawler format: compressed == "true"
+        compressed_flag = compression_meta.get("compressed")
+        if compressed_flag and compressed_flag.lower() == "true":
+            return True
+
+        return False
 
     def _get_compression_metadata(self, metadata: Dict[str, str]) -> Dict[str, Any]:
         """Extract compression metadata from object metadata.
@@ -139,11 +159,13 @@ class MinioAdapter:
     def _parse_compression_metadata(self, metadata: Dict[str, str]) -> Dict[str, Any]:
         """Parse compression metadata from MinIO object metadata.
 
+        Supports both Analytics and Crawler metadata formats.
+
         Args:
             metadata: Object metadata dictionary from MinIO.
 
         Returns:
-            Dictionary with compression info (algorithm, level, original_size, compressed_size).
+            Dictionary with compression info (algorithm, level, original_size, compressed_size, compressed).
             Empty dict if no compression metadata found.
         """
         result: Dict[str, Any] = {}
@@ -151,37 +173,60 @@ class MinioAdapter:
         # MinIO returns metadata keys in lowercase
         meta_lower = {k.lower(): v for k, v in metadata.items()}
 
+        # Check for "compressed" flag (Crawler format)
+        compressed = meta_lower.get(METADATA_COMPRESSED.lower())
+        if compressed:
+            result["compressed"] = compressed
+
+        # Check for compression algorithm
         algorithm = meta_lower.get(METADATA_COMPRESSION_ALGORITHM.lower())
         if algorithm:
             result["algorithm"] = algorithm
 
+        # Check for compression level
         level = meta_lower.get(METADATA_COMPRESSION_LEVEL.lower())
         if level:
-            result["level"] = int(level)
+            try:
+                result["level"] = int(level)
+            except ValueError:
+                pass
 
+        # Check for original size
         original_size = meta_lower.get(METADATA_ORIGINAL_SIZE.lower())
         if original_size:
-            result["original_size"] = int(original_size)
+            try:
+                result["original_size"] = int(original_size)
+            except ValueError:
+                pass
 
+        # Check for compressed size
         compressed_size = meta_lower.get(METADATA_COMPRESSED_SIZE.lower())
         if compressed_size:
-            result["compressed_size"] = int(compressed_size)
+            try:
+                result["compressed_size"] = int(compressed_size)
+            except ValueError:
+                pass
 
         return result
 
-    def download_json(self, bucket: str, object_path: str) -> Dict[str, Any]:
+    def download_json(
+        self, bucket: str, object_path: str
+    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """Download and parse a JSON object from MinIO with auto-decompression.
 
         This method downloads the object from MinIO, automatically detects if it's
         compressed via metadata, decompresses if needed, and parses the JSON.
         Maintains backward compatibility with uncompressed files.
 
+        Supports both JSON objects (dict) and JSON arrays (list) to be compatible
+        with both Analytics service format and Crawler service format.
+
         Args:
             bucket: MinIO bucket name.
             object_path: Path to the object within the bucket.
 
         Returns:
-            Parsed JSON data as a dictionary.
+            Parsed JSON data as a dictionary or list of dictionaries.
 
         Raises:
             MinioObjectNotFoundError: If the object does not exist.
@@ -215,7 +260,7 @@ class MinioAdapter:
                 compression_meta = self._parse_compression_metadata(metadata)
                 logger.debug(
                     "Decompressing data: algorithm=%s, compressed_size=%d, original_size=%d",
-                    compression_meta.get("algorithm"),
+                    compression_meta.get("algorithm", "zstd"),
                     compression_meta.get("compressed_size", len(raw_data)),
                     compression_meta.get("original_size", 0),
                 )
@@ -236,9 +281,10 @@ class MinioAdapter:
                     f"Invalid JSON in object {bucket}/{object_path}: {exc}"
                 ) from exc
 
-            if not isinstance(data, dict):
+            # Accept both dict and list (for Crawler compatibility)
+            if not isinstance(data, (dict, list)):
                 raise MinioAdapterError(
-                    f"Expected JSON object (dict) from MinIO, got {type(data).__name__}"
+                    f"Expected JSON object (dict) or array (list) from MinIO, got {type(data).__name__}"
                 )
             return data
 
@@ -254,6 +300,39 @@ class MinioAdapter:
             if response is not None:
                 response.close()
                 response.release_conn()
+
+    def download_batch(self, bucket: str, object_path: str) -> List[Dict[str, Any]]:
+        """Download a batch of items from MinIO.
+
+        This is a convenience method for downloading crawler batches.
+        It handles both JSON arrays (Crawler format) and JSON objects with items key.
+
+        Args:
+            bucket: MinIO bucket name.
+            object_path: Path to the batch file.
+
+        Returns:
+            List of batch items.
+
+        Raises:
+            MinioObjectNotFoundError: If the object does not exist.
+            MinioDecompressionError: If decompression fails.
+            MinioAdapterError: If the object cannot be fetched or parsed.
+        """
+        data = self.download_json(bucket, object_path)
+
+        # Handle different formats
+        if isinstance(data, list):
+            # Crawler format: direct array
+            return data
+        elif isinstance(data, dict):
+            # Analytics format: object with items key
+            if "items" in data:
+                return data["items"]
+            # Single item wrapped in object
+            return [data]
+        else:
+            raise MinioAdapterError(f"Unexpected batch format: {type(data).__name__}")
 
     def upload_json(
         self,

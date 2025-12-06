@@ -3,82 +3,11 @@
 ## Purpose
 TBD - created by archiving change integrate_ai_instances. Update Purpose after archive.
 ## Requirements
-### Requirement: AI Model Initialization
-
-The Analytics Engine API service SHALL initialize AI model instances during application startup using FastAPI lifespan context manager.
-
-**Rationale**: AI models (PhoBERT ONNX, SpaCy-YAKE) are expensive to load (~2-5 seconds). Loading them once during startup and reusing across requests provides significant performance benefits compared to loading per-request.
-
-#### Scenario: Successful Model Loading
-
-**Given** the API service is starting up  
-**When** the lifespan context manager executes  
-**Then** PhoBERT ONNX model SHALL be initialized successfully  
-**And** SpaCy-YAKE model SHALL be initialized successfully  
-**And** both models SHALL be stored in `app.state` for dependency injection  
-**And** startup SHALL complete within 10 seconds  
-**And** initialization events SHALL be logged
-
-#### Scenario: Model Loading Failure
-
-**Given** the API service is starting up  
-**When** a model fails to initialize (e.g., missing files, OOM)  
-**Then** the error SHALL be logged with details  
-**And** the application SHALL fail to start (raise exception)  
-**And** a clear error message SHALL indicate which model failed
-
----
-
-### Requirement: Model Cleanup on Shutdown
-
-The Analytics Engine API service SHALL properly clean up AI model instances during application shutdown.
-
-**Rationale**: Proper resource cleanup prevents memory leaks and ensures graceful shutdown.
-
-#### Scenario: Graceful Shutdown
-
-**Given** the API service is running with models loaded  
-**When** a shutdown signal is received  
-**Then** model instances SHALL be deleted from `app.state`  
-**And** shutdown events SHALL be logged  
-**And** shutdown SHALL complete within 5 seconds
-
----
-
-### Requirement: Dependency Injection for Models
-
-The Analytics Engine SHALL provide dependency injection functions to access AI model instances in API endpoints.
-
-**Rationale**: Dependency injection enables testability (easy to mock models) and follows FastAPI best practices.
-
-#### Scenario: Inject PhoBERT Model
-
-**Given** the API service has initialized PhoBERT  
-**When** an endpoint uses `get_phobert()` dependency  
-**Then** the endpoint SHALL receive the PhoBERT instance  
-**And** the instance SHALL be the same object across all requests (singleton)
-
-#### Scenario: Inject SpaCy-YAKE Model
-
-**Given** the API service has initialized SpaCy-YAKE  
-**When** an endpoint uses `get_spacyyake()` dependency  
-**Then** the endpoint SHALL receive the SpaCy-YAKE instance  
-**And** the instance SHALL be the same object across all requests (singleton)
-
-#### Scenario: Model Not Initialized
-
-**Given** the API service failed to initialize models  
-**When** an endpoint tries to use a model dependency  
-**Then** an appropriate error SHALL be raised  
-**And** the error message SHALL indicate the model is not available
-
----
-
 ### Requirement: Consumer Service Model Initialization
 
 The Analytics Engine Consumer service SHALL initialize AI model instances during startup before processing messages, and SHALL handle decompressed JSON data from MinIO.
 
-**Rationale**: Consumer service processes messages asynchronously and needs AI models available throughout its lifecycle. Additionally, consumer must handle compressed MinIO files by automatically decompressing them before JSON parsing.
+**Rationale**: Consumer service processes messages asynchronously and needs AI models available throughout its lifecycle. This is now the ONLY service entry point for Analytics Engine.
 
 #### Scenario: Successful Consumer Model Loading
 
@@ -135,4 +64,89 @@ The Analytics Engine Consumer service SHALL initialize AI model instances during
 **Then** the system SHALL log a clear error message  
 **And** the message SHALL be rejected (nacked)  
 **And** the error SHALL indicate decompression failure
+
+#### Scenario: Consumer is Single Entry Point
+
+**Given** the Analytics Engine is deployed  
+**When** external systems need to process analytics  
+**Then** they SHALL publish events to RabbitMQ `smap.events` exchange  
+**And** the Consumer service SHALL be the only entry point  
+**And** no HTTP API SHALL be available for direct processing
+
+### Requirement: Consumer service startup with event-driven configuration
+
+The consumer service SHALL initialize and connect to RabbitMQ using event-driven mode configuration without requiring feature flags. The consumer MUST NOT reference undefined feature flags (`new_mode_enabled`, `legacy_mode_enabled`). Configuration MUST be explicit and fail-fast if settings are missing.
+
+**Rationale:** Event-driven architecture is the standard mode. Feature flags for dual-mode operation have been removed to simplify configuration and prevent errors from undefined settings.
+
+#### Scenario: Consumer starts with event-driven configuration
+
+**Given:**
+
+- Settings contain `event_queue_name`, `event_exchange`, `event_routing_key`
+- RabbitMQ is accessible
+
+**When:**
+
+- Consumer service starts via `python -m command.consumer.main`
+
+**Then:**
+
+- Consumer binds to `smap.events` exchange with routing key `data.collected`
+- Queue `analytics.data.collected` is declared
+- No AttributeError is raised for undefined settings
+- Log shows "Using event-driven mode: exchange=smap.events, routing_key=data.collected"
+
+**Acceptance:**
+
+```python
+# command/consumer/main.py
+queue_name = settings.event_queue_name  # Direct access, no conditional
+exchange_name = settings.event_exchange
+routing_key = settings.event_routing_key
+
+await rabbitmq_client.connect(
+    exchange_name=exchange_name,
+    routing_key=routing_key,
+)
+```
+
+---
+
+### Requirement: Configuration validation for event-driven settings
+
+Configuration validation MUST verify that all required event-driven settings are present. The validator SHALL check for `event_queue_name`, `event_exchange`, and `event_routing_key`. Feature flag validation logic MUST be removed.
+
+**Rationale:** Configuration validation should focus on actual required settings rather than feature flags that no longer exist.
+
+#### Scenario: Configuration validation passes for event-driven mode
+
+**Given:**
+
+- Config contains `event_queue_name = "analytics.data.collected"`
+- Config contains `event_exchange = "smap.events"`
+- Config contains `event_routing_key = "data.collected"`
+
+**When:**
+
+- ConfigValidator runs validation
+
+**Then:**
+
+- Validation passes without feature flag checks
+- No warnings about "legacy mode" or "new mode"
+- No AttributeError for undefined settings
+
+**Acceptance:**
+
+```python
+# core/config_validation.py - REMOVED SECTION
+# Lines 258-276 should be deleted (feature flag validation)
+
+# Validation focuses on actual settings
+if not settings.event_queue_name:
+    errors.append("event_queue_name is required")
+if not settings.event_exchange:
+    errors.append("event_exchange is required")
+```
 

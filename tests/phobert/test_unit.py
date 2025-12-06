@@ -162,21 +162,27 @@ class TestPostProcessing:
                 yield phobert
 
     def test_postprocess_negative(self, mock_phobert):
-        """Test post-processing for NEGATIVE sentiment (3-class model, index 0)."""
+        """Test post-processing for NEGATIVE sentiment (3-class model, index 0).
+
+        SENTIMENT_MAP: NEG (index 0) -> 1 star (VERY_NEGATIVE)
+        """
         logits = torch.tensor([[5.0, 0.1, 0.1]])  # wonrax model: NEG=0, POS=1, NEU=2
         result = mock_phobert._postprocess(logits)
 
-        assert result["rating"] == 2
-        assert result["sentiment"] == "NEGATIVE"
+        assert result["rating"] == 1  # NEG -> 1 star (VERY_NEGATIVE)
+        assert result["sentiment"] == "VERY_NEGATIVE"
         assert result["confidence"] > 0.9
 
     def test_postprocess_positive(self, mock_phobert):
-        """Test post-processing for POSITIVE sentiment (3-class model, index 1)."""
+        """Test post-processing for POSITIVE sentiment (3-class model, index 1).
+
+        SENTIMENT_MAP: POS (index 1) -> 5 stars (VERY_POSITIVE)
+        """
         logits = torch.tensor([[0.1, 5.0, 0.1]])  # wonrax model: NEG=0, POS=1, NEU=2
         result = mock_phobert._postprocess(logits)
 
-        assert result["rating"] == 4
-        assert result["sentiment"] == "POSITIVE"
+        assert result["rating"] == 5  # POS -> 5 stars (VERY_POSITIVE)
+        assert result["sentiment"] == "VERY_POSITIVE"
         assert result["confidence"] > 0.9
 
     def test_postprocess_neutral(self, mock_phobert):
@@ -189,12 +195,18 @@ class TestPostProcessing:
         assert result["confidence"] > 0.9
 
     def test_postprocess_all_label_indices(self, mock_phobert):
-        """Test that all label indices (0, 1, 2) map to correct ratings and labels."""
+        """Test that all label indices (0, 1, 2) map to correct ratings and labels.
+
+        SENTIMENT_MAP from constants.py:
+        - NEG (index 0) -> 1 star (VERY_NEGATIVE)
+        - POS (index 1) -> 5 stars (VERY_POSITIVE)
+        - NEU (index 2) -> 3 stars (NEUTRAL)
+        """
         # wonrax model mapping: 0=NEG, 1=POS, 2=NEU
         test_cases = [
-            (torch.tensor([[10.0, 0.0, 0.0]]), 0, 2, "NEGATIVE"),  # NEG -> 2 stars
-            (torch.tensor([[0.0, 10.0, 0.0]]), 1, 4, "POSITIVE"),  # POS -> 4 stars
-            (torch.tensor([[0.0, 0.0, 10.0]]), 2, 3, "NEUTRAL"),   # NEU -> 3 stars
+            (torch.tensor([[10.0, 0.0, 0.0]]), 0, 1, "VERY_NEGATIVE"),  # NEG -> 1 star
+            (torch.tensor([[0.0, 10.0, 0.0]]), 1, 5, "VERY_POSITIVE"),  # POS -> 5 stars
+            (torch.tensor([[0.0, 0.0, 10.0]]), 2, 3, "NEUTRAL"),  # NEU -> 3 stars
         ]
 
         for logits, expected_idx, expected_rating, expected_label in test_cases:
@@ -277,27 +289,33 @@ class TestPrediction:
                 yield phobert
 
     def test_predict_positive(self, mock_phobert):
-        """Test prediction for positive sentiment (3-class model)."""
+        """Test prediction for positive sentiment (3-class model).
+
+        SENTIMENT_MAP: POS (index 1) -> 5 stars (VERY_POSITIVE)
+        """
         mock_output = Mock()
         mock_output.logits = torch.tensor([[0.1, 5.0, 0.1]])  # wonrax model: NEG=0, POS=1, NEU=2
         mock_phobert.model.return_value = mock_output
 
         result = mock_phobert.predict("Sản phẩm tuyệt vời!")
 
-        assert result["rating"] == 4
-        assert result["sentiment"] == "POSITIVE"
+        assert result["rating"] == 5  # POS -> 5 stars (VERY_POSITIVE)
+        assert result["sentiment"] == "VERY_POSITIVE"
         assert result["confidence"] > 0.5
 
     def test_predict_negative(self, mock_phobert):
-        """Test prediction for negative sentiment (3-class model)."""
+        """Test prediction for negative sentiment (3-class model).
+
+        SENTIMENT_MAP: NEG (index 0) -> 1 star (VERY_NEGATIVE)
+        """
         mock_output = Mock()
         mock_output.logits = torch.tensor([[5.0, 0.1, 0.1]])  # wonrax model: NEG=0, POS=1, NEU=2
         mock_phobert.model.return_value = mock_output
 
         result = mock_phobert.predict("Sản phẩm tệ!")
 
-        assert result["rating"] == 2
-        assert result["sentiment"] == "NEGATIVE"
+        assert result["rating"] == 1  # NEG -> 1 star (VERY_NEGATIVE)
+        assert result["sentiment"] == "VERY_NEGATIVE"
 
     def test_predict_empty_text(self, mock_phobert):
         """Test prediction with empty text."""

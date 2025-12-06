@@ -3,6 +3,7 @@
 ## Phase 1: Code Refactoring & Structure (2-3 hours)
 
 - [x] **1.1 Restructure Directory Layout**
+
   - [x] Move core extraction logic to `infrastructure/ai/spacyyake_extractor.py`
   - [x] Create `infrastructure/ai/aspect_mapper.py` for aspect mapping
   - [x] Create `infrastructure/ai/spacyyake_constants.py` for configuration
@@ -10,6 +11,7 @@
   - [x] Remove old `infrastructure/spacyyake/` directory structure
 
 - [x] **1.2 Create Clean Interface**
+
   - [x] Implement `SpacyYakeExtractor` class similar to `PhoBERTONNX`
   - [x] Add `extract()` method for single text
   - [x] Add `extract_batch()` method for multiple texts
@@ -24,6 +26,7 @@
 ## Phase 2: Configuration Management (1 hour)
 
 - [x] **2.1 Update Core Config**
+
   - [x] Add SpaCy-YAKE settings to `core/config.py`
   - [x] Add SpaCy model path/name
   - [x] Add YAKE parameters (language, n-grams, etc.)
@@ -37,6 +40,7 @@
 ## Phase 3: Testing (3-4 hours)
 
 - [x] **3.1 Setup Test Structure**
+
   - [x] Create `tests/spacyyake/` directory
   - [x] Create `tests/spacyyake/__init__.py`
   - [x] Create `tests/spacyyake/test_unit.py`
@@ -44,6 +48,7 @@
   - [x] Create `tests/spacyyake/test_performance.py`
 
 - [x] **3.2 Unit Tests** (Target: 20+ tests - Achieved: 34 tests)
+
   - [x] Test SpacyYakeExtractor initialization
   - [x] Test entity extraction
   - [x] Test noun chunk extraction
@@ -55,6 +60,7 @@
   - [x] Test edge cases (empty text, special characters)
 
 - [x] **3.3 Integration Tests** (Target: 10+ tests - Achieved: 14 tests)
+
   - [x] Test with real SpaCy model
   - [x] Test with real YAKE extractor
   - [x] Test aspect mapping with dictionary
@@ -64,6 +70,7 @@
   - [x] Test long text handling
 
 - [x] **3.4 Performance Tests** (Target: 5+ tests - Achieved: 6 tests)
+
   - [x] Benchmark extraction speed (<500ms target)
   - [x] Benchmark batch throughput
   - [x] Benchmark memory usage (skipped - requires psutil)
@@ -77,6 +84,7 @@
 ## Phase 4: Makefile & Commands (30 minutes)
 
 - [x] **4.1 Add Make Targets**
+
   - [x] `make download-spacy-model` - Download SpaCy model
   - [x] `make test-spacyyake` - Run all SpaCy-YAKE tests
   - [x] `make test-spacyyake-unit` - Run unit tests only
@@ -84,11 +92,12 @@
   - [x] `make test-spacyyake-performance` - Run performance tests
 
 - [x] **4.2 Update Help Section**
-  - [x] Add SpaCy-YAKE commands to `make help`
+  - [x] Add SpaCy-YAKE command to `make help`
 
 ## Phase 5: Documentation (1-2 hours)
 
 - [x] **5.1 Create Model Report**
+
   - [x] Create `documents/spacyyake_report.md`
   - [x] Document test coverage
   - [x] Document performance benchmarks
@@ -96,6 +105,7 @@
   - [x] Document usage examples
 
 - [x] **5.2 Update README**
+
   - [x] Add SpaCy-YAKE section
   - [x] Add quick start guide
   - [x] Add usage examples
@@ -109,11 +119,13 @@
 ## Phase 6: Validation & Cleanup (30 minutes)
 
 - [x] **6.1 Run All Tests**
+
   - [x] Verify all SpaCy-YAKE tests pass (58/58 passing)
   - [x] Verify existing tests still pass (PhoBERT 38/38 passing)
   - [x] Check test coverage (78 total tests, 96/96 passing)
 
 - [x] **6.2 Code Quality**
+
   - [x] Run linting (no critical issues)
   - [x] Run type checking (type hints in place)
   - [x] Fix any issues (all resolved)
@@ -131,4 +143,4 @@
 - ✅ All tests passing
 - ✅ Performance benchmarks documented
 - ✅ Complete documentation
-- ✅ Make commands working
+- ✅ Make command working
