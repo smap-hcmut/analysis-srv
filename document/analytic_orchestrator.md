@@ -20,13 +20,13 @@ graph TD
     subgraph "Entry Points (Adapters)"
         Queue[RabbitMQ Consumer] -->|1a. Receive Msg| MinIO_Client
         MinIO_Client -->|1b. Download JSON| Orchestrator
-        
+
         API[Test API Endpoint] -->|2. Receive JSON Body| Orchestrator
     end
 
     subgraph "Core Business Logic"
         Orchestrator[Analytics Orchestrator]
-        
+
         Orchestrator --> Module1[1. Preprocessor]
         Orchestrator --> Module2[2. Intent]
         Orchestrator --> Module3[3. Keyword]
@@ -40,7 +40,7 @@ graph TD
     end
 ```
 
------
+---
 
 ## 2\. Thiết kế Chi tiết (Implementation Details)
 
@@ -79,7 +79,7 @@ class MinioAdapter:
             raise Exception(f"Failed to fetch from MinIO: {str(e)}")
 ```
 
------
+---
 
 ### 2.2. The Orchestrator (Trái tim hệ thống)
 
@@ -120,7 +120,7 @@ class AnalyticsOrchestrator:
 
         # --- STEP 2: INTENT (GATEKEEPER) ---
         intent_result = self.intent_classifier.predict(clean_text)
-        
+
         # Logic lọc rác kết hợp (Signal từ Module 1 + Module 2)
         is_spam_signal = prep_result['stats'].get('has_spam_keyword', False)
         if is_spam_signal or intent_result['should_skip']:
@@ -150,7 +150,7 @@ class AnalyticsOrchestrator:
             "impact_score": impact_result['score'],
             # ...
         }
-        
+
         self.repo.save(final_result)
         logger.info(f"✅ Successfully processed post: {post_id}")
         return final_result
@@ -160,7 +160,7 @@ class AnalyticsOrchestrator:
         pass
 ```
 
------
+---
 
 ### 2.3. Entry Point 1: RabbitMQ Consumer (Production Flow)
 
@@ -179,7 +179,7 @@ def callback(ch, method, properties, body):
         msg = json.loads(body)
         bucket = msg['data_ref']['bucket']
         path = msg['data_ref']['path']
-        
+
         print(f"📥 Received Job for: {path}")
 
         # 2. Lấy JSON từ MinIO
@@ -200,7 +200,7 @@ def callback(ch, method, properties, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 ```
 
------
+---
 
 ### 2.4. Entry Point 2: REST API (Dev/Test Flow)
 
@@ -237,7 +237,7 @@ async def dev_process_post_direct(
         }
 ```
 
------
+---
 
 ## 3\. Kế hoạch Kiểm thử (Testing Plan)
 
@@ -255,21 +255,21 @@ async def dev_process_post_direct(
 2.  Vào RabbitMQ Management UI, publish thủ công 1 message vào queue `analytics.process.queue`:
     ```json
     {
-        "data_ref": {
-            "bucket": "raw-data",
-            "path": "test.json"
-        }
+      "data_ref": {
+        "bucket": "raw-data",
+        "path": "test.json"
+      }
     }
     ```
 3.  **Kỳ vọng:** Consumer log ra dòng "📥 Received Job...", sau đó "✅ Successfully processed". Check DB thấy record.
 
------
+---
 
 ### Kết luận
 
 Với Proposal này, bạn có một hệ thống **Linh hoạt tuyệt đối**:
 
-  * **Production:** Chạy Async qua Queue, Scale thoải mái.
-  * **Development:** Chạy Sync qua API, Debug lỗi logic ngay lập tức mà không cần setup Queue/MinIO phức tạp mỗi lần test một case nhỏ.
+- **Production:** Chạy Async qua Queue, Scale thoải mái.
+- **Development:** Chạy Sync qua API, Debug lỗi logic ngay lập tức mà không cần setup Queue/MinIO phức tạp mỗi lần test một case nhỏ.
 
 Hãy đưa proposal này cho Agent để hoàn thiện mảnh ghép cuối cùng\!

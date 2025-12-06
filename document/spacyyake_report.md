@@ -18,8 +18,8 @@ This report documents the SpaCy-YAKE keyword extraction implementation for the A
   - Named Entity Recognition (NER)
   - Noun Chunk Extraction
   - Part-of-Speech Tagging
-  
 - **YAKE**: Statistical keyword extraction
+
   - Unsupervised approach
   - Language-independent
   - No training data required
@@ -43,37 +43,41 @@ This report documents the SpaCy-YAKE keyword extraction implementation for the A
 
 ### Summary
 
-| Test Type | Count | Status | Coverage |
-|-----------|-------|--------|----------|
-| Unit Tests | 34 | 34/34 passing | 100% |
-| Aspect Mapper Tests | 24 | 24/24 passing | 100% |
-| Integration Tests | 14 | Requires SpaCy model | N/A |
-| Performance Tests | 6 | 5/6 passing (1 skipped) | 83% |
-| **Total** | **78** | **58/58 passing** | **~95%** |
+| Test Type           | Count  | Status                  | Coverage |
+| ------------------- | ------ | ----------------------- | -------- |
+| Unit Tests          | 34     | 34/34 passing           | 100%     |
+| Aspect Mapper Tests | 24     | 24/24 passing           | 100%     |
+| Integration Tests   | 14     | Requires SpaCy model    | N/A      |
+| Performance Tests   | 6      | 5/6 passing (1 skipped) | 83%      |
+| **Total**           | **78** | **58/58 passing**       | **~95%** |
 
 ### Unit Tests (34 tests)
 
 Tests core functionality without external dependencies:
 
 - **Initialization** (4 tests)
+
   - Default parameters
   - Custom parameters
   - Model download handling
   - Import error handling
 
 - **Text Validation** (4 tests)
+
   - Valid text
   - Empty text
   - Non-string input
   - Long text warnings
 
 - **Entity Extraction** (4 tests)
+
   - Basic extraction
   - Filtering long entities
   - Filtering digits
   - Limit to 15 entities
 
 - **Noun Chunk Extraction** (5 tests)
+
   - Basic extraction
   - Filter single words
   - Filter too long chunks
@@ -81,6 +85,7 @@ Tests core functionality without external dependencies:
   - Limit to 20 chunks
 
 - **Keyword Combination** (5 tests)
+
   - Basic combination
   - Sorting by score
   - Ranking
@@ -88,12 +93,14 @@ Tests core functionality without external dependencies:
   - Chunk weight application
 
 - **Confidence Calculation** (4 tests)
+
   - Empty keywords
   - Basic confidence
   - Diversity bonus
   - Capped at 1.0
 
 - **Extraction** (5 tests)
+
   - Invalid text handling
   - Models not initialized
   - Successful extraction
@@ -204,7 +211,7 @@ class Settings(BaseSettings):
     max_keywords: int = 30
     entity_weight: float = 0.7
     chunk_weight: float = 0.5
-    
+
     # Aspect Mapping
     enable_aspect_mapping: bool = False
     aspect_dictionary_path: str = "config/aspects.yaml"
@@ -306,11 +313,13 @@ for keyword in result.keywords:
 ### Production Setup
 
 1. **Pre-download SpaCy Model**
+
    ```bash
    make download-spacy-model
    ```
 
 2. **Configure Environment**
+
    ```bash
    cp .env.example .env
    # Edit SPACY_MODEL, YAKE_LANGUAGE, etc.
@@ -357,16 +366,19 @@ make test-spacyyake-performance   # Performance (6 tests)
 ## Future Improvements
 
 ### Short-term
+
 - [ ] Add Vietnamese language support
 - [ ] Implement caching for repeated texts
 - [ ] Add more aspect dictionaries (e.g., product reviews, news)
 
 ### Medium-term
+
 - [ ] GPU acceleration for SpaCy
 - [ ] Multi-language support
 - [ ] Semantic similarity-based aspect mapping
 
 ### Long-term
+
 - [ ] Fine-tuned transformer models
 - [ ] Real-time streaming extraction
 - [ ] Automatic aspect discovery
