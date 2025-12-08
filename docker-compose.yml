@@ -1,91 +1,46 @@
 services:
   # ========================================
-  # API Service
+  # Analytics Consumer Service
   # ========================================
-  api:
+  consumer:
     build:
       context: .
-      dockerfile: cmd/api/Dockerfile
-    container_name: smap-api
+      dockerfile: command/consumer/Dockerfile
+    container_name: smap-analytics-consumer
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "9090:9090" # Prometheus metrics
+    env_file:
+      - .env
     environment:
-      # Application
-      APP_NAME: ${APP_NAME:-SMAP Speech-to-Text}
-      APP_VERSION: ${APP_VERSION:-1.0.0}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      DEBUG: ${DEBUG:-True}
-
-      # API
-      API_HOST: ${API_HOST:-0.0.0.0}
-      API_PORT: ${API_PORT:-8000}
-      API_RELOAD: ${API_RELOAD:-False}
-      API_WORKERS: ${API_WORKERS:-1}
-      MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-500}
-
-      # Storage
-      TEMP_DIR: ${TEMP_DIR:-/tmp/stt_processing}
-
-      # Whisper
-      WHISPER_EXECUTABLE: ${WHISPER_EXECUTABLE:-/app/whisper/bin/whisper-cli}
-      WHISPER_MODELS_DIR: ${WHISPER_MODELS_DIR:-/app/whisper/models}
-      DEFAULT_WHISPER_MODEL: ${DEFAULT_WHISPER_MODEL:-medium}
-      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-vi}
-      WHISPER_MODEL: ${WHISPER_MODEL:-base}
-
-      # Whisper Library Settings (Dynamic Model Loading)
-      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-base}  # Options: base (default), small, medium
-      WHISPER_ARTIFACTS_DIR: ${WHISPER_ARTIFACTS_DIR:-.}
-
-      # MinIO Configuration (for artifact download)
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://172.16.19.115:9000}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-smap}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-hcmut2025}
-      
-      # Whisper Flags
-      WHISPER_MAX_CONTEXT: ${WHISPER_MAX_CONTEXT:-0}
-      WHISPER_NO_SPEECH_THOLD: ${WHISPER_NO_SPEECH_THOLD:-0.7}
-      WHISPER_ENTROPY_THOLD: ${WHISPER_ENTROPY_THOLD:-2.6}
-      WHISPER_LOGPROB_THOLD: ${WHISPER_LOGPROB_THOLD:--0.8}
-      WHISPER_NO_FALLBACK: ${WHISPER_NO_FALLBACK:-true}
-      WHISPER_SUPPRESS_REGEX: ${WHISPER_SUPPRESS_REGEX:-}
-
-      # Processing
-      CHUNK_TIMEOUT: ${CHUNK_TIMEOUT:-300}
-
-      # Logging
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FILE: ${LOG_FILE:-logs/stt.log}
-
+      # Override specific settings for Docker
+      DATABASE_URL: postgresql+asyncpg://dev:dev123@postgres:5432/analytics_dev
+      DATABASE_URL_SYNC: postgresql://dev:dev123@postgres:5432/analytics_dev
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      MINIO_ENDPOINT: http://minio:9000
     volumes:
       - ./logs:/app/logs
-      - whisper_models:/app/whisper/models
-      # Cache downloaded Whisper library artifacts between restarts
-      - whisper_library_base:/app/whisper_base_xeon
-      - whisper_library_small:/app/whisper_small_xeon
-      - whisper_library_medium:/app/whisper_medium_xeon
+      - phobert_models:/app/infrastructure/phobert/models
     networks:
       - smap-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-
-
+      start_period: 60s
 
 networks:
   smap-network:
     driver: bridge
 
 volumes:
-  whisper_models:
-    driver: local
-  whisper_library_base:
-    driver: local
-  whisper_library_small:
-    driver: local
-  whisper_library_medium:
+  phobert_models:
     driver: local

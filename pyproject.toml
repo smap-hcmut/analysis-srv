@@ -5,12 +5,9 @@ description = "Social media analytics processing service"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
     "sqlalchemy>=2.0.0",
     "asyncpg>=0.29.0",
     "alembic>=1.12.0",
-    "pydantic>=2.10.0",
     "pydantic-settings>=2.1.0",
     "python-dotenv>=1.0.0",
     "psycopg2-binary>=2.9.11",
@@ -21,12 +18,11 @@ dependencies = [
     "torch>=2.9.1",
     "spacy>=3.7.0",
     "yake>=0.4.8",
+    "numpy>=1.24.0",
     "minio>=7.2.10",
     "zstandard>=0.22.0",
     "aio-pika>=9.0.0",
     "pyyaml>=6.0.1",
-    "httpx>=0.24.0,<0.28.0",
-    "prometheus-client>=0.19.0",
 ]
 
 [project.optional-dependencies]
@@ -34,10 +30,10 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
+    "pytest-benchmark>=5.2.3",
     "black>=23.11.0",
     "ruff>=0.1.6",
     "mypy>=1.7.0",
-    "httpx>=0.24.0,<0.28.0",
 ]
 
 [build-system]
@@ -70,8 +66,26 @@ python_functions = "test_*"
 asyncio_mode = "auto"
 pythonpath = ["."]
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.1",
-    "pytest-benchmark>=5.2.3",
+[tool.deptry]
+extend_exclude = ["tests", "examples", "scripts", "migrations"]
+
+[tool.deptry.per_rule_ignores]
+DEP001 = ["internal"]
+DEP002 = [
+    "python-dotenv",
+    "psycopg2-binary",
+    "asyncpg",
+    "alembic",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "pytest-benchmark",
+    "black",
+    "ruff",
+    "mypy",
 ]
+
+[tool.deptry.package_module_name_map]
+python-dotenv = "dotenv"
+psycopg2-binary = "psycopg2"
+pyyaml = "yaml"

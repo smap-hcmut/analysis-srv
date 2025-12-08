@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smap-analytics-consumer
+  namespace: smap
+  labels:
+    app: smap-analytics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smap-analytics
+  template:
+    metadata:
+      labels:
+        app: smap-analytics
+    spec:
+      containers:
+        - name: consumer
+          image: smap-analytics-consumer:latest
+          imagePullPolicy: IfNotPresent
+
+          envFrom:
+            - configMapRef:
+                name: smap-analytics-config
+            - secretRef:
+                name: smap-analytics-secret
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+
+          volumeMounts:
+            - name: models
+              mountPath: /app/infrastructure/phobert/models
+
+      volumes:
+        - name: models
+          emptyDir: {}
