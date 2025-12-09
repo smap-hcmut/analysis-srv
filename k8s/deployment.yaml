@@ -18,6 +18,22 @@ spec:
       imagePullSecrets:
         - name: harbor-secret
 
+      initContainers:
+        - name: download-models
+          image: registry.tantai.dev/smap/smap-analytics-consumer:251209-064254
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - scripts/download_phobert_model.py
+          envFrom:
+            - configMapRef:
+                name: smap-analytics-config
+            - secretRef:
+                name: smap-analytics-secret
+          volumeMounts:
+            - name: models
+              mountPath: /app/infrastructure/phobert/models
+
       containers:
         - name: consumer
           image: registry.tantai.dev/smap/smap-analytics-consumer:251209-064254
