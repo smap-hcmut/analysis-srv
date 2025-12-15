@@ -54,7 +54,9 @@ def parse_minio_path(minio_path: str) -> tuple[str, str]:
     """Parse MinIO path into bucket and object path.
 
     Args:
-        minio_path: Full MinIO path (e.g., "crawl-results/tiktok/2025/12/06/batch.json")
+        minio_path: Full MinIO path. Supports formats:
+            - "crawl-results/tiktok/2025/12/06/batch.json" (simple)
+            - "minio://crawl-results/tiktok/2025/12/06/batch.json" (URL format)
 
     Returns:
         Tuple of (bucket, object_path)
@@ -64,6 +66,10 @@ def parse_minio_path(minio_path: str) -> tuple[str, str]:
     """
     if not minio_path:
         raise ValueError("minio_path cannot be empty")
+
+    # Strip minio:// prefix if present
+    if minio_path.startswith("minio://"):
+        minio_path = minio_path[8:]  # len("minio://") = 8
 
     parts = minio_path.split("/", 1)
     if len(parts) < 2:
