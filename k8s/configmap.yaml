@@ -83,12 +83,17 @@ data:
   DATABASE_POOL_SIZE: "20"
   DATABASE_MAX_OVERFLOW: "10"
 
-  # RabbitMQ
+  # RabbitMQ (Input)
   RABBITMQ_QUEUE_NAME: "analytics_queue"
   RABBITMQ_PREFETCH_COUNT: "1"
   EVENT_EXCHANGE: "smap.events"
   EVENT_ROUTING_KEY: "data.collected"
   EVENT_QUEUE_NAME: "analytics.data.collected"
+
+  # Result Publishing (Output)
+  PUBLISH_EXCHANGE: "results.inbound"
+  PUBLISH_ROUTING_KEY: "analyze.result"
+  PUBLISH_ENABLED: "true"
 
   # MinIO
   MINIO_CRAWL_RESULTS_BUCKET: "crawl-results"

@@ -1,6 +1,6 @@
 # Analytics Service Behavior Specification
 
-**Last Updated**: 2025-12-07
+**Last Updated**: 2025-12-15
 **Status**: ✅ Production Ready
 
 ## Table of Contents
@@ -9,12 +9,13 @@
 2. [Architecture](#architecture)
 3. [Event Consumption](#event-consumption)
 4. [Batch Processing](#batch-processing)
-5. [Project ID Extraction](#project-id-extraction)
-6. [Error Handling](#error-handling)
-7. [Database Schema](#database-schema)
-8. [Configuration](#configuration)
-9. [Performance Characteristics](#performance-characteristics)
-10. [Migration Status](#migration-status)
+5. [Result Publishing](#result-publishing)
+6. [Project ID Extraction](#project-id-extraction)
+7. [Error Handling](#error-handling)
+8. [Database Schema](#database-schema)
+9. [Configuration](#configuration)
+10. [Performance Characteristics](#performance-characteristics)
+11. [Migration Status](#migration-status)
 
 ---
 
@@ -29,6 +30,7 @@ Analytics Service is a microservice in the SMAP event-driven architecture respon
 - **Analytics Pipeline**: Execute sentiment analysis, intent classification, and impact calculation
 - **Error Management**: Handle and categorize crawler errors for monitoring
 - **Data Persistence**: Store analytics results and error records in PostgreSQL
+- **Result Publishing**: Publish analyze results back to Collector Service via RabbitMQ
 
 ### Key Characteristics
 
@@ -44,17 +46,17 @@ Analytics Service is a microservice in the SMAP event-driven architecture respon
 ### System Context
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Crawler        │     │   RabbitMQ      │     │   Analytics     │
-│  Services       │────▶│   smap.events   │────▶│   Service       │
-│  (TikTok/YT)    │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                                               │
-        ▼                                               ▼
-┌─────────────────┐                           ┌─────────────────┐
-│     MinIO       │◀──────────────────────────│   PostgreSQL    │
-│  crawl-results  │                           │  post_analytics │
-└─────────────────┘                           └─────────────────┘
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Crawler        │     │   RabbitMQ      │     │   Analytics     │     │   RabbitMQ      │
+│  Services       │────▶│   smap.events   │────▶│   Service       │────▶│ results.inbound │
+│  (TikTok/YT)    │     │                 │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                                               │                       │
+        ▼                                               ▼                       ▼
+┌─────────────────┐                           ┌─────────────────┐     ┌─────────────────┐
+│     MinIO       │◀──────────────────────────│   PostgreSQL    │     │   Collector     │
+│  crawl-results  │                           │  post_analytics │     │   Service       │
+└─────────────────┘                           └─────────────────┘     └─────────────────┘
 ```
 
 ### Data Flow
@@ -65,7 +67,8 @@ Analytics Service is a microservice in the SMAP event-driven architecture respon
 4. **Analytics Service** downloads batch from MinIO
 5. **Analytics Service** processes each item (analytics pipeline)
 6. **Analytics Service** persists results to PostgreSQL
-7. **Analytics Service** acknowledges message
+7. **Analytics Service** publishes `analyze.result` to Collector Service
+8. **Analytics Service** acknowledges message
 
 ---
 
@@ -151,9 +154,11 @@ def validate_event_format(envelope: dict) -> bool:
    ↓
 8. Bulk Insert to Database
    ↓
-9. Log Statistics
+9. Publish Results to Collector (analyze.result)
    ↓
-10. Acknowledge Message
+10. Log Statistics
+   ↓
+11. Acknowledge Message
 ```
 
 ### Batch Size Expectations
@@ -199,6 +204,202 @@ item_enrichment = {
     "pipeline_version": detect_pipeline_version(platform),
 }
 ```
+
+---
+
+## Result Publishing
+
+After processing a batch, Analytics Service publishes results back to Collector Service via RabbitMQ. This enables the Collector to track analysis progress and notify projects via webhooks.
+
+### Publisher Configuration
+
+| Setting     | Value             | Description                      |
+| ----------- | ----------------- | -------------------------------- |
+| Exchange    | `results.inbound` | Exchange for result messages     |
+| Routing Key | `analyze.result`  | Routing key for analyze results  |
+| Queue       | Collector-managed | Collector binds its own queue    |
+| Enabled     | `PUBLISH_ENABLED` | Feature flag for gradual rollout |
+
+### Result Message Schema
+
+Analytics publishes **1 message per batch** (not per item):
+
+```json
+{
+  "success": true,
+  "payload": {
+    "project_id": "proj_xyz",
+    "job_id": "proj_xyz-brand-0",
+    "task_type": "analyze_result",
+    "batch_size": 50,
+    "success_count": 48,
+    "error_count": 2,
+    "results": [
+      {
+        "content_id": "video_123",
+        "sentiment": "positive",
+        "sentiment_score": 0.85,
+        "topics": ["technology", "electric_vehicle"],
+        "entities": [
+          { "name": "VinFast", "type": "brand" },
+          { "name": "VF8", "type": "product" }
+        ]
+      }
+    ],
+    "errors": [
+      {
+        "content_id": "video_456",
+        "error": "Failed to extract text"
+      }
+    ]
+  }
+}
+```
+
+### Message Types
+
+The result publishing system uses the following dataclasses (defined in `models/messages.py`):
+
+```python
+@dataclass
+class AnalyzeItem:
+    """Single analyzed item result."""
+    content_id: str
+    sentiment: str | None = None
+    sentiment_score: float | None = None
+    topics: list[str] | None = None
+    entities: list[dict] | None = None
+
+@dataclass
+class AnalyzeError:
+    """Error information for failed analysis."""
+    content_id: str
+    error: str
+
+@dataclass
+class AnalyzeResultPayload:
+    """Payload containing batch analysis results."""
+    project_id: str
+    job_id: str
+    task_type: str  # Always "analyze_result"
+    batch_size: int
+    success_count: int
+    error_count: int
+    results: list[AnalyzeItem] | None = None
+    errors: list[AnalyzeError] | None = None
+
+@dataclass
+class AnalyzeResultMessage:
+    """Top-level message for analyze results."""
+    success: bool
+    payload: AnalyzeResultPayload
+```
+
+### Publishing Flow
+
+```
+1. Batch Processing Complete
+   ↓
+2. Build Result Items (from processed results)
+   ↓
+3. Build Error Items (from failed items)
+   ↓
+4. Create AnalyzeResultMessage
+   ↓
+5. Serialize to JSON
+   ↓
+6. Publish to results.inbound exchange
+   ↓
+7. Log success/failure
+```
+
+### Success vs Error Results
+
+| Scenario            | `success` | `success_count` | `error_count` | Description                 |
+| ------------------- | --------- | --------------- | ------------- | --------------------------- |
+| All items succeeded | `true`    | N               | 0             | Full batch success          |
+| Partial failure     | `true`    | N-M             | M             | Some items failed           |
+| MinIO fetch failed  | `false`   | 0               | N             | Entire batch failed         |
+| All items failed    | `false`   | 0               | N             | All individual items failed |
+
+### Error Result Publishing
+
+When MinIO fetch fails, Analytics publishes an error result:
+
+```json
+{
+  "success": false,
+  "payload": {
+    "project_id": "proj_xyz",
+    "job_id": "proj_xyz-brand-0",
+    "task_type": "analyze_result",
+    "batch_size": 50,
+    "success_count": 0,
+    "error_count": 50,
+    "results": [],
+    "errors": [
+      {
+        "content_id": "batch",
+        "error": "MinIO fetch failed: Connection refused"
+      }
+    ]
+  }
+}
+```
+
+### Publish Failure Handling
+
+Publishing failures are handled gracefully:
+
+- **Log Error**: Error is logged with full context
+- **Continue Processing**: Consumer continues (doesn't block)
+- **No Retry**: Failed publishes are not retried (fire-and-forget)
+- **Metrics**: `analytics_publish_errors_total` counter incremented
+
+```python
+try:
+    publisher.publish_analyze_result(result_message)
+    logger.info("Published analyze result", extra={"job_id": job_id})
+except Exception as e:
+    logger.error("Failed to publish analyze result", extra={
+        "job_id": job_id,
+        "error": str(e)
+    })
+    # Continue processing - don't block consumer
+```
+
+### Publisher Lifecycle
+
+The `RabbitMQPublisher` is initialized once at consumer startup:
+
+```python
+# command/consumer/main.py
+async def main():
+    # 1. Create shared channel
+    channel = await connection.channel()
+
+    # 2. Initialize publisher with shared channel
+    publisher = RabbitMQPublisher(channel, settings)
+
+    # 3. Setup exchange declaration
+    await publisher.setup()
+
+    # 4. Pass publisher to message handler
+    handler = create_message_handler(publisher=publisher)
+
+    # 5. Start consuming
+    await consumer.consume(handler)
+```
+
+### Implementation Files
+
+| File                                    | Description                              |
+| --------------------------------------- | ---------------------------------------- |
+| `models/messages.py`                    | Message dataclasses and serialization    |
+| `infrastructure/messaging/publisher.py` | RabbitMQPublisher class                  |
+| `internal/consumers/main.py`            | Handler integration and helper functions |
+| `command/consumer/main.py`              | Publisher initialization                 |
+| `core/config.py`                        | Publisher configuration settings         |
 
 ---
 
@@ -408,7 +609,7 @@ Schema changes are managed via Alembic migrations:
 ### Required Environment Variables
 
 ```bash
-# RabbitMQ Configuration
+# RabbitMQ Configuration (Input)
 RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
@@ -416,6 +617,11 @@ RABBITMQ_PASSWORD=guest
 EVENT_EXCHANGE=smap.events
 EVENT_ROUTING_KEY=data.collected
 EVENT_QUEUE_NAME=analytics.data.collected
+
+# Result Publishing Configuration (Output)
+PUBLISH_EXCHANGE=results.inbound
+PUBLISH_ROUTING_KEY=analyze.result
+PUBLISH_ENABLED=true
 
 # MinIO Configuration
 MINIO_ENDPOINT=localhost:9000
@@ -511,4 +717,5 @@ For legacy configuration reference, see:
 - [Event-Driven Architecture Guide](event-drivent.md) - Overall system architecture
 - [Batch Processing Rationale](batch-processing-rationale.md) - Technical justification for batching
 - [Integration Contract](integration-contract.md) - Crawler-Analytics interface specification
+- [Integration Analytics Service](integration-analytics-service.md) - Analytics ↔ Collector integration guide
 - [Analytics Orchestrator](analytic_orchestrator.md) - Analytics pipeline design

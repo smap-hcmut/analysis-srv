@@ -1,6 +1,7 @@
 """
 Analytics Engine Consumer - Main entry point.
 Loads config, initializes AI models and RabbitMQ, starts the consumer service.
+Publishes analyze results to Collector service.
 """
 
 import asyncio
@@ -9,7 +10,7 @@ from typing import Optional
 from core.config import settings
 from core.logger import logger
 from infrastructure.ai import PhoBERTONNX, SpacyYakeExtractor
-from infrastructure.messaging import RabbitMQClient
+from infrastructure.messaging import RabbitMQClient, RabbitMQPublisher
 from internal.consumers.main import create_message_handler
 
 
@@ -17,11 +18,12 @@ from internal.consumers.main import create_message_handler
 phobert: Optional[PhoBERTONNX] = None
 spacyyake: Optional[SpacyYakeExtractor] = None
 rabbitmq_client: Optional[RabbitMQClient] = None
+rabbitmq_publisher: Optional[RabbitMQPublisher] = None
 
 
 async def main():
     """Entry point for the Analytics Engine consumer."""
-    global phobert, spacyyake, rabbitmq_client
+    global phobert, spacyyake, rabbitmq_client, rabbitmq_publisher
 
     try:
         logger.info(
@@ -86,10 +88,37 @@ async def main():
             routing_key=routing_key,
         )
 
-        # 3. Create message handler with AI model instances
-        message_handler = create_message_handler(phobert=phobert, spacyyake=spacyyake)
+        # 3. Initialize RabbitMQ publisher for result publishing
+        if settings.publish_enabled:
+            logger.info("Initializing RabbitMQ publisher...")
+            logger.info(
+                "Publisher config: exchange=%s, routing_key=%s",
+                settings.publish_exchange,
+                settings.publish_routing_key,
+            )
 
-        # 4. Start consuming messages
+            # Create publisher using the same channel as consumer
+            rabbitmq_publisher = RabbitMQPublisher(
+                channel=rabbitmq_client.channel,
+                exchange_name=settings.publish_exchange,
+                routing_key=settings.publish_routing_key,
+            )
+
+            # Setup publisher (declare exchange)
+            await rabbitmq_publisher.setup()
+            logger.info("RabbitMQ publisher initialized successfully")
+        else:
+            logger.info("Result publishing is disabled (publish_enabled=False)")
+            rabbitmq_publisher = None
+
+        # 4. Create message handler with AI model instances and publisher
+        message_handler = create_message_handler(
+            phobert=phobert,
+            spacyyake=spacyyake,
+            publisher=rabbitmq_publisher,
+        )
+
+        # 5. Start consuming messages
         logger.info(f"Starting message consumption from queue '{settings.rabbitmq_queue_name}'...")
         await rabbitmq_client.consume(message_handler)
 
@@ -107,7 +136,7 @@ async def main():
         # Cleanup sequence
         logger.info("========== Shutting down Consumer service ==========")
 
-        # Close RabbitMQ connection
+        # Close RabbitMQ connection (publisher uses same connection)
         if rabbitmq_client:
             await rabbitmq_client.close()
             logger.info("RabbitMQ connection closed")

@@ -18,6 +18,10 @@ services:
       DATABASE_URL_SYNC: postgresql://dev:dev123@postgres:5432/analytics_dev
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       MINIO_ENDPOINT: http://minio:9000
+      # Result Publishing (Output to Collector)
+      PUBLISH_EXCHANGE: results.inbound
+      PUBLISH_ROUTING_KEY: analyze.result
+      PUBLISH_ENABLED: "true"
     volumes:
       - ./logs:/app/logs
       - phobert_models:/app/infrastructure/phobert/models

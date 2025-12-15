@@ -1,6 +1,7 @@
 """Message queue consumer entry point for Analytics Engine.
 
 Processes data.collected events from smap.events exchange with batch processing.
+Publishes analyze results to Collector service via RabbitMQ.
 """
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Optional, Callable, Any, TYPE_CHECKING, Iterator
+from typing import Optional, Callable, Any, List, TYPE_CHECKING, Iterator
 
 try:
     from aio_pika import IncomingMessage  # type: ignore
@@ -28,6 +29,7 @@ from core.logger import logger
 from core.config import settings
 from core.constants import categorize_error
 from infrastructure.ai import PhoBERTONNX, SpacyYakeExtractor
+from infrastructure.messaging.publisher import RabbitMQPublisher, RabbitMQPublisherError
 from infrastructure.storage.minio_client import (
     MinioAdapter,
     MinioAdapterError,
@@ -35,6 +37,13 @@ from infrastructure.storage.minio_client import (
     MinioDecompressionError,
 )
 from models.database import Base
+from models.messages import (
+    AnalyzeResultMessage,
+    AnalyzeResultPayload,
+    AnalyzeItem,
+    AnalyzeError,
+    create_error_result,
+)
 from repository.analytics_repository import AnalyticsRepository, AnalyticsRepositoryError
 from repository.crawl_error_repository import CrawlErrorRepository
 from services.analytics.orchestrator import AnalyticsOrchestrator
@@ -128,18 +137,68 @@ def _db_session(session_factory: sessionmaker) -> Iterator[Session]:
         session.close()
 
 
+def build_result_items(processed_results: List[dict[str, Any]]) -> List[AnalyzeItem]:
+    """Build AnalyzeItem list from processed results.
+
+    Args:
+        processed_results: List of processing results with status="success"
+
+    Returns:
+        List of AnalyzeItem for successful items
+    """
+    items = []
+    for result in processed_results:
+        if result.get("status") == "success":
+            items.append(
+                AnalyzeItem(
+                    content_id=result.get("content_id", "unknown"),
+                    sentiment=result.get("sentiment"),
+                    sentiment_score=result.get("sentiment_score"),
+                    impact_score=result.get("impact_score"),
+                )
+            )
+    return items
+
+
+def build_error_items(processed_results: List[dict[str, Any]]) -> List[AnalyzeError]:
+    """Build AnalyzeError list from processed results.
+
+    Args:
+        processed_results: List of processing results with status="error"
+
+    Returns:
+        List of AnalyzeError for failed items
+    """
+    errors = []
+    for result in processed_results:
+        if result.get("status") == "error":
+            errors.append(
+                AnalyzeError(
+                    content_id=result.get("content_id", "unknown"),
+                    error=result.get("error_message") or result.get("error_code", "Unknown error"),
+                )
+            )
+    return errors
+
+
 def create_message_handler(
-    phobert: Optional[PhoBERTONNX], spacyyake: Optional[SpacyYakeExtractor]
+    phobert: Optional[PhoBERTONNX],
+    spacyyake: Optional[SpacyYakeExtractor],
+    publisher: Optional[RabbitMQPublisher] = None,
 ) -> Callable[[IncomingMessage], None]:
-    """Create message handler with AI model instances.
+    """Create message handler with AI model instances and optional publisher.
 
     This factory function creates a message handler that has access to
     the AI model instances passed in. The handler will process incoming
     data.collected events from RabbitMQ with batch processing.
 
+    If publisher is provided and settings.publish_enabled is True,
+    results will be published to Collector service after processing.
+
     Args:
         phobert: PhoBERT model instance (may be None if initialization failed)
         spacyyake: SpaCy-YAKE extractor instance (may be None if initialization failed)
+        publisher: RabbitMQ publisher for sending results to Collector (optional)
 
     Returns:
         Async callable that processes incoming messages
@@ -147,6 +206,12 @@ def create_message_handler(
 
     minio_adapter = MinioAdapter()
     session_factory = _create_session_factory()
+    publish_enabled = settings.publish_enabled and publisher is not None
+
+    if publish_enabled:
+        logger.info("Result publishing enabled (exchange=%s)", settings.publish_exchange)
+    else:
+        logger.info("Result publishing disabled")
 
     async def process_event_format(envelope: dict[str, Any], db: Session) -> dict[str, Any]:
         """Process new event format (data.collected).
@@ -161,11 +226,14 @@ def create_message_handler(
         event_metadata = parse_event_metadata(envelope)
         event_id = event_metadata.get("event_id", "unknown")
         minio_path = event_metadata.get("minio_path")
+        job_id = event_metadata.get("job_id", "")
+        project_id = extract_project_id(job_id) or event_metadata.get("project_id")
+        expected_item_count = event_metadata.get("content_count", 0)
 
         logger.info(
             "Processing event: event_id=%s, job_id=%s, batch_index=%s",
             event_id,
-            event_metadata.get("job_id"),
+            job_id,
             event_metadata.get("batch_index"),
         )
 
@@ -176,9 +244,23 @@ def create_message_handler(
         bucket, object_path = parse_minio_path(minio_path)
         logger.debug("Fetching batch from MinIO: %s/%s", bucket, object_path)
 
-        # Fetch batch data from MinIO using download_batch for proper format handling
-        # Supports both Crawler format (JSON array) and Analytics format (JSON object)
-        batch_items = minio_adapter.download_batch(bucket, object_path)
+        # Fetch batch data from MinIO
+        try:
+            batch_items = minio_adapter.download_batch(bucket, object_path)
+        except (MinioAdapterError, MinioObjectNotFoundError, MinioDecompressionError) as exc:
+            # MinIO fetch failed - publish error result if enabled
+            logger.error("MinIO fetch failed for event_id=%s: %s", event_id, exc)
+
+            if publish_enabled and publisher:
+                await _publish_error_result(
+                    publisher=publisher,
+                    project_id=project_id,
+                    job_id=job_id,
+                    batch_size=expected_item_count or 1,
+                    error_message=f"MinIO fetch failed: {exc}",
+                )
+
+            raise  # Re-raise to trigger message nack
 
         # Validate batch size
         platform = event_metadata.get("platform", "unknown")
@@ -193,12 +275,8 @@ def create_message_handler(
                 expected_size,
                 len(batch_items),
                 platform,
-                event_metadata.get("job_id"),
+                job_id,
             )
-
-        # Extract project_id from job_id
-        job_id = event_metadata.get("job_id", "")
-        project_id = extract_project_id(job_id) or event_metadata.get("project_id")
 
         # Process batch items
         analytics_repo = AnalyticsRepository(db)
@@ -207,6 +285,7 @@ def create_message_handler(
         success_count = 0
         error_count = 0
         error_distribution: dict[str, int] = {}
+        processed_results: List[dict[str, Any]] = []
 
         for item in batch_items:
             try:
@@ -218,6 +297,8 @@ def create_message_handler(
                     error_repo=error_repo,
                     phobert=phobert,
                 )
+
+                processed_results.append(result)
 
                 if result.get("status") == "success":
                     success_count += 1
@@ -233,6 +314,14 @@ def create_message_handler(
                     exc,
                 )
                 error_count += 1
+                processed_results.append(
+                    {
+                        "status": "error",
+                        "content_id": "unknown",
+                        "error_code": "INTERNAL_ERROR",
+                        "error_message": str(exc),
+                    }
+                )
 
         logger.info(
             "Batch completed: event_id=%s, job_id=%s, success=%d, errors=%d",
@@ -242,6 +331,18 @@ def create_message_handler(
             error_count,
         )
 
+        # Publish result to Collector if enabled
+        if publish_enabled and publisher:
+            await _publish_batch_result(
+                publisher=publisher,
+                project_id=project_id,
+                job_id=job_id,
+                batch_size=len(batch_items),
+                success_count=success_count,
+                error_count=error_count,
+                processed_results=processed_results,
+            )
+
         return {
             "event_id": event_id,
             "job_id": job_id,
@@ -249,6 +350,77 @@ def create_message_handler(
             "error_count": error_count,
             "error_distribution": error_distribution,
         }
+
+    async def _publish_batch_result(
+        publisher: RabbitMQPublisher,
+        project_id: Optional[str],
+        job_id: str,
+        batch_size: int,
+        success_count: int,
+        error_count: int,
+        processed_results: List[dict[str, Any]],
+    ) -> None:
+        """Publish batch result to Collector service.
+
+        Args:
+            publisher: RabbitMQ publisher instance
+            project_id: Project identifier
+            job_id: Job identifier
+            batch_size: Total items in batch
+            success_count: Successfully processed items
+            error_count: Failed items
+            processed_results: List of individual processing results
+        """
+        try:
+            result_msg = AnalyzeResultMessage(
+                success=error_count < batch_size,
+                payload=AnalyzeResultPayload(
+                    project_id=project_id,
+                    job_id=job_id,
+                    task_type="analyze_result",
+                    batch_size=batch_size,
+                    success_count=success_count,
+                    error_count=error_count,
+                    results=build_result_items(processed_results),
+                    errors=build_error_items(processed_results),
+                ),
+            )
+
+            await publisher.publish_analyze_result(result_msg)
+
+        except RabbitMQPublisherError as exc:
+            # Log error but don't fail the batch processing
+            logger.error("Failed to publish batch result: %s", exc)
+
+    async def _publish_error_result(
+        publisher: RabbitMQPublisher,
+        project_id: Optional[str],
+        job_id: str,
+        batch_size: int,
+        error_message: str,
+    ) -> None:
+        """Publish batch-level error result to Collector service.
+
+        Args:
+            publisher: RabbitMQ publisher instance
+            project_id: Project identifier
+            job_id: Job identifier
+            batch_size: Expected items in batch (all marked as failed)
+            error_message: Description of the batch-level error
+        """
+        try:
+            error_msg = create_error_result(
+                project_id=project_id,
+                job_id=job_id,
+                batch_size=batch_size,
+                error_message=error_message,
+            )
+
+            await publisher.publish_analyze_result(error_msg)
+
+        except RabbitMQPublisherError as exc:
+            # Log error but don't fail - the original error will be raised
+            logger.error("Failed to publish error result: %s", exc)
 
     async def message_handler(message: IncomingMessage) -> None:
         """Process incoming data.collected event from RabbitMQ."""

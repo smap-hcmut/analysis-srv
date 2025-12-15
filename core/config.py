@@ -118,6 +118,12 @@ class Settings(BaseSettings):
     database_pool_size: int = 20
     database_max_overflow: int = 10
 
+    # Result Publishing Settings
+    # Exchange and routing key for publishing analyze results to Collector
+    publish_exchange: str = "results.inbound"
+    publish_routing_key: str = "analyze.result"
+    publish_enabled: bool = True  # Feature flag for gradual rollout
+
 
 settings = Settings()
 

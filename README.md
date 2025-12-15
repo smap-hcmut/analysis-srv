@@ -96,22 +96,68 @@ The service categorizes and stores crawler errors:
 ### Configuration
 
 ```bash
-# Event Queue Settings
+# Event Queue Settings (Input)
 EVENT_EXCHANGE=smap.events
 EVENT_ROUTING_KEY=data.collected
 EVENT_QUEUE_NAME=analytics.data.collected
+
+# Result Publishing Settings (Output)
+PUBLISH_EXCHANGE=results.inbound
+PUBLISH_ROUTING_KEY=analyze.result
+PUBLISH_ENABLED=true
 
 # Batch Processing
 MAX_CONCURRENT_BATCHES=5
 BATCH_TIMEOUT_SECONDS=30
 EXPECTED_BATCH_SIZE_TIKTOK=50
 EXPECTED_BATCH_SIZE_YOUTUBE=20
-
 ```
+
+### Result Publishing
+
+After processing a batch, Analytics Engine publishes results back to Collector Service via RabbitMQ.
+
+**Output Message Schema:**
+
+```json
+{
+  "success": true,
+  "payload": {
+    "project_id": "proj_xyz",
+    "job_id": "proj_xyz-brand-0",
+    "task_type": "analyze_result",
+    "batch_size": 50,
+    "success_count": 48,
+    "error_count": 2,
+    "results": [
+      {
+        "content_id": "video_123",
+        "sentiment": "positive",
+        "sentiment_score": 0.85,
+        "topics": ["technology", "electric_vehicle"]
+      }
+    ],
+    "errors": [
+      {
+        "content_id": "video_456",
+        "error": "Failed to extract text"
+      }
+    ]
+  }
+}
+```
+
+**Queue Configuration (Output):**
+
+| Setting     | Value             |
+| ----------- | ----------------- |
+| Exchange    | `results.inbound` |
+| Routing Key | `analyze.result`  |
 
 ### Documentation
 
 - [Integration Contract](document/integration-contract.md) - Detailed requirements for Crawler services
+- [Integration Analytics Service](document/integration-analytics-service.md) - Analytics ↔ Collector integration guide
 - [Batch Processing Rationale](document/batch-processing-rationale.md) - Technical justification for batch processing architecture
 - [Migration Guide](document/migration-guide.md) - Steps to migrate from legacy format
 - [Rollback Runbook](document/rollback-runbook.md) - Emergency rollback procedures
