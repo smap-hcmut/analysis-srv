@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from core.logger import logger
 from models.database import PostAnalytics
+from utils.uuid_utils import extract_uuid, is_valid_uuid
 
 
 class AnalyticsRepositoryError(Exception):
@@ -32,6 +33,37 @@ class AnalyticsRepository:
         """
         self.db = db
 
+    def _sanitize_project_id(self, analytics_data: Dict[str, Any]) -> None:
+        """Sanitize project_id field to ensure valid UUID format.
+
+        If project_id contains extra characters (e.g., "uuid-competitor"),
+        extracts the valid UUID portion. Modifies analytics_data in place.
+
+        Args:
+            analytics_data: Dictionary containing analytics fields.
+
+        Raises:
+            ValueError: If project_id is present but contains no valid UUID.
+        """
+        project_id = analytics_data.get("project_id")
+        if not project_id:
+            return
+
+        if is_valid_uuid(project_id):
+            return
+
+        # Try to extract valid UUID from malformed value
+        sanitized = extract_uuid(project_id)
+        if sanitized:
+            logger.warning(
+                "Sanitized invalid project_id: %s -> %s",
+                project_id,
+                sanitized,
+            )
+            analytics_data["project_id"] = sanitized
+        else:
+            raise ValueError(f"Invalid project_id format, cannot extract UUID: {project_id}")
+
     def save(self, analytics_data: Dict[str, Any]) -> PostAnalytics:
         """Save analytics result into the `post_analytics` table.
 
@@ -53,6 +85,9 @@ class AnalyticsRepository:
         if not post_id:
             raise ValueError("analytics_data must contain 'id' field")
 
+        # Sanitize project_id to ensure valid UUID format
+        self._sanitize_project_id(analytics_data)
+
         try:
             existing = self.get_by_id(post_id)
 
@@ -73,7 +108,9 @@ class AnalyticsRepository:
 
         except SQLAlchemyError as exc:
             self.db.rollback()
-            logger.error("Database error saving analytics for post_id=%s: %s", post_id, exc)
+            logger.opt(exception=True).error(
+                f"Database error saving analytics for post_id={post_id}: {exc}"
+            )
             raise AnalyticsRepositoryError(f"Failed to save analytics: {exc}") from exc
 
     def get_by_id(self, post_id: str) -> Optional[PostAnalytics]:
@@ -150,6 +187,13 @@ class AnalyticsRepository:
                 post_id = analytics_data.get("id")
                 if not post_id:
                     logger.warning("Skipping record without 'id' field")
+                    continue
+
+                # Sanitize project_id to ensure valid UUID format
+                try:
+                    self._sanitize_project_id(analytics_data)
+                except ValueError as e:
+                    logger.warning("Skipping record with invalid project_id: %s", e)
                     continue
 
                 existing = self.get_by_id(post_id)
