@@ -62,6 +62,34 @@ services:
       timeout: 5s
       retries: 5
 
+  # Analytics API service (for local development)
+  analytics-api:
+    build:
+      context: .
+      dockerfile: command/api/Dockerfile
+    container_name: analytics-api
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://dev:dev123@postgres:5432/analytics_dev
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - LOG_LEVEL=DEBUG
+      - DEBUG=true
+      - API_CORS_ORIGINS=http://localhost:3000,http://localhost:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: ["python", "-m", "command.api.main"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   postgres_data:
   minio_data:

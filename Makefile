@@ -11,14 +11,16 @@ help:
 	@echo "  make upgrade                 - Upgrade all packages in lock file"
 	@echo ""
 	@echo "RUN SERVICES:"
+	@echo "  make run-api                 - Run API service locally"
 	@echo "  make run-consumer            - Run Consumer service locally"
 	@echo "  make run-example-preprocessing - Run Text Preprocessor example"
 	@echo "  make run-example-intent      - Run Intent Classifier example"
 	@echo ""
 	@echo "DEV ENVIRONMENT (Docker):"
-	@echo "  make dev-up                  - Start dev services (Postgres, Redis, MinIO, RabbitMQ)"
+	@echo "  make dev-up                  - Start dev services (Postgres, Redis, MinIO, RabbitMQ, API)"
 	@echo "  make dev-down                - Stop dev services"
 	@echo "  make dev-logs                - View dev services logs"
+	@echo "  make dev-api-logs            - View API service logs"
 	@echo ""
 	@echo "AI MODELS:"
 	@echo "  make download-phobert        - Download PhoBERT ONNX model"
@@ -26,6 +28,7 @@ help:
 	@echo ""
 	@echo "TESTING:"
 	@echo "  make test                    - Run all tests"
+	@echo "  make test-api                - Run API service tests"
 	@echo "  make test-unit               - Run all unit tests"
 	@echo "  make test-models             - Run database model tests"
 	@echo "  make test-phobert            - Run PhoBERT tests"
@@ -73,6 +76,9 @@ upgrade:
 # ==============================================================================
 # RUN SERVICES
 # ==============================================================================
+run-api:
+	PYTHONPATH=. uv run command/api/main.py
+
 run-consumer:
 	PYTHONPATH=. uv run command/consumer/main.py
 
@@ -95,6 +101,9 @@ dev-down:
 
 dev-logs:
 	docker-compose -f docker-compose.dev.yml logs -f
+
+dev-api-logs:
+	docker-compose -f docker-compose.dev.yml logs -f analytics-api
 
 # ==============================================================================
 # AI MODELS
@@ -121,6 +130,10 @@ download-spacy-model:
 test:
 	@echo "Running all tests..."
 	PYTHONPATH=. uv run pytest -v
+
+test-api:
+	@echo "Running API service tests..."
+	@uv run pytest tests/api/ -v
 
 test-phobert:
 	@echo "Running PhoBERT tests..."
@@ -275,6 +288,9 @@ lint:
 docker-build:
 	docker build -f command/consumer/Dockerfile -t smap-analytics-consumer:latest .
 
+docker-build-api:
+	docker build -f command/api/Dockerfile -t analytics-engine:latest .
+
 docker-build-push:
 	./scripts/build-consumer.sh build-push
 
@@ -291,13 +307,19 @@ docker-stop:
 # KUBERNETES
 # ==============================================================================
 k8s-deploy:
-	kubectl apply -f k8s/
+	kubectl apply -k k8s/
 
 k8s-delete:
-	kubectl delete -f k8s/
+	kubectl delete -k k8s/
 
-k8s-logs:
+k8s-logs-consumer:
 	kubectl logs -n smap -l app=smap-analytics -f
+
+k8s-logs-api:
+	kubectl logs -l app=analytics-api -f
 
 k8s-status:
 	kubectl get all -n smap
+
+k8s-api-status:
+	kubectl get pods,svc,ingress -l app=analytics-api

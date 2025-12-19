@@ -221,7 +221,13 @@ make run-api
 ### 6. Test the System
 
 ```bash
-# Run all PhoBERT tests
+# Run all tests
+make test
+
+# Run API service tests
+make test-api
+
+# Run PhoBERT tests
 make test-phobert
 
 # Run unit tests only
@@ -230,6 +236,176 @@ make test-phobert-unit
 # Run integration tests (requires model)
 make test-phobert-integration
 ```
+
+---
+
+## API Service
+
+The Analytics Engine includes a RESTful API service built with FastAPI that provides programmatic access to analytics data with comprehensive filtering, sorting, and pagination capabilities.
+
+### Features
+
+- **FastAPI Framework** with automatic OpenAPI documentation
+- **Async Database Layer** with SQLAlchemy and connection pooling
+- **Repository Pattern** with clean separation of concerns
+- **Standardized Response Format** with success/error/pagination metadata
+- **Comprehensive Filtering** for posts, trends, keywords, alerts, and errors
+- **Performance Optimized** with database indexes and query optimization
+- **Production Ready** with health checks, CORS, and error handling
+- **Kubernetes Deployment** with ingress and security configurations
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Simple health check |
+| `/health/detailed` | GET | Detailed health check with dependencies |
+| `/posts` | GET | Get posts with filtering and pagination |
+| `/posts/all` | GET | Get all posts without pagination |
+| `/posts/{post_id}` | GET | Get specific post details |
+| `/summary` | GET | Get analytics summary statistics |
+| `/trends` | GET | Get trending topics and keywords |
+| `/top-keywords` | GET | Get keyword analysis data |
+| `/alerts` | GET | Get system alerts and notifications |
+| `/errors` | GET | Get processing errors with details |
+
+### Quick API Start
+
+```bash
+# Start API service
+make run-api
+
+# Or with Docker
+make dev-up  # Includes API service
+
+# Test the API
+curl http://localhost:8000/health
+
+# View documentation
+open http://localhost:8000/swagger
+```
+
+### API Examples
+
+```bash
+# Get posts with filters
+curl "http://localhost:8000/posts?platform=tiktok&sentiment=positive&limit=10"
+
+# Get trending keywords
+curl "http://localhost:8000/trends?period=7d&sort=engagement_desc"
+
+# Get analytics summary
+curl "http://localhost:8000/summary?project_id=proj_123"
+```
+
+### Environment Configuration
+
+API-specific environment variables in `.env`:
+
+```bash
+# API Service
+API_HOST=0.0.0.0
+API_PORT=8000
+API_WORKERS=1
+API_CORS_ORIGINS=http://localhost:3000,https://dashboard.yourdomain.com
+
+# Database (Async)
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/analytics
+DATABASE_POOL_SIZE=10
+DATABASE_MAX_OVERFLOW=20
+
+# Logging
+LOG_LEVEL=INFO
+DEBUG=false
+```
+
+### Deployment
+
+#### Docker Compose (Development)
+```bash
+make dev-up  # Starts all services including API
+make dev-api-logs  # View API logs
+```
+
+#### Kubernetes (Production)
+```bash
+# Deploy all services
+make k8s-deploy
+
+# Check API status
+make k8s-api-status
+
+# View API logs
+make k8s-logs-api
+```
+
+#### Docker Build
+
+**Using build scripts (Recommended):**
+```bash
+# Build and push API service
+./scripts/build-api.sh
+
+# Build and push Consumer service
+./scripts/build-consumer.sh
+
+# Login to registry
+./scripts/build-api.sh login
+```
+
+**Using Makefile:**
+```bash
+# Build API service image
+make docker-build-api
+```
+
+### API Documentation
+
+- **Swagger UI**: http://localhost:8000/swagger
+- **ReDoc**: http://localhost:8000/redoc  
+- **OpenAPI Schema**: http://localhost:8000/openapi.json
+
+### Testing
+
+```bash
+# Run API tests
+make test-api
+
+# Run integration tests  
+PYTHONPATH=. uv run pytest tests/integration/api/test_endpoints.py -v
+
+# Test specific endpoints with curl
+curl -X GET "http://localhost:8000/health"
+curl -X GET "http://localhost:8000/posts?project_id=550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Production Deployment Checklist
+
+#### Pre-deployment
+- [ ] Update `API_CORS_ORIGINS` to specific domains (remove `*`)
+- [ ] Set `DEBUG=false` in production environment
+- [ ] Configure proper `DATABASE_URL` with production credentials
+- [ ] Set appropriate `DATABASE_POOL_SIZE` and `DATABASE_MAX_OVERFLOW`
+- [ ] Configure `LOG_LEVEL=INFO` or `WARNING` for production
+- [ ] Verify SSL/TLS certificates for ingress
+
+#### Kubernetes Deployment
+- [ ] Apply namespace and RBAC configurations
+- [ ] Deploy secrets with `kubectl apply -f k8s/api-service/deployment.yaml` (includes secrets)
+- [ ] Deploy service with `kubectl apply -f k8s/api-service/service.yaml`
+- [ ] Deploy configmap with `kubectl apply -f k8s/api-service/configmap.yaml`
+- [ ] Merge ingress path into existing ingress (see `k8s/api-service/INGRESS_MERGE_GUIDE.md`)
+- [ ] Verify pod health with `kubectl get pods -l app=analytics-api`
+- [ ] Check logs with `kubectl logs -l app=analytics-api --tail=100`
+- [ ] Test external access through ingress
+
+#### Post-deployment Verification
+- [ ] Health check: `curl https://smap-api.tantai.dev/analytics/health`
+- [ ] API documentation: `curl https://smap-api.tantai.dev/analytics/openapi.json`
+- [ ] Test endpoint: `curl https://smap-api.tantai.dev/analytics/posts?project_id=xxx`
+- [ ] Database connectivity and performance
+- [ ] Monitor resource usage (3 fixed replicas)
+- [ ] Set up alerting for critical errors
 
 ---
 
@@ -654,33 +830,63 @@ uv run python examples/sentiment_example.py
 ```
 analytics_engine/
 ├── command/                  # Entry points
-│   ├── api/                  # API service
+│   ├── api/                  # API service entry point
+│   │   └── main.py          # FastAPI application startup
 │   └── consumer/             # Consumer service
 ├── core/                     # Core functionality
-│   ├── config.py            # Configuration
-│   └── database.py          # Database setup
+│   ├── config.py            # Configuration management
+│   ├── database.py          # Async database manager
+│   └── validation.py        # Environment validation
 ├── infrastructure/           # External integrations
 │   ├── ai/                  # AI models
 │   │   ├── phobert_onnx.py # PhoBERT wrapper
 │   │   └── constants.py    # AI constants
 │   └── phobert/
 │       └── models/          # Model artifacts (gitignored)
-├── internal/                 # Implementation
-│   └── api/                 # API layer
-├── services/                 # Business logic
-├── tests/                    # Test suite
-│   └── phobert/             # PhoBERT tests
-│       ├── test_unit.py     # 21 unit tests
+├── internal/                 # Implementation layer
+│   └── api/                 # API implementation
+│       ├── main.py          # FastAPI app with middleware
+│       └── routes/          # API route handlers
+├── models/                   # Data models
+│   └── schemas/             # Pydantic schemas
+│       ├── base.py         # Base response schemas
+│       ├── posts.py        # Posts API schemas
+│       ├── trends.py       # Trends API schemas
+│       ├── keywords.py     # Keywords API schemas
+│       ├── alerts.py       # Alerts API schemas
+│       └── errors.py       # Error handling schemas
+├── repository/              # Data access layer
+│   ├── base_repository.py  # Abstract repository interface
+│   └── analytics_api_repository.py # API data repository
+├── services/                # Business logic
+├── tests/                   # Test suite
+│   ├── api/                # API service tests
+│   │   ├── test_endpoints.py # Endpoint tests
+│   │   └── test_integration.py # Integration tests
+│   └── phobert/            # PhoBERT tests
+│       ├── test_unit.py    # 21 unit tests
 │       ├── test_integration.py # 9 integration tests
 │       └── test_performance.py # 6 performance tests
-├── documents/                # Documentation
-│   └── phobert_report.md   # Model report
-├── scripts/                  # Utility scripts
+├── examples/                # Usage examples
+│   └── api_client.py       # API client examples
+├── k8s/                     # Kubernetes manifests
+│   ├── api-service/        # API service K8s configs
+│   │   ├── deployment.yaml # Deployment with 3 replicas
+│   │   ├── service.yaml   # ClusterIP service
+│   │   ├── configmap.yaml # Configuration
+│   │   └── INGRESS_MERGE_GUIDE.md # Guide to merge into existing ingress
+│   └── kustomization.yaml # Kustomize configuration
+├── documents/               # Documentation
+│   └── phobert_report.md  # Model report
+├── scripts/                 # Utility scripts
+│   ├── build-api.sh        # Build and push API image
+│   ├── build-consumer.sh   # Build and push Consumer image
 │   └── download_phobert_model.sh
-├── migrations/               # Alembic migrations
-├── docker-compose.dev.yml   # Development environment
-├── Makefile                 # Common command
-└── pyproject.toml           # Project dependencies
+├── migrations/              # Alembic migrations
+├── docker-compose.dev.yml  # Development environment (includes API)
+├── Dockerfile.api          # API service Docker image
+├── Makefile                # Common commands (with API targets)
+└── pyproject.toml          # Project dependencies
 ```
 
 ---
@@ -690,28 +896,46 @@ analytics_engine/
 ### Available Commands
 
 ```bash
+# Services
+make run-api                 # Start API service locally
+make run-consumer            # Start Consumer service locally
+
 # Development Environment
-make dev-up                  # Start dev services (Postgres, Redis, MinIO)
+make dev-up                  # Start dev services (Postgres, Redis, MinIO, API)
 make dev-down                # Stop dev services
-make dev-logs                # View dev logs
+make dev-logs                # View all dev logs
+make dev-api-logs            # View API service logs only
 
 # Database
 make db-upgrade              # Run migrations
 make db-downgrade            # Rollback migration
 
-# PhoBERT
-make download-phobert        # Download model from MinIO
-make test-phobert            # Run all tests (35 tests)
+# Testing
+make test                    # Run all tests
+make test-api                # Run API service tests
+make test-phobert            # Run all PhoBERT tests (35 tests)
 make test-phobert-unit       # Run unit tests (21 tests)
 make test-phobert-integration # Run integration tests (9 tests)
 make test-phobert-performance # Run performance tests (6 tests)
 
-# API
-make run-api                 # Start API service
+# AI Models
+make download-phobert        # Download model from MinIO
+make download-spacy-model    # Download SpaCy model
+
+# Docker
+make docker-build           # Build consumer service image
+make docker-build-api       # Build API service image
+
+# Kubernetes
+make k8s-deploy             # Deploy all services to Kubernetes
+make k8s-delete             # Delete all Kubernetes resources
+make k8s-logs-api           # View API service logs
+make k8s-api-status         # Check API service status
 
 # Code Quality
-make format                  # Format code with Black
-make lint                    # Lint code with flake8
+make format                 # Format code with Black
+make lint                   # Lint code with flake8
+make clean                  # Clean up cache files
 ```
 
 ### Running Tests

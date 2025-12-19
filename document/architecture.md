@@ -9,11 +9,25 @@ This document describes the project structure and architectural patterns used in
 ```
 analytics_engine/
 ├── command/                   # Entry Points (Command Layer)
+│   ├── api/                    # API service entry point
+│   │   ├── __init__.py
+│   │   └── main.py            # Loads config, initializes FastAPI app
 │   └── consumer/               # Consumer service entry point
 │       ├── __init__.py
 │       └── main.py            # Loads config, initializes instances, starts consumer
 │
 ├── internal/                   # Internal Implementation Layer
+│   ├── api/                    # API route registration
+│   │   ├── __init__.py
+│   │   ├── main.py            # FastAPI app, middleware, exception handlers
+│   │   └── routes/            # API route modules
+│   │       ├── __init__.py
+│   │       ├── posts.py       # /posts endpoints
+│   │       ├── summary.py     # /summary endpoint
+│   │       ├── trends.py      # /trends endpoint
+│   │       ├── keywords.py    # /top-keywords endpoint
+│   │       ├── alerts.py      # /alerts endpoint
+│   │       └── errors.py      # /errors endpoint
 │   └── consumers/              # Consumer registration
 │       ├── __init__.py
 │       └── main.py            # Event consumer (data.collected events)
@@ -29,7 +43,14 @@ analytics_engine/
 ├── models/                     # Data Models Layer
 │   ├── __init__.py
 │   ├── database.py            # SQLAlchemy models (PostAnalytics, CrawlError)
-│   └── schemas.py             # Pydantic schemas (API DTOs)
+│   ├── schemas/               # Pydantic schemas (API DTOs)
+│   │   ├── __init__.py
+│   │   ├── base.py            # Base schemas, response wrappers
+│   │   ├── posts.py           # Post request/response schemas
+│   │   ├── summary.py         # Summary response schemas
+│   │   ├── trends.py          # Trends response schemas
+│   │   └── errors.py          # Error response schemas
+│   └── messages.py            # RabbitMQ message schemas
 │
 ├── interfaces/                 # Interface Layer (Abstractions)
 │   ├── __init__.py
@@ -134,15 +155,35 @@ if __name__ == "__main__":
 
 ### 2. Internal Layer (`internal/`)
 
-**Purpose**: Internal implementation of services. Registers consumers and handlers.
+**Purpose**: Internal implementation of services. Registers routes, consumers, and handlers.
 
 **Responsibilities**:
 
+- Register API routes (FastAPI routers)
 - Register message queue consumers
-- Define message handlers
+- Define middleware and exception handlers
 - Implement service-specific logic
 
-**Pattern**:
+**Pattern - API**:
+
+```python
+# internal/api/main.py
+from fastapi import FastAPI
+from internal.api.routes import posts, summary, trends
+
+app = FastAPI(title="Analytics Engine API")
+
+# Register routes
+app.include_router(posts.router, prefix="/v1/analytics", tags=["posts"])
+app.include_router(summary.router, prefix="/v1/analytics", tags=["summary"])
+app.include_router(trends.router, prefix="/v1/analytics", tags=["trends"])
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+```
+
+**Pattern - Consumer**:
 
 ```python
 # internal/consumers/main.py
@@ -158,7 +199,7 @@ def create_message_handler(phobert, spacyyake):
 **Key Points**:
 
 - Contains the actual service implementation
-- Separated by service type (consumers, workers)
+- Separated by service type (api, consumers, workers)
 - Does NOT handle initialization - that's `command/`'s job
 
 ### 3. Core Layer (`core/`)
@@ -409,12 +450,28 @@ config.set_main_option("sqlalchemy.url", settings.database_url_sync)
 
 ## Dependency Flow
 
+**API Service:**
+
+```
+command/api/main.py
+    ↓ imports
+internal/api/main.py
+    ↓ uses
+internal/api/routes/*.py
+    ↓ uses
+repository/ (data access)
+    ↓ uses
+models/database.py, models/schemas/
+```
+
+**Consumer Service:**
+
 ```
 command/consumer/main.py
     ↓ imports
 internal/consumers/main.py
     ↓ uses
-core/config.py, core/logger.py, core/models.py
+core/config.py, core/logger.py
     ↓ uses
 services/ (business logic)
 ```
@@ -443,6 +500,7 @@ services/ (business logic)
 ### 4. Scalability
 
 - Easy to add new services (new `command/` entry point)
+- Easy to add new routes (register in `internal/api/routes/`)
 - Easy to add new consumers (register in `internal/consumers/`)
 
 ## Configuration Management
@@ -454,6 +512,10 @@ Managed via `.env` file and `core/config.py`:
 ```bash
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/db
+
+# API
+API_HOST=0.0.0.0
+API_PORT=8000
 
 # Logging
 LOG_LEVEL=INFO
@@ -482,10 +544,11 @@ class Settings(BaseSettings):
 make dev-up  # Starts Docker services
 ```
 
-### 2. Run Consumer Service
+### 2. Run Services
 
 ```bash
-make run-consumer  # Start consumer
+make run-api       # Start API service
+make run-consumer  # Start consumer service
 ```
 
 ### 3. Database Migrations
@@ -556,6 +619,108 @@ run-new-service:
 - **Storage**: MinIO (boto3-compatible)
 - **Compression**: Zstandard (zstd)
 - **AI/ML**: PhoBERT (ONNX), SpaCy-YAKE
+
+## API Service Architecture
+
+### Overview
+
+Analytics API Service cung cấp REST API để query dữ liệu phân tích cho Dashboard.
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│    Dashboard    │────▶│   Analytics     │────▶│   PostgreSQL    │
+│    (Frontend)   │     │   API Service   │     │  post_analytics │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+### Entry Point
+
+```python
+# command/api/main.py
+from core.config import settings
+from core.logger import logger
+from internal.api.main import app
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info(f"Starting Analytics API on {settings.api_host}:{settings.api_port}")
+    uvicorn.run(app, host=settings.api_host, port=settings.api_port)
+```
+
+### API Endpoints
+
+| Endpoint                     | Method | Description                              |
+| ---------------------------- | ------ | ----------------------------------- |
+| `/v1/analytics/posts`        | GET    | List posts với filters + pagination |
+| `/v1/analytics/posts/{id}`   | GET    | Chi tiết 1 post + comments          |
+| `/v1/analytics/summary`      | GET    | Thống kê tổng hợp                   |
+| `/v1/analytics/trends`       | GET    | Data theo timeline                  |
+| `/v1/analytics/top-keywords` | GET    | Top keywords với sentiment          |
+| `/v1/analytics/alerts`       | GET    | Posts cần chú ý                     |
+| `/v1/analytics/errors`       | GET    | Crawl errors tracking               |
+| `/health`                    | GET    | Health check                        |
+| `/swagger/index.html`        | GET    | Swagger UI documentation            |
+| `/openapi.json`              | GET    | OpenAPI 3.0 specification           |
+
+### Response Format
+
+All responses follow standard format:
+
+**Success:**
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "timestamp": "2025-12-19T10:30:00Z",
+    "request_id": "req_abc123",
+    "version": "v1"
+  }
+}
+```
+
+**Paginated:**
+
+```json
+{
+  "success": true,
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "page_size": 20,
+    "total_items": 150,
+    "total_pages": 8,
+    "has_next": true,
+    "has_prev": false
+  },
+  "meta": { ... }
+}
+```
+
+**Error:**
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VAL_001",
+    "message": "Validation failed",
+    "details": [...]
+  },
+  "meta": { ... }
+}
+```
+
+### Filter Parameters
+
+All endpoints support filtering by:
+
+- `project_id` (UUID) - **Required**
+- `brand_name` (string) - Optional
+- `keyword` (string) - Optional
+
+---
 
 ## Event-Driven Architecture
 

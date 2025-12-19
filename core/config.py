@@ -129,6 +129,13 @@ class Settings(BaseSettings):
     debug_raw_data: str = "false"
     debug_sample_rate: int = 100  # Log 1 in N items when debug_raw_data="sample"
 
+    # API Service Settings
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    api_workers: int = 1
+    api_cors_origins: list = ["*"]  # Configure for production
+    api_root_path: str = ""  # Root path prefix (e.g., "/analytic" for ingress)
+
 
 settings = Settings()
 

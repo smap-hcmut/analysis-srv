@@ -19,11 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv
 RUN pip install --no-cache-dir uv
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Copy dependency files (need README for build)
+COPY pyproject.toml uv.lock README.md ./
 
-# Install dependencies
-RUN uv pip install --system --no-cache -r pyproject.toml
+# Install dependencies (Consumer with ML/Analytics libraries)
+RUN uv pip install --system --no-cache -e .[consumer]
 
 # Download SpaCy multilingual model (cached in builder layer)
 RUN python -m spacy download xx_ent_wiki_sm
