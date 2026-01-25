@@ -8,7 +8,7 @@
 
 ### Core
 
-- **Language**: Python 3.12+ (minimum 3.10)
+- **Language**: Python 3.10+ (3.12+ recommended)
 - **Package Manager**: `uv` (faster than Poetry)
 - **Web Framework**: FastAPI
 - **Database**: PostgreSQL với Alembic migrations
@@ -36,12 +36,14 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Entry Points (command/)                                    │
+│  ├── api/main.py      → FastAPI REST API service            │
 │  └── consumer/main.py → RabbitMQ consumer (Event-Driven)    │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Internal (internal/)                                        │
+│  ├── api/             → API routes & handlers                │
 │  └── consumers/       → Message handlers                    │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -244,6 +246,7 @@ COMPRESSION_ALGORITHM=zstd
 ```
 analytics_engine/
 ├── command/                  # Entry points
+│   ├── api/                  # FastAPI REST API service
 │   └── consumer/             # RabbitMQ consumer (Event-Driven)
 ├── config/                   # YAML configurations
 │   ├── aspects.yaml         # Aspect dictionary
@@ -261,6 +264,7 @@ analytics_engine/
 │   └── storage/             # MinIO client
 ├── interfaces/               # Abstract interfaces
 ├── internal/                 # Implementation
+│   ├── api/                 # API routes & handlers
 │   └── consumers/           # Message handlers
 ├── models/                   # SQLAlchemy models
 ├── repository/             # Data access layer
@@ -279,7 +283,10 @@ analytics_engine/
 │   └── changes/             # Change proposals
 ├── document/                 # Documentation
 ├── examples/                 # Usage examples
-└── scripts/                  # Utility scripts
+├── scripts/                  # Utility scripts
+├── utils/                    # Utility functions
+├── k8s/                      # Kubernetes manifests
+└── workflows/                # Workflow definitions
 ```
 
 ## Existing Capabilities (Specs)
@@ -296,6 +303,7 @@ analytics_engine/
 | `ai_integration`            | PhoBERT ONNX integration               |
 | `storage`                   | MinIO with compression                 |
 | `service_lifecycle`         | Service startup/shutdown               |
+| `analytics_api`             | REST API service for querying analytics data |
 
 ## Quick Commands
 
@@ -303,6 +311,7 @@ analytics_engine/
 # Development
 make dev-up                  # Start dev services
 make dev-down                # Stop dev services
+make run-api                 # Start API service
 make run-consumer            # Start consumer service
 
 # Database
@@ -314,6 +323,8 @@ make download-phobert        # Download PhoBERT from MinIO
 make download-spacy-model    # Download SpaCy model
 
 # Testing
+make test                    # Run all tests
+make test-api                # API service tests
 make test-phobert            # PhoBERT tests (35 tests)
 make test-intent             # Intent tests (52 tests)
 make test-spacyyake          # SpaCy-YAKE tests (78 tests)

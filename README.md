@@ -156,12 +156,12 @@ After processing a batch, Analytics Engine publishes results back to Collector S
 
 ### Documentation
 
-- [Integration Contract](document/integration-contract.md) - Detailed requirements for Crawler services
-- [Integration Analytics Service](document/integration-analytics-service.md) - Analytics ↔ Collector integration guide
-- [Batch Processing Rationale](document/batch-processing-rationale.md) - Technical justification for batch processing architecture
-- [Migration Guide](document/migration-guide.md) - Steps to migrate from legacy format
-- [Rollback Runbook](document/rollback-runbook.md) - Emergency rollback procedures
-- [Troubleshooting Guide](document/troubleshooting-guide.md) - Common issues and solutions
+- [Architecture](document/architecture.md) - System architecture and design
+- [Analytics Behavior](document/analytics-behavior.md) - Analytics processing behavior and pipeline
+- [Event-Driven Architecture](document/event-drivent.md) - Event-driven integration patterns
+- [Collector-Crawler Contract](document/collector-crawler-contract.md) - Integration contract between services
+- [Crawler-Analyst Data Contract](document/crawler-analyst-data-contract.md) - Data format specifications
+- [API Design Proposal](document/api-design-proposal.md) - API service design documentation
 
 ---
 
@@ -169,7 +169,7 @@ After processing a batch, Analytics Engine publishes results back to Collector S
 
 ### Prerequisites
 
-- **Python 3.12+**
+- **Python 3.10+** (3.12+ recommended)
 - **Docker & Docker Compose** (for containerized deployment)
 - **PostgreSQL** (for database)
 - **MinIO** (for model artifacts storage)
@@ -278,25 +278,38 @@ make run-api
 # Or with Docker
 make dev-up  # Includes API service
 
-# Test the API
-curl http://localhost:8000/health
-
-# View documentation
+# View API documentation in Swagger UI
 open http://localhost:8000/swagger
+# Or visit: http://localhost:8000/swagger/index.html
 ```
 
-### API Examples
+### Using the API
 
-```bash
-# Get posts with filters
-curl "http://localhost:8000/posts?platform=tiktok&sentiment=positive&limit=10"
+**Recommended**: Use Swagger UI for interactive API exploration and testing.
 
-# Get trending keywords
-curl "http://localhost:8000/trends?period=7d&sort=engagement_desc"
+1. **Start the API service**:
+   ```bash
+   make run-api
+   # Or with Docker
+   make dev-up
+   ```
 
-# Get analytics summary
-curl "http://localhost:8000/summary?project_id=proj_123"
-```
+2. **Open Swagger UI** in your browser:
+   ```
+   http://localhost:8000/swagger
+   ```
+
+3. **Explore and test endpoints**:
+   - Browse all available endpoints in the Swagger interface
+   - View request/response schemas
+   - Test endpoints directly from the UI with "Try it out"
+   - See example requests and responses
+
+All endpoints are documented with:
+- Request parameters and query options
+- Response schemas
+- Example values
+- Authentication requirements (if any)
 
 ### Environment Configuration
 
@@ -362,7 +375,6 @@ make docker-build-api
 ### API Documentation
 
 - **Swagger UI**: http://localhost:8000/swagger
-- **ReDoc**: http://localhost:8000/redoc  
 - **OpenAPI Schema**: http://localhost:8000/openapi.json
 
 ### Testing
@@ -373,11 +385,13 @@ make test-api
 
 # Run integration tests  
 PYTHONPATH=. uv run pytest tests/integration/api/test_endpoints.py -v
-
-# Test specific endpoints with curl
-curl -X GET "http://localhost:8000/health"
-curl -X GET "http://localhost:8000/posts?project_id=550e8400-e29b-41d4-a716-446655440000"
 ```
+
+**Testing endpoints manually**: Use Swagger UI at http://localhost:8000/swagger to test endpoints interactively. The Swagger interface provides:
+- Interactive endpoint testing with "Try it out" feature
+- Request parameter builders
+- Response validation
+- Example requests and responses
 
 ### Production Deployment Checklist
 
@@ -400,9 +414,9 @@ curl -X GET "http://localhost:8000/posts?project_id=550e8400-e29b-41d4-a716-4466
 - [ ] Test external access through ingress
 
 #### Post-deployment Verification
-- [ ] Health check: `curl https://smap-api.tantai.dev/analytics/health`
-- [ ] API documentation: `curl https://smap-api.tantai.dev/analytics/openapi.json`
-- [ ] Test endpoint: `curl https://smap-api.tantai.dev/analytics/posts?project_id=xxx`
+- [ ] Health check: Visit `https://smap-api.tantai.dev/analytics/health` in browser or use Swagger UI
+- [ ] API documentation: Visit `https://smap-api.tantai.dev/analytics/swagger` to verify Swagger UI is accessible
+- [ ] Test endpoints: Use Swagger UI to test endpoints interactively
 - [ ] Database connectivity and performance
 - [ ] Monitor resource usage (3 fixed replicas)
 - [ ] Set up alerting for critical errors
@@ -1044,202 +1058,6 @@ MINIO_SECRET_KEY="your-secret-key"
 
 ---
 
-## Test API Endpoint
-
-The Analytics Engine provides a `/test/analytics` endpoint for testing the full analytics pipeline integration.
-
-### Sentiment & ABSA (Module 4)
-
-The analytics engine uses a Vietnamese sentiment model based on
-`wonrax/phobert-base-vietnamese-sentiment` (3-class: NEG/NEU/POS) and maps
-its outputs into a 1–5★ business rating scale:
-
-- NEGATIVE (index 0) → **1★** (Very Negative)
-- NEUTRAL (index 2) → **3★** (Neutral)
-- POSITIVE (index 1) → **5★** (Very Positive)
-
-On top of this overall sentiment, the `SentimentAnalyzer` implements
-Aspect-Based Sentiment Analysis (ABSA):
-
-- Uses **context windowing** around each keyword (CONFIG: `CONTEXT_WINDOW_SIZE`,
-  default 30 characters) to avoid “sentiment bleeding” between clauses.
-- Cuts windows on punctuation and Vietnamese pivot words (`nhưng`, `tuy nhiên`,
-  `mặc dù`, `bù lại`) so that:
-  - DESIGN praise (e.g. _"Xe thiết kế rất đẹp"_) is evaluated separately.
-  - PRICE complaints (e.g. _"giá quá cao"_) are not diluted by positive parts.
-  - PERFORMANCE issues (e.g. _"pin thì hơi yếu"_) are localized.
-- Returns both:
-  - **overall** sentiment (label, score in [-1,1], rating 1–5★, confidence).
-  - **aspects** dictionary keyed by business aspect (`DESIGN`, `PRICE`,
-    `PERFORMANCE`, `SERVICE`, …) with per-aspect label/score/rating and mentions.
-
-Model files are downloaded from MinIO via:
-
-- `make download-phobert` → runs `scripts/download_phobert_model.py` using:
-  - `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
-  - Downloads: `model_quantized.onnx`, `config.json`, `vocab.txt`,
-    `special_tokens_map.json`, `tokenizer_config.json`,
-    `added_tokens.json`, `bpe.codes` into `infrastructure/phobert/models/`.
-
-### Endpoint Details
-
-**URL**: `POST /test/analytics`  
-**Description**: Test endpoint that accepts JSON input matching the master-proposal format and returns detailed analytics processing results.
-
-### Request Format
-
-```json
-{
-  "meta": {
-    "id": "post_123",
-    "platform": "facebook",
-    "lang": "vi",
-    "collected_at": "2025-01-15T10:30:00Z"
-  },
-  "content": {
-    "title": "Đánh giá sản phẩm",
-    "text": "Sản phẩm chất lượng cao, rất hài lòng!",
-    "media": []
-  },
-  "interaction": {
-    "likes": 42,
-    "shares": 5,
-    "comments_count": 3
-  },
-  "author": {
-    "id": "user_456",
-    "name": "John Doe"
-  },
-  "comments": []
-}
-```
-
-### Response Format
-
-```json
-{
-  "post_id": "post_123",
-  "preprocessing": {
-    "status": "not_implemented",
-    "message": "Text preprocessing will be implemented in a future proposal",
-    "input_text_length": 54
-  },
-  "keywords": {
-    "status": "success",
-    "model_available": true,
-    "keywords": [
-      {
-        "keyword": "sản phẩm",
-        "score": 0.95,
-        "rank": 1,
-        "type": "statistical"
-      }
-    ],
-    "metadata": {
-      "extraction_time": 0.123,
-      "total_candidates": 15
-    }
-  },
-  "sentiment": {
-    "status": "success",
-    "model_available": true,
-    "sentiment": {
-      "sentiment": "VERY_POSITIVE",
-      "confidence": 0.99,
-      "probabilities": {
-        "VERY_NEGATIVE": 0.001,
-        "NEGATIVE": 0.002,
-        "NEUTRAL": 0.007,
-        "POSITIVE": 0.01,
-        "VERY_POSITIVE": 0.98
-      }
-    }
-  },
-  "metadata": {
-    "platform": "facebook",
-    "language": "vi",
-    "collected_at": "2025-01-15T10:30:00Z",
-    "models_initialized": {
-      "phobert": true,
-      "spacyyake": true
-    }
-  }
-}
-```
-
-### Testing with curl
-
-```bash
-# Test with Vietnamese text
-curl -X POST http://localhost:8000/test/analytics \
-  -H "Content-Type: application/json" \
-  -d '{
-    "meta": {"id": "test_1", "platform": "facebook", "lang": "vi"},
-    "content": {"title": "Review", "text": "Sản phẩm tốt!"},
-    "interaction": {},
-    "author": {},
-    "comments": []
-  }'
-
-# Test with English text
-curl -X POST http://localhost:8000/test/analytics \
-  -H "Content-Type: application/json" \
-  -d '{
-    "meta": {"id": "test_2", "platform": "twitter", "lang": "en"},
-    "content": {"title": "Product Review", "text": "Great quality product with excellent features!"},
-    "interaction": {},
-    "author": {},
-    "comments": []
-  }'
-```
-
-### Testing with Python
-
-```python
-import requests
-
-# Prepare test data
-test_data = {
-    "meta": {
-        "id": "test_post_123",
-        "platform": "facebook",
-        "lang": "vi",
-        "collected_at": "2025-01-15T10:30:00Z"
-    },
-    "content": {
-        "title": "Đánh giá sản phẩm",
-        "text": "Sản phẩm chất lượng cao, rất hài lòng!",
-        "media": []
-    },
-    "interaction": {"likes": 42, "shares": 5, "comments_count": 3},
-    "author": {"id": "user_456", "name": "John Doe"},
-    "comments": []
-}
-
-# Send request
-response = requests.post(
-    "http://localhost:8000/test/analytics",
-    json=test_data
-)
-
-# Process response
-result = response.json()
-print(f"Post ID: {result['post_id']}")
-print(f"Sentiment: {result['sentiment']['sentiment']['sentiment']}")
-print(f"Keywords: {len(result['keywords']['keywords'])} extracted")
-```
-
-### API Documentation
-
-Once the API is running, visit:
-
-- **Swagger UI**: http://localhost:8000/swagger or http://localhost:8000/swagger/index.html
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI Schema**: http://localhost:8000/openapi.json
-
----
-
-## MinIO Compression
 
 The Analytics Engine supports **Zstd compression** for MinIO storage, providing automatic decompression when downloading JSON files.
 
