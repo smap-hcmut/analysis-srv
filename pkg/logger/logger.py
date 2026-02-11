@@ -32,11 +32,9 @@ class ILogger(Protocol):
 
     def info(self, message: str, **kwargs) -> None: ...
 
-    def warning(self, message: str, **kwargs) -> None: ...
+    def warn(self, message: str, **kwargs) -> None: ...
 
     def error(self, message: str, **kwargs) -> None: ...
-
-    def critical(self, message: str, **kwargs) -> None: ...
 
     def exception(self, message: str, **kwargs) -> None: ...
 
@@ -69,8 +67,16 @@ class Logger(ILogger):
         Args:
             config: Logger configuration
         """
+        from pathlib import Path
+
         self.config = config
         self._loguru = _loguru_logger
+
+        # Cache workspace root (computed once)
+        self.workspace_root = Path.cwd()
+
+        # Cache for relative paths (avoid recomputing for same files)
+        self._path_cache: dict[str, str] = {}
 
         # Remove default handler
         self._loguru.remove()
@@ -81,12 +87,12 @@ class Logger(ILogger):
 
     def _add_console_handler(self) -> None:
         """Add console handler with colors and trace ID."""
-        
-        import os
+
         from pathlib import Path
-        
-        # Get workspace root (where the script is run from)
-        workspace_root = Path.cwd()
+
+        # Capture instance variables in closure
+        workspace_root = self.workspace_root
+        path_cache = self._path_cache
 
         def format_record(record):
             """Add trace_id and relative path to record."""
@@ -97,27 +103,32 @@ class Logger(ILogger):
             record["extra"][TRACE_ID_KEY] = trace_id or ""
             if request_id:
                 record["extra"][REQUEST_ID_KEY] = request_id
-            
-            # Convert absolute path to relative path from workspace root
-            try:
-                file_path = Path(record["file"].path)
-                relative_path = file_path.relative_to(workspace_root)
-                record["extra"]["relative_path"] = str(relative_path)
-            except (ValueError, AttributeError):
-                # Fallback to filename if relative path fails
-                record["extra"]["relative_path"] = record["file"].name
 
+            # Get or compute relative path (with caching)
+            abs_path = record["file"].path
+            if abs_path not in path_cache:
+                try:
+                    file_path = Path(abs_path)
+                    relative_path = file_path.relative_to(workspace_root)
+                    path_cache[abs_path] = str(relative_path)
+                except (ValueError, AttributeError):
+                    # Fallback to filename if relative path fails
+                    path_cache[abs_path] = record["file"].name
+
+            record["extra"]["relative_path"] = path_cache[abs_path]
             return True
 
         # Build format string based on config
         format_str = f"{LOG_FORMAT_TIME} | {LOG_FORMAT_LEVEL}"
-        
+
         # Add trace_id if enabled
         if self.config.enable_trace_id:
             format_str += f" | {LOG_FORMAT_TRACE}"
-        
+
         # Add location (relative path) and message
-        format_str += " | <cyan>{extra[relative_path]}</cyan>:<cyan>{line}</cyan> - {message}"
+        format_str += (
+            " | <cyan>{extra[relative_path]}</cyan>:<cyan>{line}</cyan> - {message}"
+        )
 
         self._loguru.add(
             sys.stdout,
@@ -198,17 +209,13 @@ class Logger(ILogger):
         """Log info message."""
         self._loguru.opt(depth=1).info(message, **kwargs)
 
-    def warning(self, message: str, **kwargs) -> None:
+    def warn(self, message: str, **kwargs) -> None:
         """Log warning message."""
         self._loguru.opt(depth=1).warning(message, **kwargs)
 
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
         self._loguru.opt(depth=1).error(message, **kwargs)
-
-    def critical(self, message: str, **kwargs) -> None:
-        """Log critical message."""
-        self._loguru.opt(depth=1).critical(message, **kwargs)
 
     def exception(self, message: str, **kwargs) -> None:
         """Log exception with traceback."""
