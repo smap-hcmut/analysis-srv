@@ -21,6 +21,10 @@ from internal.intent_classification import (
     New as NewIntentClassification,
     Config as IntentClassificationConfig,
 )
+from internal.keyword_extraction import (
+    New as NewKeywordExtraction,
+    Config as KeywordExtractionConfig,
+)
 from internal.analytics.usecase import AnalyticsUseCase
 
 
@@ -34,11 +38,13 @@ class DomainServices:
     Attributes:
         text_processing: Text preprocessing use case
         intent_classification: Intent classification use case
+        keyword_extraction: Keyword extraction use case
         analytics_usecase: Analytics use case
     """
 
     text_processing: object  # TextProcessing instance
     intent_classification: object  # IntentClassification instance
+    keyword_extraction: object  # KeywordExtraction instance
     analytics_usecase: AnalyticsUseCase
     # TODO: Add more domain services as needed
     # notification_usecase: NotificationUseCase
@@ -66,6 +72,7 @@ class ConsumerRegistry:
         # Use services in handlers
         text_output = services.text_processing.process(text_input)
         intent_output = services.intent_classification.process(intent_input)
+        keyword_output = services.keyword_extraction.process(keyword_input)
         result = await services.analytics_usecase.process_analytics(data)
     """
 
@@ -117,6 +124,20 @@ class ConsumerRegistry:
             )
             self.logger.info("[ConsumerRegistry] Intent classification initialized")
 
+            # Initialize keyword extraction use case
+            keyword_extraction_config = KeywordExtractionConfig(
+                aspect_dictionary_path=self.config.aspect_mapping.dictionary_path,
+                enable_ai=True,
+                ai_threshold=5,
+                max_keywords=self.config.keyword_extraction.max_keywords,
+            )
+            keyword_extraction = NewKeywordExtraction(
+                keyword_extraction_config,
+                self.deps.keyword_extractor,  # Inject SpacyYake from Dependencies
+                self.logger,
+            )
+            self.logger.info("[ConsumerRegistry] Keyword extraction initialized")
+
             # Initialize analytics use case
             analytics_usecase = AnalyticsUseCase(self.deps)
             self.logger.info("[ConsumerRegistry] Analytics use case initialized")
@@ -131,6 +152,7 @@ class ConsumerRegistry:
             self._services = DomainServices(
                 text_processing=text_processing,
                 intent_classification=intent_classification,
+                keyword_extraction=keyword_extraction,
                 analytics_usecase=analytics_usecase,
             )
 

@@ -32,7 +32,7 @@ keyword_extraction:
 
 aspect_mapping:
   enabled: false
-  dictionary_path: "config/aspects.yaml"
+  dictionary_path: "config/aspects_patterns.yaml"
   unknown_label: "UNKNOWN"
 
 rabbitmq:
