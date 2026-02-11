@@ -1,0 +1,26 @@
+from enum import Enum
+
+
+class LogLevel(str, Enum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+DEFAULT_SERVICE_NAME = "analytics-engine"
+DEFAULT_LEVEL = LogLevel.INFO
+DEFAULT_ENABLE_CONSOLE = True
+DEFAULT_COLORIZE = True
+
+LOG_TIME_FORMAT = "YYYY-MM-DD HH:mm:ss"
+
+LOG_FORMAT_TIME = "<green>{time:YYYY-MM-DD HH:mm:ss}</green>"
+LOG_FORMAT_LEVEL = "<level>{level: <8}</level>"
+LOG_FORMAT_TRACE = "{extra[trace_id]: <16}"
+LOG_FORMAT_LOCATION = "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan>"
+LOG_FORMAT_MESSAGE = "<level>{message}</level>"
+
+TRACE_ID_KEY = "trace_id"
+REQUEST_ID_KEY = "request_id"
