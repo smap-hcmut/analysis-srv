@@ -29,7 +29,11 @@ from internal.sentiment_analysis import (
     New as NewSentimentAnalysis,
     Config as SentimentAnalysisConfig,
 )
-from internal.analytics.usecase import AnalyticsUseCase
+from internal.impact_calculation import (
+    New as NewImpactCalculation,
+    Config as ImpactCalculationConfig,
+)
+# from internal.analytics.usecase import AnalyticsUseCase  # TODO: Refactor analytics domain
 
 
 @dataclass
@@ -44,14 +48,15 @@ class DomainServices:
         intent_classification: Intent classification use case
         keyword_extraction: Keyword extraction use case
         sentiment_analysis: Sentiment analysis use case
-        analytics_usecase: Analytics use case
+        impact_calculation: Impact calculation use case
     """
 
     text_processing: object  # TextProcessing instance
     intent_classification: object  # IntentClassification instance
     keyword_extraction: object  # KeywordExtraction instance
     sentiment_analysis: object  # SentimentAnalysis instance
-    analytics_usecase: AnalyticsUseCase
+    impact_calculation: object  # ImpactCalculation instance
+    # analytics_usecase: AnalyticsUseCase  # TODO: Refactor analytics domain
     # TODO: Add more domain services as needed
     # notification_usecase: NotificationUseCase
     # report_usecase: ReportUseCase
@@ -80,7 +85,7 @@ class ConsumerRegistry:
         intent_output = services.intent_classification.process(intent_input)
         keyword_output = services.keyword_extraction.process(keyword_input)
         sentiment_output = services.sentiment_analysis.process(sentiment_input)
-        result = await services.analytics_usecase.process_analytics(data)
+        impact_output = services.impact_calculation.process(impact_input)
     """
 
     def __init__(self, deps: Dependencies):
@@ -158,9 +163,33 @@ class ConsumerRegistry:
             )
             self.logger.info("[ConsumerRegistry] Sentiment analysis initialized")
 
-            # Initialize analytics use case
-            analytics_usecase = AnalyticsUseCase(self.deps)
-            self.logger.info("[ConsumerRegistry] Analytics use case initialized")
+            # Initialize impact calculation use case
+            impact_calculation_config = ImpactCalculationConfig(
+                weight_view=self.config.impact.weight.view,
+                weight_like=self.config.impact.weight.like,
+                weight_comment=self.config.impact.weight.comment,
+                weight_save=self.config.impact.weight.save,
+                weight_share=self.config.impact.weight.share,
+                platform_weight_tiktok=self.config.impact.platform.tiktok,
+                platform_weight_facebook=self.config.impact.platform.facebook,
+                platform_weight_youtube=self.config.impact.platform.youtube,
+                platform_weight_instagram=self.config.impact.platform.instagram,
+                platform_weight_unknown=self.config.impact.platform.unknown,
+                amp_negative=self.config.impact.amplifier.negative,
+                amp_neutral=self.config.impact.amplifier.neutral,
+                amp_positive=self.config.impact.amplifier.positive,
+                viral_threshold=self.config.impact.threshold.viral,
+                kol_follower_threshold=self.config.impact.threshold.kol_followers,
+                max_raw_score_ceiling=self.config.impact.threshold.max_raw_score,
+            )
+            impact_calculation = NewImpactCalculation(
+                impact_calculation_config, self.logger
+            )
+            self.logger.info("[ConsumerRegistry] Impact calculation initialized")
+
+            # TODO: Initialize analytics use case after refactoring
+            # analytics_usecase = AnalyticsUseCase(self.deps)
+            # self.logger.info("[ConsumerRegistry] Analytics use case initialized")
 
             # TODO: Initialize other domain services as needed
             # notification_config = NotificationConfig(...)
@@ -174,7 +203,7 @@ class ConsumerRegistry:
                 intent_classification=intent_classification,
                 keyword_extraction=keyword_extraction,
                 sentiment_analysis=sentiment_analysis,
-                analytics_usecase=analytics_usecase,
+                impact_calculation=impact_calculation,
             )
 
             self.logger.info(
