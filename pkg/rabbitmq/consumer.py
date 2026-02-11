@@ -61,8 +61,6 @@ class RabbitMQClient(IMessageConsumer):
         self.channel: Optional[AbstractRobustChannel] = None
         self._consume_future: Optional[asyncio.Future] = None
 
-        logger.info("RabbitMQ client initialized")
-
     async def connect(self) -> None:
         """Establish robust connection to RabbitMQ.
 
@@ -73,12 +71,8 @@ class RabbitMQClient(IMessageConsumer):
             Exception: If connection fails
         """
         try:
-            logger.info(f"Connecting to RabbitMQ at {self.config.url}...")
-
             # Create robust connection (auto-reconnects)
             self.connection = await aio_pika.connect_robust(self.config.url)
-
-            logger.info("RabbitMQ connection established")
 
             # Create channel
             self.channel = await self.connection.channel()
@@ -86,16 +80,10 @@ class RabbitMQClient(IMessageConsumer):
             # Set QoS - limit concurrent message processing
             await self.channel.set_qos(prefetch_count=self.config.prefetch_count)
 
-            logger.info(
-                f"RabbitMQ channel created (QoS prefetch_count={self.config.prefetch_count})"
-            )
-
             # Declare queue (idempotent - creates if doesn't exist)
             queue = await self.channel.declare_queue(
                 self.config.queue_name, durable=True  # Survive broker restarts
             )
-
-            logger.info(f"Queue '{self.config.queue_name}' declared (durable=True)")
 
             # Bind to exchange if specified in config
             if self.config.exchange_name and self.config.routing_key:
@@ -105,17 +93,10 @@ class RabbitMQClient(IMessageConsumer):
                     aio_pika.ExchangeType.TOPIC,
                     durable=True,
                 )
-                logger.info(
-                    f"Exchange '{self.config.exchange_name}' declared (type=topic, durable=True)"
-                )
 
                 # Bind queue to exchange with routing key
                 await queue.bind(exchange, routing_key=self.config.routing_key)
-                logger.info(
-                    f"Queue '{self.config.queue_name}' bound to exchange '{self.config.exchange_name}' "
-                    f"with routing_key='{self.config.routing_key}'"
-                )
-
+                
         except Exception as e:
             logger.error(f"Failed to connect to RabbitMQ: {e}")
             logger.exception("RabbitMQ connection error details:")
@@ -175,22 +156,13 @@ class RabbitMQClient(IMessageConsumer):
             raise RuntimeError("Not connected to RabbitMQ. Call connect() first.")
 
         try:
-            logger.info(
-                f"Starting message consumption from queue '{self.config.queue_name}'..."
-            )
-
             # Get queue
             queue = await self.channel.get_queue(self.config.queue_name)
 
             # Start consuming
             await queue.consume(message_handler)
 
-            logger.info(
-                f"Consumer started successfully (queue={self.config.queue_name})"
-            )
-
-            # Keep consuming until interrupted
-            logger.info("Waiting for messages")
+            logger.info("Consumer started, waiting for messages...")
 
             # Block forever to keep consuming (can be cancelled)
             self._consume_future = asyncio.Future()

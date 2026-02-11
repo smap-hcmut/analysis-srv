@@ -30,18 +30,13 @@ class ConsumerServer(IConsumerServer):
         """Start the consumer server.
 
         This method:
-        1. Connects to RabbitMQ
-        2. Registers message handlers
-        3. Starts consuming messages
+        1. Registers message handlers
+        2. Starts consuming messages
 
         Raises:
             Exception: If server fails to start
         """
         try:
-            # Connect to RabbitMQ
-            await self.deps.rabbitmq.connect()
-            self.logger.info("Connected to RabbitMQ")
-
             # Register handlers
             self._register_handlers()
 
@@ -92,10 +87,8 @@ class ConsumerServer(IConsumerServer):
         - self.priority_handler for high-priority messages
         - etc.
         """
-        self.logger.info("Registering message handlers...")
-        self.logger.info("- Analytics message handler registered")
         # Future: Register additional handlers here
-        self.logger.info("All message handlers registered")
+        pass
 
     def is_running(self) -> bool:
         """Check if server is running.

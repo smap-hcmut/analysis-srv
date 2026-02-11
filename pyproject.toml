@@ -8,35 +8,29 @@ dependencies = [
     # Message Queue & Async
     "aio-pika>=9.5.8",
     "aiokafka>=0.11.0",
-    
     # Logging
     "loguru>=0.7.3",
-    
     # Configuration
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
-    
     # Database
     "redis>=7.1.1",
     "sqlalchemy>=2.0.46",
     "asyncpg>=0.30.0",
-    
     # Object Storage
     "minio>=7.2.0",
-    
     # Compression
     "zstandard>=0.23.0",
-    
     # ML/NLP - PhoBERT
     "torch>=2.0.0",
     "transformers>=4.30.0",
     "optimum[onnxruntime]>=1.18.0",
     "pyvi>=0.1.1",
-    
     # ML/NLP - Keyword Extraction
     "spacy>=3.7.0",
     "yake>=0.4.8",
     "numpy>=1.24.0",
+    "greenlet>=3.3.1",
 ]
 
 [project.scripts]

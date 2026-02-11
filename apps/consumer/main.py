@@ -20,7 +20,7 @@ from config.config import load_config, Config
 from internal.consumer import ConsumerServer, Dependencies
 
 
-def init_dependencies(config: Config) -> Dependencies:
+async def init_dependencies(config: Config) -> Dependencies:
     """Initialize all service dependencies.
 
     Args:
@@ -50,7 +50,9 @@ def init_dependencies(config: Config) -> Dependencies:
             max_overflow=config.database.max_overflow,
         )
     )
-    logger.info("PostgreSQL initialized")
+    if not await db.health_check():
+        raise RuntimeError("PostgreSQL health check failed")
+    logger.info("PostgreSQL connection verified")
 
     # 3. Initialize Redis cache
     redis = RedisCache(
@@ -62,7 +64,9 @@ def init_dependencies(config: Config) -> Dependencies:
             max_connections=config.redis.max_connections,
         )
     )
-    logger.info("Redis cache initialized")
+    if not await redis.health_check():
+        raise RuntimeError("Redis health check failed")
+    logger.info("Redis connection verified")
 
     # 4. Initialize MinIO storage
     minio = MinioAdapter(
@@ -123,6 +127,7 @@ def init_dependencies(config: Config) -> Dependencies:
             routing_key=config.rabbitmq.event.routing_key,
         )
     )
+    await rabbitmq.connect()
     logger.info("RabbitMQ client initialized")
 
     # 9. Return dependencies struct
@@ -149,6 +154,7 @@ async def main():
     4. Start server (register handlers and begin consuming)
     """
     server = None
+    logger = None
 
     try:
         # 1. Load configuration
@@ -158,7 +164,8 @@ async def main():
         )
 
         # 2. Initialize all dependencies
-        deps = init_dependencies(app_config)
+        deps = await init_dependencies(app_config)
+        logger = deps.logger
 
         # 3. Create consumer server with dependencies
         server = ConsumerServer(deps)
@@ -168,7 +175,7 @@ async def main():
 
         def signal_handler(sig):
             """Handle shutdown signals."""
-            print(f"\nReceived signal {sig}, shutting down gracefully...")
+            logger.info(f"Received signal {sig}, shutting down gracefully...")
             # Create task to shutdown server
             asyncio.create_task(server.shutdown())
 
@@ -179,10 +186,21 @@ async def main():
         await server.start()
 
     except KeyboardInterrupt:
-        print("\nShutdown requested by user")
+        if logger:
+            logger.info("Shutdown requested by user")
+        else:
+            print("\nShutdown requested by user")
     except Exception as e:
-        print(f"Error starting consumer: {e}")
-        raise
+        if logger:
+            logger.error(f"Failed to start consumer: {e}")
+            logger.exception("Consumer startup error:")
+        else:
+            print(f"Error starting consumer: {e}")
+            import traceback
+            traceback.print_exc()
+        # Exit with error code
+        import sys
+        sys.exit(1)
     finally:
         if server:
             await server.shutdown()
@@ -192,7 +210,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nShutdown complete")
+        pass  # Already handled in main()
+    except SystemExit:
+        raise  # Preserve exit code
 
 
 # Entry point for script
