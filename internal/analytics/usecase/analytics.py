@@ -1,8 +1,9 @@
 from internal.consumer.type import Dependencies
+from internal.analytics.interface import IAnalyticsUseCase
 from internal.analytics.type import AnalyticsResult
 
 
-class AnalyticsUseCase:
+class AnalyticsUseCase(IAnalyticsUseCase):
     """Use case for analytics processing.
 
     This class contains the core business logic:
