@@ -1,7 +1,14 @@
 import torch  # type: ignore
+import warnings
 from pathlib import Path
 from typing import Dict, List, Protocol, runtime_checkable
-from pyvi import ViTokenizer  # type: ignore
+
+# Suppress numpy deprecation warning from pyvi (happens when loading pickle model)
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", message=".*align.*")
+    from pyvi import ViTokenizer  # type: ignore
+
 from transformers import AutoTokenizer  # type: ignore
 from optimum.onnxruntime import ORTModelForSequenceClassification  # type: ignore
 from .constant import (

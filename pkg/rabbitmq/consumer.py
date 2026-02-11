@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Awaitable, Callable, Optional, Protocol, runtime_checkable
 
 import aio_pika
@@ -58,10 +59,9 @@ class RabbitMQClient(IMessageConsumer):
         self.config = config
         self.connection: Optional[AbstractRobustConnection] = None
         self.channel: Optional[AbstractRobustChannel] = None
+        self._consume_future: Optional[asyncio.Future] = None
 
-        logger.info(
-            f"RabbitMQ client initialized (queue={config.queue_name}, prefetch={config.prefetch_count})"
-        )
+        logger.info("RabbitMQ client initialized")
 
     async def connect(self) -> None:
         """Establish robust connection to RabbitMQ.
@@ -129,6 +129,10 @@ class RabbitMQClient(IMessageConsumer):
         try:
             logger.info("Closing RabbitMQ connection...")
 
+            # Cancel consume future to stop blocking
+            if self._consume_future and not self._consume_future.done():
+                self._consume_future.cancel()
+
             if self.channel and not self.channel.is_closed:
                 await self.channel.close()
                 logger.info("RabbitMQ channel closed")
@@ -186,8 +190,19 @@ class RabbitMQClient(IMessageConsumer):
             )
 
             # Keep consuming until interrupted
-            logger.info("Waiting for messages. To exit press CTRL+C")
+            logger.info("Waiting for messages")
 
+            # Block forever to keep consuming (can be cancelled)
+            self._consume_future = asyncio.Future()
+            try:
+                await self._consume_future
+            except asyncio.CancelledError:
+                logger.info("Consumer stopped")
+                raise
+
+        except asyncio.CancelledError:
+            # Normal shutdown
+            pass
         except Exception as e:
             logger.error(f"Error during message consumption: {e}")
             logger.exception("Consumption error details:")

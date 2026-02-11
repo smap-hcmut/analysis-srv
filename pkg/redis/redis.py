@@ -103,10 +103,7 @@ class RedisCache:
             # Create Redis client
             self.client = aioredis.Redis(connection_pool=self.pool)
 
-            logger.info(
-                f"Redis client initialized: {self.config.host}:{self.config.port} "
-                f"(db={self.config.db}, pool={self.config.max_connections})"
-            )
+            logger.info(f"Redis client initialized")
 
         except Exception as e:
             logger.error(f"Failed to initialize Redis client: {e}")

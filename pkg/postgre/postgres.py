@@ -92,10 +92,7 @@ class PostgresDatabase:
                 autocommit=False,
             )
 
-            logger.info(
-                f"PostgreSQL engine initialized: pool_size={self.config.pool_size}, "
-                f"max_overflow={self.config.max_overflow}"
-            )
+            logger.info(f"PostgreSQL engine initialized")
 
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL engine: {e}")
@@ -116,6 +113,13 @@ class PostgresDatabase:
 
         async with self.session_factory() as session:
             try:
+                # Set search_path to use the configured schema
+                if self.config.schema and self.config.schema != DEFAULT_SCHEMA:
+                    await session.execute(
+                        text(
+                            f"SET search_path TO {self.config.schema}, {DEFAULT_SCHEMA}"
+                        )
+                    )
                 yield session
             except Exception as e:
                 logger.error(f"Database session error: {e}")

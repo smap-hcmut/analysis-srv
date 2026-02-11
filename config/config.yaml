@@ -4,8 +4,9 @@ service:
   environment: "development"
 
 database:
-  url: "postgresql+asyncpg://dev:dev123@localhost:5432/analytics_dev"
-  url_sync: "postgresql://dev:dev123@localhost:5432/analytics_dev"
+  url: "postgresql+asyncpg://analyst_prod:analyst_prod_pwd@172.16.19.10:5432/smap"
+  url_sync: "postgresql://analyst_prod:analyst_prod_pwd@172.16.19.10:5432/smap"
+  schema: "schema_analyst"
   pool_size: 20
   max_overflow: 10
 
@@ -16,9 +17,8 @@ logging:
   service_name: "analytics-engine"
 
 phobert:
-  model_path: "infrastructure/phobert/models"
-  max_length: 128
-  model_file: "model_quantized.onnx"
+  model_path: "internal/model/phobert"
+  max_length: 256
 
 keyword_extraction:
   spacy_model: "xx_ent_wiki_sm"
@@ -36,7 +36,7 @@ aspect_mapping:
   unknown_label: "UNKNOWN"
 
 rabbitmq:
-  url: "amqp://guest:guest@localhost/"
+  url: "amqp://admin:21042004@172.16.21.206:5672/"
   queue_name: "analytics_queue"
   prefetch_count: 1
   event:
@@ -48,10 +48,17 @@ rabbitmq:
     routing_key: "analyze.result"
     enabled: true
 
+redis:
+  host: "redis.tantai.dev"
+  port: 6379
+  db: 0
+  max_connections: 50
+
 minio:
-  endpoint: "http://localhost:9000"
-  access_key: "minioadmin"
-  secret_key: "minioadmin"
+  endpoint: "172.16.21.10:9000"
+  access_key: "tantai"
+  secret_key: "21042004"
+  secure: false
   crawl_results_bucket: "crawl-results"
 
 compression:

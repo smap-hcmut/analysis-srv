@@ -81,27 +81,43 @@ class Logger(ILogger):
 
     def _add_console_handler(self) -> None:
         """Add console handler with colors and trace ID."""
+        
+        import os
+        from pathlib import Path
+        
+        # Get workspace root (where the script is run from)
+        workspace_root = Path.cwd()
 
         def format_record(record):
-            """Add trace_id to record."""
+            """Add trace_id and relative path to record."""
             trace_id = _trace_id_var.get()
             request_id = _request_id_var.get()
 
-            # Add trace_id to extra
+            # Add trace_id to extra (empty string if not set)
             record["extra"][TRACE_ID_KEY] = trace_id or ""
             if request_id:
                 record["extra"][REQUEST_ID_KEY] = request_id
+            
+            # Convert absolute path to relative path from workspace root
+            try:
+                file_path = Path(record["file"].path)
+                relative_path = file_path.relative_to(workspace_root)
+                record["extra"]["relative_path"] = str(relative_path)
+            except (ValueError, AttributeError):
+                # Fallback to filename if relative path fails
+                record["extra"]["relative_path"] = record["file"].name
 
             return True
 
-        # Format with trace_id
-        format_str = f"{LOG_FORMAT_TIME} | {LOG_FORMAT_LEVEL} | "
-
-        # Add trace_id if present
-        # Note: loguru format string for extra fields
-        format_str += LOG_FORMAT_TRACE + " | " if f"{{extra[{TRACE_ID_KEY}]}}" else ""
-
-        format_str += f"{LOG_FORMAT_LOCATION} - {LOG_FORMAT_MESSAGE}"
+        # Build format string based on config
+        format_str = f"{LOG_FORMAT_TIME} | {LOG_FORMAT_LEVEL}"
+        
+        # Add trace_id if enabled
+        if self.config.enable_trace_id:
+            format_str += f" | {LOG_FORMAT_TRACE}"
+        
+        # Add location (relative path) and message
+        format_str += " | <cyan>{extra[relative_path]}</cyan>:<cyan>{line}</cyan> - {message}"
 
         self._loguru.add(
             sys.stdout,
@@ -176,27 +192,27 @@ class Logger(ILogger):
 
     def debug(self, message: str, **kwargs) -> None:
         """Log debug message."""
-        self._loguru.debug(message, **kwargs)
+        self._loguru.opt(depth=1).debug(message, **kwargs)
 
     def info(self, message: str, **kwargs) -> None:
         """Log info message."""
-        self._loguru.info(message, **kwargs)
+        self._loguru.opt(depth=1).info(message, **kwargs)
 
     def warning(self, message: str, **kwargs) -> None:
         """Log warning message."""
-        self._loguru.warning(message, **kwargs)
+        self._loguru.opt(depth=1).warning(message, **kwargs)
 
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
-        self._loguru.error(message, **kwargs)
+        self._loguru.opt(depth=1).error(message, **kwargs)
 
     def critical(self, message: str, **kwargs) -> None:
         """Log critical message."""
-        self._loguru.critical(message, **kwargs)
+        self._loguru.opt(depth=1).critical(message, **kwargs)
 
     def exception(self, message: str, **kwargs) -> None:
         """Log exception with traceback."""
-        self._loguru.exception(message, **kwargs)
+        self._loguru.opt(depth=1).exception(message, **kwargs)
 
     def bind(self, **kwargs) -> _loguru_logger:  # type: ignore
         """Bind context to logger.

@@ -21,6 +21,7 @@ class DatabaseConfig:
 
     url: str = "postgresql+asyncpg://dev:dev123@localhost:5432/analytics_dev"
     url_sync: str = "postgresql://dev:dev123@localhost:5432/analytics_dev"
+    schema: str = "schema_analyst"
     pool_size: int = 20
     max_overflow: int = 10
 
@@ -40,9 +41,8 @@ class LoggingConfig:
 class PhoBERTConfig:
     """PhoBERT model configuration."""
 
-    model_path: str = "infrastructure/phobert/models"
-    max_length: int = 128
-    model_file: str = "model_quantized.onnx"
+    model_path: str = "internal/model/phobert_sentiment"
+    max_length: int = 256
 
 
 @dataclass
@@ -98,12 +98,24 @@ class RabbitMQConfig:
 
 
 @dataclass
+class RedisConfig:
+    """Redis configuration."""
+
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: Optional[str] = None
+    max_connections: int = 50
+
+
+@dataclass
 class MinIOConfig:
     """MinIO configuration."""
 
-    endpoint: str = "http://localhost:9000"
-    access_key: str = "minioadmin"
-    secret_key: str = "minioadmin"
+    endpoint: str = "172.16.21.10:9000"
+    access_key: str = "tantai"
+    secret_key: str = "21042004"
+    secure: bool = False
     crawl_results_bucket: str = "crawl-results"
 
 
@@ -248,6 +260,7 @@ class Config:
     )
     aspect_mapping: AspectMappingConfig = field(default_factory=AspectMappingConfig)
     rabbitmq: RabbitMQConfig = field(default_factory=RabbitMQConfig)
+    redis: RedisConfig = field(default_factory=RedisConfig)
     minio: MinIOConfig = field(default_factory=MinIOConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     preprocessor: PreprocessorConfig = field(default_factory=PreprocessorConfig)
@@ -415,6 +428,7 @@ class ConfigLoader:
                     "database.url_sync",
                     "postgresql://dev:dev123@localhost:5432/analytics_dev",
                 ),
+                schema=self._get_value("database.schema", "schema_analyst"),
                 pool_size=self._get_value("database.pool_size", 20),
                 max_overflow=self._get_value("database.max_overflow", 10),
             ),
@@ -429,12 +443,9 @@ class ConfigLoader:
             ),
             phobert=PhoBERTConfig(
                 model_path=self._get_value(
-                    "phobert.model_path", "infrastructure/phobert/models"
+                    "phobert.model_path", "internal/model/phobert_sentiment"
                 ),
-                max_length=self._get_value("phobert.max_length", 128),
-                model_file=self._get_value(
-                    "phobert.model_file", "model_quantized.onnx"
-                ),
+                max_length=self._get_value("phobert.max_length", 256),
             ),
             keyword_extraction=KeywordExtractionConfig(
                 spacy_model=self._get_value(
@@ -484,10 +495,18 @@ class ConfigLoader:
                     enabled=self._get_value("rabbitmq.publish.enabled", True),
                 ),
             ),
+            redis=RedisConfig(
+                host=self._get_value("redis.host", "localhost"),
+                port=self._get_value("redis.port", 6379),
+                db=self._get_value("redis.db", 0),
+                password=self._get_value("redis.password", None),
+                max_connections=self._get_value("redis.max_connections", 50),
+            ),
             minio=MinIOConfig(
-                endpoint=self._get_value("minio.endpoint", "http://localhost:9000"),
-                access_key=self._get_value("minio.access_key", "minioadmin"),
-                secret_key=self._get_value("minio.secret_key", "minioadmin"),
+                endpoint=self._get_value("minio.endpoint", "172.16.21.10:9000"),
+                access_key=self._get_value("minio.access_key", "tantai"),
+                secret_key=self._get_value("minio.secret_key", "21042004"),
+                secure=self._get_value("minio.secure", False),
                 crawl_results_bucket=self._get_value(
                     "minio.crawl_results_bucket", "crawl-results"
                 ),

@@ -9,6 +9,7 @@ class PostgresConfig:
 
     Attributes:
         database_url: PostgreSQL connection URL (asyncpg format)
+        schema: Schema name to use (for multi-tenant isolation)
         pool_size: Connection pool size (default: 20)
         max_overflow: Max overflow connections (default: 10)
         pool_recycle: Recycle connections after N seconds (default: 3600)
@@ -18,6 +19,7 @@ class PostgresConfig:
     """
 
     database_url: str
+    schema: str = DEFAULT_SCHEMA
     pool_size: int = DEFAULT_POOL_SIZE
     max_overflow: int = DEFAULT_MAX_OVERFLOW
     pool_recycle: int = DEFAULT_POOL_RECYCLE
@@ -39,6 +41,8 @@ class PostgresConfig:
             raise ValueError(ERROR_MAX_OVERFLOW_NON_NEGATIVE)
         if self.pool_recycle <= 0:
             raise ValueError(ERROR_POOL_RECYCLE_POSITIVE)
+        if not self.schema or not self.schema.strip():
+            raise ValueError(ERROR_SCHEMA_EMPTY)
 
 
 __all__ = [

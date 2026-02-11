@@ -8,6 +8,14 @@ from pkg.spacy_yake.spacy_yake import SpacyYake
 from pkg.spacy_yake.type import SpacyYakeConfig
 from pkg.rabbitmq.consumer import RabbitMQClient
 from pkg.rabbitmq.type import RabbitMQConfig
+from pkg.postgre.postgres import PostgresDatabase
+from pkg.postgre.type import PostgresConfig
+from pkg.redis.redis import RedisCache
+from pkg.redis.type import RedisConfig as RedisPkgConfig
+from pkg.minio.minio import MinioAdapter
+from pkg.minio.type import MinIOConfig as MinioPkgConfig, CompressionConfig
+from pkg.zstd.zstd import Zstd
+from pkg.zstd.type import ZstdConfig
 from config.config import load_config, Config
 from internal.consumer import ConsumerServer, Dependencies
 
@@ -28,11 +36,60 @@ def init_dependencies(config: Config) -> Dependencies:
             enable_console=config.logging.enable_console,
             colorize=config.logging.colorize,
             service_name=config.logging.service_name,
+            enable_trace_id=False,
         )
     )
     logger.info("Logger initialized")
 
-    # 2. Initialize sentiment analyzer (PhoBERT)
+    # 2. Initialize PostgreSQL database
+    db = PostgresDatabase(
+        PostgresConfig(
+            database_url=config.database.url,
+            schema=config.database.schema,
+            pool_size=config.database.pool_size,
+            max_overflow=config.database.max_overflow,
+        )
+    )
+    logger.info("PostgreSQL initialized")
+
+    # 3. Initialize Redis cache
+    redis = RedisCache(
+        RedisPkgConfig(
+            host=config.redis.host,
+            port=config.redis.port,
+            db=config.redis.db,
+            password=config.redis.password,
+            max_connections=config.redis.max_connections,
+        )
+    )
+    logger.info("Redis cache initialized")
+
+    # 4. Initialize MinIO storage
+    minio = MinioAdapter(
+        MinioPkgConfig(
+            endpoint=config.minio.endpoint,
+            access_key=config.minio.access_key,
+            secret_key=config.minio.secret_key,
+            secure=config.minio.secure,
+        ),
+        CompressionConfig(
+            enabled=config.compression.enabled,
+            algorithm=config.compression.algorithm,
+            level=config.compression.default_level,
+            min_size_bytes=config.compression.min_size_bytes,
+        ),
+    )
+    logger.info("MinIO storage initialized")
+
+    # 5. Initialize Zstd compressor
+    zstd_compressor = Zstd(
+        ZstdConfig(
+            default_level=config.compression.default_level,
+        )
+    )
+    logger.info("Zstd compressor initialized")
+
+    # 6. Initialize sentiment analyzer (PhoBERT)
     sentiment = PhoBERTONNX(
         PhoBERTConfig(
             model_path=config.phobert.model_path,
@@ -41,7 +98,7 @@ def init_dependencies(config: Config) -> Dependencies:
     )
     logger.info("Sentiment analyzer initialized")
 
-    # 3. Initialize keyword extractor (SpaCy-YAKE)
+    # 7. Initialize keyword extractor (SpaCy-YAKE)
     keyword_extractor = SpacyYake(
         SpacyYakeConfig(
             spacy_model=config.keyword_extraction.spacy_model,
@@ -56,7 +113,7 @@ def init_dependencies(config: Config) -> Dependencies:
     )
     logger.info("Keyword extractor initialized")
 
-    # 4. Initialize RabbitMQ client
+    # 8. Initialize RabbitMQ client
     rabbitmq = RabbitMQClient(
         RabbitMQConfig(
             url=config.rabbitmq.url,
@@ -68,9 +125,13 @@ def init_dependencies(config: Config) -> Dependencies:
     )
     logger.info("RabbitMQ client initialized")
 
-    # 5. Return dependencies struct
+    # 9. Return dependencies struct
     return Dependencies(
         logger=logger,
+        db=db,
+        redis=redis,
+        minio=minio,
+        zstd=zstd_compressor,
         sentiment=sentiment,
         keyword_extractor=keyword_extractor,
         rabbitmq=rabbitmq,
@@ -98,12 +159,9 @@ async def main():
 
         # 2. Initialize all dependencies
         deps = init_dependencies(app_config)
-        deps.logger.info("All dependencies initialized")
 
         # 3. Create consumer server with dependencies
-        deps.logger.info("Creating consumer server...")
         server = ConsumerServer(deps)
-        deps.logger.info("Consumer server created")
 
         # 4. Setup signal handlers for graceful shutdown
         loop = asyncio.get_running_loop()
@@ -118,7 +176,6 @@ async def main():
             loop.add_signal_handler(sig, lambda s=sig: signal_handler(s))
 
         # 5. Start server (this will register handlers and start consuming)
-        deps.logger.info("Starting consumer server...")
         await server.start()
 
     except KeyboardInterrupt:

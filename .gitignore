@@ -29,7 +29,10 @@ dist/
 
 
 # --- PhoBERT Models & Artifacts ---
-infrastructure/phobert/models/
+internal/model/phobert/
+*.onnx
+*.safetensors
+training_args.bin
 
 # --- Logs ---
 logs/

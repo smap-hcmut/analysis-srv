@@ -1,4 +1,5 @@
 import logging
+import warnings
 import numpy as np  # type: ignore
 from typing import Dict, List, Protocol, runtime_checkable
 import spacy  # type: ignore
@@ -80,8 +81,11 @@ class SpacyYake(ISpacyYake):
         # Try to load from fallback chain
         for model_name in fallback_models:
             try:
-                self.nlp = spacy.load(model_name)
-                self.logger.info(f"✅ Loaded SpaCy model: {model_name}")
+                # Suppress spacy model version warning
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning, module="spacy")
+                    self.nlp = spacy.load(model_name)
+                self.logger.info(f"Loaded SpaCy model: {model_name}")
                 model_loaded = True
                 break
             except OSError:
@@ -91,7 +95,7 @@ class SpacyYake(ISpacyYake):
         if not model_loaded:
             try:
                 self.logger.warning(
-                    f"⚠️  No pre-trained model found. Using blank 'vi' model (tokenizer only).\n"
+                    f" No pre-trained model found. Using blank 'vi' model (tokenizer only).\n"
                     f"Attempted models: {', '.join(fallback_models)}\n"
                     f"To improve AI Discovery, install multilingual model:\n"
                     f"  uv run python -m spacy download xx_ent_wiki_sm"
@@ -100,7 +104,7 @@ class SpacyYake(ISpacyYake):
                 # Blank model needs sentencizer for sentence segmentation
                 if "sentencizer" not in self.nlp.pipe_names:
                     self.nlp.add_pipe("sentencizer")
-                self.logger.info("✅ Using blank Vietnamese model with sentencizer")
+                self.logger.info("Using blank Vietnamese model with sentencizer")
             except Exception as e:
                 self.logger.error(f"Failed to create blank model: {e}")
                 self.nlp = None

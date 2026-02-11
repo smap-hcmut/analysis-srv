@@ -18,8 +18,8 @@ LOG_TIME_FORMAT = "YYYY-MM-DD HH:mm:ss"
 
 LOG_FORMAT_TIME = "<green>{time:YYYY-MM-DD HH:mm:ss}</green>"
 LOG_FORMAT_LEVEL = "<level>{level: <8}</level>"
-LOG_FORMAT_TRACE = "{extra[trace_id]: <16}"
-LOG_FORMAT_LOCATION = "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan>"
+LOG_FORMAT_TRACE = "<cyan>{extra[trace_id]: <16}</cyan>"
+LOG_FORMAT_LOCATION = "<cyan>{file.path}</cyan>:<cyan>{line}</cyan>"
 LOG_FORMAT_MESSAGE = "<level>{message}</level>"
 
 TRACE_ID_KEY = "trace_id"

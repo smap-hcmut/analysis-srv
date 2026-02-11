@@ -38,8 +38,6 @@ class ConsumerServer(IConsumerServer):
             Exception: If server fails to start
         """
         try:
-            self.logger.info("Starting consumer server...")
-
             # Connect to RabbitMQ
             await self.deps.rabbitmq.connect()
             self.logger.info("Connected to RabbitMQ")
