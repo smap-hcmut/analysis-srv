@@ -1,6 +1,6 @@
 import logging
 import numpy as np  # type: ignore
-from typing import Dict, List, Protocol, runtime_checkable, Any
+from typing import Dict, List, Protocol, runtime_checkable
 import spacy  # type: ignore
 import yake  # type: ignore
 from .constant import *

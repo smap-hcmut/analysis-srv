@@ -1,10 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
-from .constant import (
-    DEFAULT_MODEL_PATH,
-    DEFAULT_MAX_LENGTH,
-    MAX_SEQUENCE_LENGTH_LIMIT,
-)
+from typing import Optional
+from .constant import *
 
 
 @dataclass

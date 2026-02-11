@@ -1,6 +1,10 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Union
 from .constant import *
+
+
+# Type alias for metadata values
+MetadataValue = Union[str, int, float, bool, None]
 
 
 @dataclass
@@ -60,7 +64,7 @@ class SpacyYakeOutput:
     """Result of SpaCy-YAKE keyword extraction."""
 
     keywords: List[SpacyYakeItem] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, MetadataValue] = field(default_factory=dict)
     method_name: str = "spacy_yake"
     confidence_score: float = 0.0
     success: bool = True

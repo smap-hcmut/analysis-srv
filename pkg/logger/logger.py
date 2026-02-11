@@ -1,5 +1,5 @@
 import sys
-from typing import Optional, Any, Protocol, runtime_checkable
+from typing import Optional, Iterator, Protocol, runtime_checkable
 from contextvars import ContextVar
 from contextlib import contextmanager
 from loguru import logger as _loguru_logger  # type: ignore
@@ -18,7 +18,7 @@ class ILogger(Protocol):
 
     def trace_context(
         self, trace_id: Optional[str] = None, request_id: Optional[str] = None
-    ) -> Any: ...
+    ) -> Iterator[None]: ...
 
     def set_trace_id(self, trace_id: str) -> None: ...
 
@@ -28,19 +28,19 @@ class ILogger(Protocol):
 
     def get_request_id(self) -> Optional[str]: ...
 
-    def debug(self, message: str, **kwargs) -> Any: ...
+    def debug(self, message: str, **kwargs) -> None: ...
 
-    def info(self, message: str, **kwargs) -> Any: ...
+    def info(self, message: str, **kwargs) -> None: ...
 
-    def warning(self, message: str, **kwargs) -> Any: ...
+    def warning(self, message: str, **kwargs) -> None: ...
 
-    def error(self, message: str, **kwargs) -> Any: ...
+    def error(self, message: str, **kwargs) -> None: ...
 
-    def critical(self, message: str, **kwargs) -> Any: ...
+    def critical(self, message: str, **kwargs) -> None: ...
 
-    def exception(self, message: str, **kwargs) -> Any: ...
+    def exception(self, message: str, **kwargs) -> None: ...
 
-    def bind(self, **kwargs) -> Any: ...
+    def bind(self, **kwargs) -> _loguru_logger: ...  # type: ignore
 
 
 class Logger(ILogger):
@@ -198,11 +198,11 @@ class Logger(ILogger):
         """Log exception with traceback."""
         self._loguru.exception(message, **kwargs)
 
-    def bind(self, **kwargs) -> Any:
+    def bind(self, **kwargs) -> _loguru_logger:  # type: ignore
         """Bind context to logger.
 
         Returns:
-            Bound logger instance
+            Bound logger instance from loguru
         """
         return self._loguru.bind(**kwargs)
 
