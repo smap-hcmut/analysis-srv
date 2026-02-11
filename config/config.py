@@ -69,12 +69,16 @@ class AspectMappingConfig:
 
 
 @dataclass
-class RabbitMQEventConfig:
-    """RabbitMQ event queue configuration."""
+class RabbitMQQueueConfig:
+    """Configuration for a single queue consumer."""
 
-    exchange: str = "smap.events"
-    routing_key: str = "data.collected"
-    queue_name: str = "analytics.data.collected"
+    name: str
+    exchange: str
+    routing_key: str
+    handler_module: str
+    handler_class: str
+    prefetch_count: int = 10
+    enabled: bool = True
 
 
 @dataclass
@@ -91,9 +95,8 @@ class RabbitMQConfig:
     """RabbitMQ configuration."""
 
     url: str = "amqp://guest:guest@localhost/"
-    queue_name: str = "analytics_queue"
-    prefetch_count: int = 1
-    event: RabbitMQEventConfig = field(default_factory=RabbitMQEventConfig)
+    prefetch_count: int = 10
+    queues: List[RabbitMQQueueConfig] = field(default_factory=list)
     publish: RabbitMQPublishConfig = field(default_factory=RabbitMQPublishConfig)
 
 
@@ -411,6 +414,33 @@ class ConfigLoader:
 
         return value if value is not None else default
 
+    def _build_queue_configs(self) -> List[RabbitMQQueueConfig]:
+        """Build queue configurations from YAML."""
+        queues_data = self._raw_config.get("rabbitmq", {}).get("queues", [])
+
+        if not queues_data:
+            return []
+
+        queue_configs = []
+        for queue_data in queues_data:
+            if not isinstance(queue_data, dict):
+                continue
+
+            queue_config = RabbitMQQueueConfig(
+                name=queue_data.get("name", ""),
+                exchange=queue_data.get("exchange", ""),
+                routing_key=queue_data.get("routing_key", ""),
+                handler_module=queue_data.get("handler_module", ""),
+                handler_class=queue_data.get("handler_class", ""),
+                prefetch_count=queue_data.get("prefetch_count", 10),
+                enabled=queue_data.get("enabled", True),
+            )
+
+            if queue_config.enabled and queue_config.name:
+                queue_configs.append(queue_config)
+
+        return queue_configs
+
     def _build_config(self) -> Config:
         """Build Config object from loaded values."""
         return Config(
@@ -474,17 +504,8 @@ class ConfigLoader:
             ),
             rabbitmq=RabbitMQConfig(
                 url=self._get_value("rabbitmq.url", "amqp://guest:guest@localhost/"),
-                queue_name=self._get_value("rabbitmq.queue_name", "analytics_queue"),
-                prefetch_count=self._get_value("rabbitmq.prefetch_count", 1),
-                event=RabbitMQEventConfig(
-                    exchange=self._get_value("rabbitmq.event.exchange", "smap.events"),
-                    routing_key=self._get_value(
-                        "rabbitmq.event.routing_key", "data.collected"
-                    ),
-                    queue_name=self._get_value(
-                        "rabbitmq.event.queue_name", "analytics.data.collected"
-                    ),
-                ),
+                prefetch_count=self._get_value("rabbitmq.prefetch_count", 10),
+                queues=self._build_queue_configs(),
                 publish=RabbitMQPublishConfig(
                     exchange=self._get_value(
                         "rabbitmq.publish.exchange", "results.inbound"

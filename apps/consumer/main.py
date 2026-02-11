@@ -6,8 +6,6 @@ from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
 from pkg.phobert_onnx.type import PhoBERTConfig
 from pkg.spacy_yake.spacy_yake import SpacyYake
 from pkg.spacy_yake.type import SpacyYakeConfig
-from pkg.rabbitmq.consumer import RabbitMQClient
-from pkg.rabbitmq.type import RabbitMQConfig
 from pkg.postgre.postgres import PostgresDatabase
 from pkg.postgre.type import PostgresConfig
 from pkg.redis.redis import RedisCache
@@ -117,20 +115,6 @@ async def init_dependencies(config: Config) -> Dependencies:
     )
     logger.info("Keyword extractor initialized")
 
-    # 8. Initialize RabbitMQ client
-    rabbitmq = RabbitMQClient(
-        RabbitMQConfig(
-            url=config.rabbitmq.url,
-            queue_name=config.rabbitmq.event.queue_name,
-            prefetch_count=config.rabbitmq.prefetch_count,
-            exchange_name=config.rabbitmq.event.exchange,
-            routing_key=config.rabbitmq.event.routing_key,
-        )
-    )
-    await rabbitmq.connect()
-    logger.info("RabbitMQ client initialized")
-
-    # 9. Return dependencies struct
     return Dependencies(
         logger=logger,
         db=db,
@@ -139,7 +123,6 @@ async def init_dependencies(config: Config) -> Dependencies:
         zstd=zstd_compressor,
         sentiment=sentiment,
         keyword_extractor=keyword_extractor,
-        rabbitmq=rabbitmq,
         config=config,
     )
 
@@ -149,9 +132,9 @@ async def main():
 
     Flow:
     1. Load configuration
-    2. Initialize dependencies (logger, sentiment, keyword_extractor, rabbitmq)
-    3. Create consumer server with dependencies
-    4. Start server (register handlers and begin consuming)
+    2. Initialize dependencies (logger, sentiment, keyword_extractor, etc.)
+    3. Create multi-queue consumer server with dependencies
+    4. Start server
     """
     server = None
     logger = None
@@ -167,7 +150,7 @@ async def main():
         deps = await init_dependencies(app_config)
         logger = deps.logger
 
-        # 3. Create consumer server with dependencies
+        # 3. Create consumer server
         server = ConsumerServer(deps)
 
         # 4. Setup signal handlers for graceful shutdown
@@ -182,7 +165,7 @@ async def main():
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, lambda s=sig: signal_handler(s))
 
-        # 5. Start server (this will register handlers and start consuming)
+        # 5. Start server
         await server.start()
 
     except KeyboardInterrupt:
@@ -197,9 +180,11 @@ async def main():
         else:
             print(f"Error starting consumer: {e}")
             import traceback
+
             traceback.print_exc()
         # Exit with error code
         import sys
+
         sys.exit(1)
     finally:
         if server:

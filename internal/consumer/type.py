@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
 from pkg.logger.logger import Logger
-from pkg.rabbitmq.consumer import RabbitMQClient
 from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
 from pkg.spacy_yake.spacy_yake import SpacyYake
 from pkg.postgre.postgres import PostgresDatabase
@@ -26,7 +25,6 @@ class Dependencies:
         zstd: Zstd compressor instance
         sentiment: PhoBERT sentiment analyzer
         keyword_extractor: SpaCy-YAKE keyword extractor
-        rabbitmq: RabbitMQ client for message consumption
         config: Application configuration
     """
 
@@ -37,7 +35,6 @@ class Dependencies:
     zstd: Zstd
     sentiment: PhoBERTONNX
     keyword_extractor: SpacyYake
-    rabbitmq: RabbitMQClient
     config: Config
 
 

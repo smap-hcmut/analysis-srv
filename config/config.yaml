@@ -37,12 +37,19 @@ aspect_mapping:
 
 rabbitmq:
   url: "amqp://admin:21042004@172.16.21.206:5672/"
-  queue_name: "analytics_queue"
-  prefetch_count: 1
-  event:
-    exchange: "smap.events"
-    routing_key: "data.collected"
-    queue_name: "analytics.data.collected"
+  prefetch_count: 10
+
+  # Multi-queue configuration
+  queues:
+    - name: "analytics.data.collected"
+      exchange: "smap.events"
+      routing_key: "data.collected"
+      handler_module: "internal.analytics.delivery.rabbitmq.handler"
+      handler_class: "AnalyticsHandler"
+      prefetch_count: 10
+      enabled: true
+
+  # Publisher config
   publish:
     exchange: "results.inbound"
     routing_key: "analyze.result"
