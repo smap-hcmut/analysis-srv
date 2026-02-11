@@ -132,8 +132,8 @@ async def main():
 
     Flow:
     1. Load configuration
-    2. Initialize dependencies (logger, sentiment, keyword_extractor, etc.)
-    3. Create multi-queue consumer server with dependencies
+    2. Initialize dependencies (logger, db, redis, etc.)
+    3. Create consumer server (registry initialized inside server.start())
     4. Start server
     """
     server = None

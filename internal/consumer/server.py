@@ -37,18 +37,30 @@ class ConsumerServer(IConsumerServer):
         self.handlers: Dict[str, any] = {}
         self.consumer_tasks: List[asyncio.Task] = []
 
+        # Domain services registry
+        self.registry = None
+        self.domain_services = None
+
     async def start(self) -> None:
         """Start all configured queue consumers.
 
         This method:
-        1. Loads handler classes dynamically from config
-        2. Creates RabbitMQ consumers for each queue
-        3. Starts consuming from all queues concurrently
+        1. Initializes domain services via registry
+        2. Loads handler classes dynamically from config
+        3. Creates RabbitMQ consumers for each queue
+        4. Starts consuming from all queues concurrently
 
         Raises:
             Exception: If server fails to start
         """
         try:
+            # Initialize domain services via registry
+            from .registry import ConsumerRegistry
+
+            self.registry = ConsumerRegistry(self.deps)
+            self.domain_services = self.registry.initialize()
+            self.logger.info("Domain services initialized via registry")
+
             queue_configs = self.deps.config.rabbitmq.queues
 
             if not queue_configs:
@@ -71,7 +83,9 @@ class ConsumerServer(IConsumerServer):
 
                 # Load handler class dynamically
                 handler = self._load_handler(
-                    queue_config.handler_module, queue_config.handler_class
+                    queue_config.handler_module,
+                    queue_config.handler_class,
+                    self.domain_services,
                 )
 
                 # Create consumer for this queue
@@ -131,7 +145,8 @@ class ConsumerServer(IConsumerServer):
         1. Stops consuming new messages
         2. Cancels all consumer tasks
         3. Closes all RabbitMQ connections
-        4. Cleans up resources
+        4. Cleans up domain services
+        5. Cleans up resources
         """
         try:
             self.logger.info("Shutting down consumer server...")
@@ -150,6 +165,10 @@ class ConsumerServer(IConsumerServer):
             for consumer in self.consumers:
                 await consumer.close()
 
+            # Cleanup domain services
+            if self.registry:
+                self.registry.shutdown()
+
             self.logger.info("Consumer server shutdown complete")
 
         except Exception as e:
@@ -164,12 +183,13 @@ class ConsumerServer(IConsumerServer):
         """
         return self._running
 
-    def _load_handler(self, module_path: str, class_name: str):
+    def _load_handler(self, module_path: str, class_name: str, domain_services):
         """Load handler class dynamically from module path.
 
         Args:
             module_path: Python module path (e.g., "internal.analytics.delivery.rabbitmq.handler")
             class_name: Handler class name (e.g., "AnalyticsHandler")
+            domain_services: Domain services from registry
 
         Returns:
             Handler instance
@@ -184,8 +204,8 @@ class ConsumerServer(IConsumerServer):
             # Get class from module
             handler_class = getattr(module, class_name)
 
-            # Instantiate handler with dependencies
-            handler = handler_class(self.deps)
+            # Instantiate handler with dependencies and domain services
+            handler = handler_class(self.deps, domain_services)
 
             self.logger.info(f"Loaded handler: {module_path}.{class_name}")
 
@@ -202,5 +222,6 @@ class ConsumerServer(IConsumerServer):
         except Exception as e:
             self.logger.error(f"Failed to instantiate handler '{class_name}': {e}")
             raise
+
 
 __all__ = ["ConsumerServer"]

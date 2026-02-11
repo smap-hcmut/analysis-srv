@@ -2,7 +2,7 @@ import json
 from aio_pika import IncomingMessage
 
 from internal.consumer.type import Dependencies
-from internal.analytics.usecase import AnalyticsUseCase
+from internal.consumer.registry import DomainServices
 
 
 class AnalyticsHandler:
@@ -11,19 +11,20 @@ class AnalyticsHandler:
     This handler:
     - Receives messages from analytics queue
     - Parses and validates message format
-    - Delegates processing to use case layer
+    - Delegates processing to use case layer (from registry)
     - Handles message acknowledgment
     """
 
-    def __init__(self, deps: Dependencies):
+    def __init__(self, deps: Dependencies, services: DomainServices):
         """Initialize analytics handler.
 
         Args:
             deps: Service dependencies
+            services: Domain services from registry
         """
         self.deps = deps
         self.logger = deps.logger
-        self.usecase = AnalyticsUseCase(deps)
+        self.usecase = services.analytics_usecase  # From registry
 
     async def handle(self, message: IncomingMessage) -> None:
         """Handle incoming analytics message.
