@@ -1,28 +1,6 @@
 from typing import Protocol, runtime_checkable
 
 
-@dataclass
-class Dependencies:
-    """Dependencies container for consumer service.
-
-    This struct holds all initialized service dependencies that will be
-    injected into the consumer server.
-
-    Attributes:
-        logger: Logger instance for structured logging
-        sentiment: PhoBERT sentiment analyzer
-        keyword_extractor: SpaCy-YAKE keyword extractor
-        rabbitmq: RabbitMQ client for message consumption
-        config: Application configuration
-    """
-
-    logger: Logger
-    sentiment: PhoBERTONNX
-    keyword_extractor: SpacyYake
-    rabbitmq: RabbitMQClient
-    config: Config
-
-
 @runtime_checkable
 class IConsumerServer(Protocol):
     """Protocol defining the consumer server interface.
@@ -63,4 +41,4 @@ class IConsumerServer(Protocol):
         ...
 
 
-__all__ = ["IConsumerServer", "Dependencies"]
+__all__ = ["IConsumerServer"]

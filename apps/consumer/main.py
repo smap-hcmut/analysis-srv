@@ -102,7 +102,7 @@ async def main():
 
         # 3. Create consumer server with dependencies
         deps.logger.info("Creating consumer server...")
-        # server = ConsumerServer(deps)
+        server = ConsumerServer(deps)
         deps.logger.info("Consumer server created")
 
         # 4. Setup signal handlers for graceful shutdown

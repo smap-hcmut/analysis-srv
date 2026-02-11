@@ -1,6 +1,6 @@
 import torch  # type: ignore
 from pathlib import Path
-from typing import List, Protocol, runtime_checkable
+from typing import Dict, List, Protocol, runtime_checkable
 from pyvi import ViTokenizer  # type: ignore
 from transformers import AutoTokenizer  # type: ignore
 from optimum.onnxruntime import ORTModelForSequenceClassification  # type: ignore
