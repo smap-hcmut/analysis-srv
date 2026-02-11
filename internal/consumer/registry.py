@@ -25,6 +25,10 @@ from internal.keyword_extraction import (
     New as NewKeywordExtraction,
     Config as KeywordExtractionConfig,
 )
+from internal.sentiment_analysis import (
+    New as NewSentimentAnalysis,
+    Config as SentimentAnalysisConfig,
+)
 from internal.analytics.usecase import AnalyticsUseCase
 
 
@@ -39,12 +43,14 @@ class DomainServices:
         text_processing: Text preprocessing use case
         intent_classification: Intent classification use case
         keyword_extraction: Keyword extraction use case
+        sentiment_analysis: Sentiment analysis use case
         analytics_usecase: Analytics use case
     """
 
     text_processing: object  # TextProcessing instance
     intent_classification: object  # IntentClassification instance
     keyword_extraction: object  # KeywordExtraction instance
+    sentiment_analysis: object  # SentimentAnalysis instance
     analytics_usecase: AnalyticsUseCase
     # TODO: Add more domain services as needed
     # notification_usecase: NotificationUseCase
@@ -73,6 +79,7 @@ class ConsumerRegistry:
         text_output = services.text_processing.process(text_input)
         intent_output = services.intent_classification.process(intent_input)
         keyword_output = services.keyword_extraction.process(keyword_input)
+        sentiment_output = services.sentiment_analysis.process(sentiment_input)
         result = await services.analytics_usecase.process_analytics(data)
     """
 
@@ -138,6 +145,19 @@ class ConsumerRegistry:
             )
             self.logger.info("[ConsumerRegistry] Keyword extraction initialized")
 
+            # Initialize sentiment analysis use case
+            sentiment_analysis_config = SentimentAnalysisConfig(
+                context_window_size=100,
+                threshold_positive=0.25,
+                threshold_negative=-0.25,
+            )
+            sentiment_analysis = NewSentimentAnalysis(
+                sentiment_analysis_config,
+                self.deps.sentiment,  # Inject PhoBERTONNX from Dependencies
+                self.logger,
+            )
+            self.logger.info("[ConsumerRegistry] Sentiment analysis initialized")
+
             # Initialize analytics use case
             analytics_usecase = AnalyticsUseCase(self.deps)
             self.logger.info("[ConsumerRegistry] Analytics use case initialized")
@@ -153,6 +173,7 @@ class ConsumerRegistry:
                 text_processing=text_processing,
                 intent_classification=intent_classification,
                 keyword_extraction=keyword_extraction,
+                sentiment_analysis=sentiment_analysis,
                 analytics_usecase=analytics_usecase,
             )
 
