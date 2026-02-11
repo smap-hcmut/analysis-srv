@@ -17,6 +17,10 @@ from internal.text_preprocessing import (
     New as NewTextProcessing,
     Config as TextProcessingConfig,
 )
+from internal.intent_classification import (
+    New as NewIntentClassification,
+    Config as IntentClassificationConfig,
+)
 from internal.analytics.usecase import AnalyticsUseCase
 
 
@@ -29,10 +33,12 @@ class DomainServices:
 
     Attributes:
         text_processing: Text preprocessing use case
+        intent_classification: Intent classification use case
         analytics_usecase: Analytics use case
     """
 
     text_processing: object  # TextProcessing instance
+    intent_classification: object  # IntentClassification instance
     analytics_usecase: AnalyticsUseCase
     # TODO: Add more domain services as needed
     # notification_usecase: NotificationUseCase
@@ -58,7 +64,8 @@ class ConsumerRegistry:
         services = registry.initialize()
 
         # Use services in handlers
-        output = services.text_processing.process(input_data)
+        text_output = services.text_processing.process(text_input)
+        intent_output = services.intent_classification.process(intent_input)
         result = await services.analytics_usecase.process_analytics(data)
     """
 
@@ -100,6 +107,16 @@ class ConsumerRegistry:
             text_processing = NewTextProcessing(text_processing_config, self.logger)
             self.logger.info("[ConsumerRegistry] Text preprocessing initialized")
 
+            # Initialize intent classification use case
+            intent_classification_config = IntentClassificationConfig(
+                patterns_path=self.config.intent_classifier.patterns_path,
+                confidence_threshold=self.config.intent_classifier.confidence_threshold,
+            )
+            intent_classification = NewIntentClassification(
+                intent_classification_config, self.logger
+            )
+            self.logger.info("[ConsumerRegistry] Intent classification initialized")
+
             # Initialize analytics use case
             analytics_usecase = AnalyticsUseCase(self.deps)
             self.logger.info("[ConsumerRegistry] Analytics use case initialized")
@@ -113,6 +130,7 @@ class ConsumerRegistry:
 
             self._services = DomainServices(
                 text_processing=text_processing,
+                intent_classification=intent_classification,
                 analytics_usecase=analytics_usecase,
             )
 

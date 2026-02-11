@@ -1,0 +1,96 @@
+# Intent Classifier Patterns
+# Format: intent_name: [list of regex patterns]
+# Patterns are case-insensitive by default
+
+CRISIS:
+  - "tẩy\\s*chay"
+  - "lừa\\s*đảo"
+  - "lừa.*đảo"
+  - "scam"
+  - "phốt"
+  - "bóc\\s*phốt"
+  - "bóc.*phốt"
+  - "lừa\\s*gạt"
+  - "gian\\s*lận"
+  - "cảnh\\s*báo"
+  # Unsigned variations
+  - "tay chay"
+  - "lua dao"
+  - "boc phot"
+
+SEEDING:
+  - "\\b0\\d{9,10}\\b"  # Phone numbers
+  - "zalo.*\\d{9,10}"
+  - "inbox.*giá"
+  - "inbox.*mua"
+  - "liên\\s*hệ.*mua"
+  - "liên\\s*hệ.*\\d{9}"
+  - "inbox.*shop"
+  - "chat.*shop"
+  # Native Ads / Seeding trá hình
+  - "trải\\s*nghiệm.*liên\\s*hệ.*\\d{9}"
+  - "review.*inbox.*giá"
+  - "cảm\\s*ơn.*showroom.*liên\\s*hệ"
+
+SPAM:
+  - "vay\\s*tiền"
+  - "vay\\s*vốn"
+  - "bán\\s*sim"
+  - "lãi\\s*suất"
+  - "giải\\s*ngân"
+  - "tuyển\\s*dụng"
+  - "cần\\s*gấp"
+  - "thu\\s*nhập"
+  # Unsigned variations
+  - "vay tien"
+  - "vay von"
+  - "ban sim"
+  - "lai suat"
+  - "giai ngan"
+  - "tuyen dung"
+
+COMPLAINT:
+  - "lỗi.*(không|chưa).*sửa"
+  - "lỗi.*chưa.*khắc\\s*phục"
+  - "thất\\s*vọng"
+  - "tệ\\s*quá"
+  - "tệ.*nhất"
+  - "đừng.*mua"
+  - "không.*nên.*mua"
+  - "rác.*quá"
+  - "(tồi|tệ|kém).*chất\\s*lượng"
+  - "chất\\s*lượng.*(tệ|kém)"
+  # Sarcasm / Mỉa mai
+  - "tuyệt\\s*vời.*không.*(bắt\\s*máy|trả\\s*lời)"
+  - "tuyệt\\s*vời.*quá.*cơ"
+  - "cảm\\s*ơn.*đã.*làm.*hỏng"
+
+LEAD:
+  - "giá.*bao\\s*nhiêu"
+  - "bao\\s*nhiêu.*tiền"
+  - "bao.*tiền"  # Slang: bao tiền
+  - "mua.*ở\\s*đâu"
+  - "ở\\s*đâu.*mua"
+  - "test\\s*drive"
+  - "xin.*giá"
+  - "cho.*xin.*giá"
+  - "đặt.*mua"
+  - "đặt.*cọc"
+  - "mua.*ngay"
+  # Unsigned variations
+  - "gia.*bao.*nhieu"
+  - "mua.*o.*dau"
+
+SUPPORT:
+  - "cách.*sạc"
+  - "làm\\s*sao.*sạc"
+  - "showroom"
+  - "đại\\s*lý"
+  - "bảo\\s*hành"
+  - "sửa\\s*chữa"
+  - "hướng\\s*dẫn"
+  - "cách.*sử\\s*dụng"
+  - "trung\\s*tâm.*bảo\\s*hành"
+  # Specific support questions
+  - "sạc.*ở\\s*đâu"
+  - "trạm.*sạc"
