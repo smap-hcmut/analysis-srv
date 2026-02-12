@@ -23,7 +23,8 @@ except ImportError:
 
 from pkg.logger.logger import Logger
 from internal.analytics.interface import IAnalyticsPipeline
-from internal.analytics.type import Input, PostData
+from internal.analytics.type import Input, PostData, EventMetadata
+from internal.analytics.constant import DEFAULT_EVENT_ID
 
 
 class AnalyticsHandler:
@@ -53,7 +54,7 @@ class AnalyticsHandler:
 
     async def handle(self, message: IncomingMessage) -> None:
         """Handle incoming message (called by consumer server).
-        
+
         Args:
             message: Incoming message from RabbitMQ
         """
@@ -70,12 +71,12 @@ class AnalyticsHandler:
         """
         async with message.process():
             start_time = time.perf_counter()
-            event_id = "unknown"
+            event_id = DEFAULT_EVENT_ID
 
             try:
                 body = message.body.decode("utf-8")
                 envelope = json.loads(body)
-                event_id = envelope.get("event_id", "unknown")
+                event_id = envelope.get("event_id", DEFAULT_EVENT_ID)
 
                 if self.logger:
                     self.logger.debug(
@@ -146,47 +147,29 @@ class AnalyticsHandler:
 
         return has_minio_path or has_inline_data
 
-    def _parse_event_metadata(self, envelope: dict[str, Any]) -> dict[str, Any]:
-        """Extract metadata from event envelope.
-
-        Args:
-            envelope: Event envelope
-
-        Returns:
-            Dictionary with event metadata
-        """
+    def _parse_event_metadata(self, envelope: dict[str, Any]) -> EventMetadata:
+        """Extract metadata from event envelope."""
         payload = envelope.get("payload", {})
 
-        return {
-            "event_id": envelope.get("event_id"),
-            "event_type": envelope.get("event_type"),
-            "timestamp": envelope.get("timestamp"),
-            "minio_path": payload.get("minio_path"),
-            "project_id": payload.get("project_id"),
-            "job_id": payload.get("job_id"),
-            "batch_index": payload.get("batch_index"),
-            "content_count": payload.get("content_count"),
-            "platform": payload.get("platform"),
-            "task_type": payload.get("task_type"),
-            "brand_name": payload.get("brand_name"),
-            "keyword": payload.get("keyword"),
-        }
+        return EventMetadata(
+            event_id=envelope.get("event_id"),
+            event_type=envelope.get("event_type"),
+            timestamp=envelope.get("timestamp"),
+            minio_path=payload.get("minio_path"),
+            project_id=payload.get("project_id"),
+            job_id=payload.get("job_id"),
+            batch_index=payload.get("batch_index"),
+            content_count=payload.get("content_count"),
+            platform=payload.get("platform"),
+            task_type=payload.get("task_type"),
+            brand_name=payload.get("brand_name"),
+            keyword=payload.get("keyword"),
+        )
 
     def _extract_post_data(self, envelope: dict[str, Any]) -> PostData:
-        """Extract post data from envelope.
-
-        For now, assumes inline data. MinIO batch processing will be
-        handled separately.
-
-        Args:
-            envelope: Event envelope
-
-        Returns:
-            PostData instance
-        """
+        """Extract post data from envelope."""
         payload = envelope.get("payload", {})
 
-        # For inline data
         return PostData(
             meta=payload.get("meta", {}),
             content=payload.get("content", {}),
@@ -195,25 +178,14 @@ class AnalyticsHandler:
             comments=payload.get("comments", []),
         )
 
-    def _extract_project_id(self, event_metadata: dict[str, Any]) -> Optional[str]:
-        """Extract project_id from event metadata.
+    def _extract_project_id(self, event_metadata: EventMetadata) -> Optional[str]:
+        """Extract project_id from event metadata."""
+        if event_metadata.project_id:
+            return event_metadata.project_id
 
-        Args:
-            event_metadata: Event metadata dictionary
-
-        Returns:
-            Project ID or None
-        """
-        # Try direct project_id first
-        project_id = event_metadata.get("project_id")
-        if project_id:
-            return project_id
-
-        # Try extracting from job_id (format: "uuid-suffix")
-        job_id = event_metadata.get("job_id", "")
-        if "-" in job_id:
-            parts = job_id.split("-", 1)
-            if len(parts[0]) == 36:  # UUID length
+        if event_metadata.job_id and "-" in event_metadata.job_id:
+            parts = event_metadata.job_id.split("-", 1)
+            if len(parts[0]) == 36:
                 return parts[0]
 
         return None

@@ -35,11 +35,40 @@ class PostData:
 
 
 @dataclass
+class EventMetadata:
+    """Event metadata from RabbitMQ message."""
+
+    event_id: Optional[str] = None
+    event_type: Optional[str] = None
+    timestamp: Optional[str] = None
+    minio_path: Optional[str] = None
+    project_id: Optional[str] = None
+    job_id: Optional[str] = None
+    batch_index: Optional[int] = None
+    content_count: Optional[int] = None
+    platform: Optional[str] = None
+    task_type: Optional[str] = None
+    brand_name: Optional[str] = None
+    keyword: Optional[str] = None
+
+
+@dataclass
+class EnrichedPostData:
+    """Post data enriched with event metadata."""
+
+    meta: dict[str, Any]
+    content: dict[str, Any]
+    interaction: dict[str, Any]
+    author: dict[str, Any]
+    comments: list[dict[str, Any]]
+
+
+@dataclass
 class Input:
     """Input structure for analytics pipeline."""
 
     post_data: PostData
-    event_metadata: Optional[dict[str, Any]] = None
+    event_metadata: Optional[EventMetadata] = None
     project_id: Optional[str] = None
 
     def __post_init__(self):
@@ -179,6 +208,8 @@ class Output:
 __all__ = [
     "Config",
     "PostData",
+    "EventMetadata",
+    "EnrichedPostData",
     "Input",
     "AnalyticsResult",
     "Output",
