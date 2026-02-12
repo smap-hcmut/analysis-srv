@@ -33,7 +33,17 @@ from internal.impact_calculation import (
     New as NewImpactCalculation,
     Config as ImpactCalculationConfig,
 )
-# from internal.analytics.usecase import AnalyticsUseCase  # TODO: Refactor analytics domain
+from internal.analyzed_post import (
+    NewAnalyzedPostUseCase,
+)
+from internal.analyzed_post.repository import (
+    New as NewAnalyzedPostRepository,
+)
+from internal.analytics import (
+    NewAnalyticsPipeline,
+    NewAnalyticsHandler,
+    Config as AnalyticsConfig,
+)
 
 
 @dataclass
@@ -49,6 +59,8 @@ class DomainServices:
         keyword_extraction: Keyword extraction use case
         sentiment_analysis: Sentiment analysis use case
         impact_calculation: Impact calculation use case
+        analyzed_post_usecase: Analyzed post CRUD use case
+        analytics_handler: Analytics pipeline handler
     """
 
     text_processing: object  # TextProcessing instance
@@ -56,10 +68,8 @@ class DomainServices:
     keyword_extraction: object  # KeywordExtraction instance
     sentiment_analysis: object  # SentimentAnalysis instance
     impact_calculation: object  # ImpactCalculation instance
-    # analytics_usecase: AnalyticsUseCase  # TODO: Refactor analytics domain
-    # TODO: Add more domain services as needed
-    # notification_usecase: NotificationUseCase
-    # report_usecase: ReportUseCase
+    analyzed_post_usecase: object  # AnalyzedPostUseCase instance
+    analytics_handler: object  # AnalyticsHandler instance
 
 
 class ConsumerRegistry:
@@ -187,16 +197,46 @@ class ConsumerRegistry:
             )
             self.logger.info("[ConsumerRegistry] Impact calculation initialized")
 
-            # TODO: Initialize analytics use case after refactoring
-            # analytics_usecase = AnalyticsUseCase(self.deps)
-            # self.logger.info("[ConsumerRegistry] Analytics use case initialized")
+            # Initialize analyzed_post repository
+            analyzed_post_repository = NewAnalyzedPostRepository(
+                self.deps.db, self.logger
+            )
+            self.logger.info("[ConsumerRegistry] Analyzed post repository initialized")
 
-            # TODO: Initialize other domain services as needed
-            # notification_config = NotificationConfig(...)
-            # notification_usecase = NewNotification(notification_config, self.logger)
+            # Initialize analyzed_post use case
+            analyzed_post_usecase = NewAnalyzedPostUseCase(
+                repository=analyzed_post_repository,
+                logger=self.logger,
+            )
+            self.logger.info("[ConsumerRegistry] Analyzed post use case initialized")
 
-            # TODO: Initialize repositories if needed
-            # analytics_repo = NewAnalyticsRepository(self.deps.db, self.logger)
+            # Initialize analytics pipeline
+            analytics_config = AnalyticsConfig(
+                model_version="1.0.0",
+                enable_preprocessing=True,
+                enable_intent_classification=True,
+                enable_keyword_extraction=True,
+                enable_sentiment_analysis=True,
+                enable_impact_calculation=True,
+            )
+            analytics_pipeline = NewAnalyticsPipeline(
+                config=analytics_config,
+                analyzed_post_usecase=analyzed_post_usecase,
+                logger=self.logger,
+                preprocessor=text_processing,
+                intent_classifier=intent_classification,
+                keyword_extractor=keyword_extraction,
+                sentiment_analyzer=sentiment_analysis,
+                impact_calculator=impact_calculation,
+            )
+            self.logger.info("[ConsumerRegistry] Analytics pipeline initialized")
+
+            # Initialize analytics handler
+            analytics_handler = NewAnalyticsHandler(
+                pipeline=analytics_pipeline,
+                logger=self.logger,
+            )
+            self.logger.info("[ConsumerRegistry] Analytics handler initialized")
 
             self._services = DomainServices(
                 text_processing=text_processing,
@@ -204,6 +244,8 @@ class ConsumerRegistry:
                 keyword_extraction=keyword_extraction,
                 sentiment_analysis=sentiment_analysis,
                 impact_calculation=impact_calculation,
+                analyzed_post_usecase=analyzed_post_usecase,
+                analytics_handler=analytics_handler,
             )
 
             self.logger.info(

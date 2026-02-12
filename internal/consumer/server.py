@@ -81,11 +81,10 @@ class ConsumerServer(IConsumerServer):
                     )
                     continue
 
-                # Load handler class dynamically
-                handler = self._load_handler(
+                # Get handler from domain services (already initialized in registry)
+                handler = self._get_handler_from_services(
                     queue_config.handler_module,
                     queue_config.handler_class,
-                    self.domain_services,
                 )
 
                 # Create consumer for this queue
@@ -182,6 +181,42 @@ class ConsumerServer(IConsumerServer):
             True if server is running, False otherwise
         """
         return self._running
+
+    def _get_handler_from_services(self, module_path: str, class_name: str):
+        """Get handler from domain services.
+
+        Args:
+            module_path: Python module path (for logging/validation)
+            class_name: Handler class name (for logging/validation)
+
+        Returns:
+            Handler instance from domain services
+
+        Raises:
+            ValueError: If handler not found in domain services
+        """
+        # Map handler class names to domain services attributes
+        handler_map = {
+            "AnalyticsHandler": "analytics_handler",
+            # Add more handlers here as needed
+        }
+        
+        handler_attr = handler_map.get(class_name)
+        if not handler_attr:
+            raise ValueError(
+                f"Handler '{class_name}' not registered in handler_map. "
+                f"Available handlers: {list(handler_map.keys())}"
+            )
+        
+        handler = getattr(self.domain_services, handler_attr, None)
+        if handler is None:
+            raise ValueError(
+                f"Handler '{handler_attr}' not found in domain services. "
+                f"Make sure it's initialized in ConsumerRegistry."
+            )
+        
+        self.logger.info(f"Loaded handler: {module_path}.{class_name}")
+        return handler
 
     def _load_handler(self, module_path: str, class_name: str, domain_services):
         """Load handler class dynamically from module path.

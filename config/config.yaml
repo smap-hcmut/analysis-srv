@@ -44,7 +44,7 @@ rabbitmq:
     - name: "analytics.data.collected"
       exchange: "smap.events"
       routing_key: "data.collected"
-      handler_module: "internal.analytics.delivery.rabbitmq.handler"
+      handler_module: "internal.analytics.delivery.rabbitmq.consumer.handler"
       handler_class: "AnalyticsHandler"
       prefetch_count: 10
       enabled: true
