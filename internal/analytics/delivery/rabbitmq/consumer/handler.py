@@ -73,47 +73,29 @@ class AnalyticsHandler:
             event_id = "unknown"
 
             try:
-                # Debug print
-                print(f"[AnalyticsHandler] Received message, logger type: {type(self.logger)}")
-                
-                # Decode and parse message
                 body = message.body.decode("utf-8")
                 envelope = json.loads(body)
-
                 event_id = envelope.get("event_id", "unknown")
 
                 if self.logger:
                     self.logger.debug(
                         f"[AnalyticsHandler] Received message: event_id={event_id}"
                     )
-                else:
-                    print(f"[AnalyticsHandler] Received message: event_id={event_id} (no logger)")
 
-                # Validate event format
                 if not self._validate_event(envelope):
                     raise ValueError("Invalid event format: missing required fields")
 
-                # Extract event metadata
                 event_metadata = self._parse_event_metadata(envelope)
-
-                # Parse post data from MinIO path or inline
                 post_data = self._extract_post_data(envelope)
-
-                # Extract project_id
                 project_id = self._extract_project_id(event_metadata)
 
-                # Create input for orchestrator
                 pipeline_input = Input(
                     post_data=post_data,
                     event_metadata=event_metadata,
                     project_id=project_id,
                 )
 
-                # Delegate to pipeline
-                print(f"[AnalyticsHandler] Calling pipeline.process()...")
-                output = self.pipeline.process(pipeline_input)
-                print(f"[AnalyticsHandler] Pipeline completed: status={output.processing_status}")
-
+                output = await self.pipeline.process(pipeline_input)
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
                 if self.logger:
@@ -121,16 +103,12 @@ class AnalyticsHandler:
                         f"[AnalyticsHandler] Message processed: event_id={event_id}, "
                         f"status={output.processing_status}, elapsed_ms={elapsed_ms}"
                     )
-                else:
-                    print(f"[AnalyticsHandler] Message processed: event_id={event_id}, status={output.processing_status}, elapsed_ms={elapsed_ms}")
 
             except json.JSONDecodeError as exc:
                 if self.logger:
                     self.logger.error(
                         f"[AnalyticsHandler] Invalid JSON: event_id={event_id}, error={exc}"
                     )
-                else:
-                    print(f"[AnalyticsHandler] Invalid JSON: event_id={event_id}, error={exc}")
                 raise
 
             except ValueError as exc:
@@ -138,8 +116,6 @@ class AnalyticsHandler:
                     self.logger.error(
                         f"[AnalyticsHandler] Validation error: event_id={event_id}, error={exc}"
                     )
-                else:
-                    print(f"[AnalyticsHandler] Validation error: event_id={event_id}, error={exc}")
                 raise
 
             except Exception as exc:
@@ -147,10 +123,6 @@ class AnalyticsHandler:
                     self.logger.error(
                         f"[AnalyticsHandler] Processing error: event_id={event_id}, error={exc}"
                     )
-                else:
-                    print(f"[AnalyticsHandler] Processing error: event_id={event_id}, error={exc}")
-                    import traceback
-                    traceback.print_exc()
                 raise
 
     def _validate_event(self, envelope: dict[str, Any]) -> bool:

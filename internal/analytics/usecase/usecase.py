@@ -70,7 +70,7 @@ class AnalyticsPipeline(IAnalyticsPipeline):
         self.sentiment_analyzer = sentiment_analyzer
         self.impact_calculator = impact_calculator
 
-    def process(self, input_data: Input) -> Output:
+    async def process(self, input_data: Input) -> Output:
         """Process a single post through the analytics pipeline.
         
         Args:
@@ -108,8 +108,8 @@ class AnalyticsPipeline(IAnalyticsPipeline):
             processing_time_ms = int((time.perf_counter() - start_time) * 1000)
             result.processing_time_ms = processing_time_ms
             
-            # Persist result
-            self.analyzed_post_usecase.create(
+            # Persist result (async)
+            await self.analyzed_post_usecase.create(
                 CreateAnalyzedPostInput(data=result.to_dict())
             )
             

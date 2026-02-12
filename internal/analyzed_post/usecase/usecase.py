@@ -26,7 +26,7 @@ class AnalyzedPostUseCase(IAnalyzedPostUseCase):
         self.repository = repository
         self.logger = logger
 
-    def create(self, input_data: CreateAnalyzedPostInput) -> AnalyzedPost:
+    async def create(self, input_data: CreateAnalyzedPostInput) -> AnalyzedPost:
         """Create a new analyzed post record.
         
         Args:
@@ -38,9 +38,9 @@ class AnalyzedPostUseCase(IAnalyzedPostUseCase):
         if self.logger:
             self.logger.debug(f"[AnalyzedPostUseCase] Creating analyzed post")
         
-        return self.repository.save(input_data.data)
+        return await self.repository.save(input_data.data)
 
-    def update(self, post_id: str, input_data: UpdateAnalyzedPostInput) -> AnalyzedPost:
+    async def update(self, post_id: str, input_data: UpdateAnalyzedPostInput) -> AnalyzedPost:
         """Update an existing analyzed post record.
         
         Args:
@@ -57,7 +57,7 @@ class AnalyzedPostUseCase(IAnalyzedPostUseCase):
         data = input_data.data.copy()
         data["id"] = post_id
         
-        return self.repository.save(data)
+        return await self.repository.save(data)
 
 
 __all__ = ["AnalyzedPostUseCase"]

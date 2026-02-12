@@ -6,9 +6,11 @@ import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy import select, delete as sql_delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from pkg.logger.logger import Logger
+from pkg.postgre.postgres import PostgresDatabase
 from internal.model import AnalyzedPost
 
 
@@ -24,11 +26,11 @@ class AnalyzedPostRepository:
     analytics data, abstracting away SQLAlchemy details from the orchestrator.
     """
 
-    def __init__(self, db: Session, logger: Optional[Logger] = None) -> None:
-        """Initialize repository with database session.
+    def __init__(self, db: PostgresDatabase, logger: Optional[Logger] = None) -> None:
+        """Initialize repository with database instance.
 
         Args:
-            db: SQLAlchemy session for database operations
+            db: PostgresDatabase instance
             logger: Logger instance (optional)
         """
         self.db = db
@@ -106,6 +108,8 @@ class AnalyzedPostRepository:
         Returns:
             Sanitized analytics data
         """
+        from datetime import datetime
+        
         sanitized = analytics_data.copy()
         
         # Convert string "NULL" to None
@@ -117,10 +121,21 @@ class AnalyzedPostRepository:
         if "id" in sanitized and sanitized["id"] is not None:
             sanitized["id"] = str(sanitized["id"])
         
+        # Parse datetime strings to datetime objects
+        datetime_fields = ["published_at", "analyzed_at", "crawled_at", "created_at", "updated_at"]
+        for field in datetime_fields:
+            if field in sanitized and isinstance(sanitized[field], str):
+                try:
+                    # Parse ISO format datetime string
+                    sanitized[field] = datetime.fromisoformat(sanitized[field].replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    # If parsing fails, set to None
+                    sanitized[field] = None
+        
         return sanitized
 
-    def save(self, analytics_data: Dict[str, Any]) -> AnalyzedPost:
-        """Save analytics result into the `post_analytics` table.
+    async def save(self, analytics_data: Dict[str, Any]) -> AnalyzedPost:
+        """Save analytics result into the `analyzed_posts` table.
 
         This method performs an insert-or-update (upsert-like) behavior based on
         the primary key `id`, so re-processing the same post overwrites the
@@ -147,27 +162,30 @@ class AnalyzedPostRepository:
         self._sanitize_project_id(analytics_data)
 
         try:
-            existing = self.get_by_id(post_id)
+            async with self.db.get_session() as session:
+                # Check if exists
+                stmt = select(AnalyzedPost).where(AnalyzedPost.id == post_id)
+                result = await session.execute(stmt)
+                existing = result.scalar_one_or_none()
 
-            if existing is None:
-                post = AnalyzedPost(**analytics_data)
-                self.db.add(post)
-                if self.logger:
-                    self.logger.debug(f"Creating new AnalyzedPost record: id={post_id}")
-            else:
-                post = existing
-                for key, value in analytics_data.items():
-                    if hasattr(post, key):
-                        setattr(post, key, value)
-                if self.logger:
-                    self.logger.debug(f"Updating existing AnalyzedPost record: id={post_id}")
+                if existing is None:
+                    post = AnalyzedPost(**analytics_data)
+                    session.add(post)
+                    if self.logger:
+                        self.logger.debug(f"Creating new AnalyzedPost record: id={post_id}")
+                else:
+                    post = existing
+                    for key, value in analytics_data.items():
+                        if hasattr(post, key):
+                            setattr(post, key, value)
+                    if self.logger:
+                        self.logger.debug(f"Updating existing AnalyzedPost record: id={post_id}")
 
-            self.db.commit()
-            self.db.refresh(post)
-            return post
+                await session.commit()
+                await session.refresh(post)
+                return post
 
         except SQLAlchemyError as exc:
-            self.db.rollback()
             if self.logger:
                 self.logger.error(
                     f"Database error saving analytics for post_id={post_id}: {exc}"

@@ -37,7 +37,7 @@ aspect_mapping:
 
 rabbitmq:
   url: "amqp://admin:21042004@172.16.21.206:5672/"
-  prefetch_count: 10
+  prefetch_count: 1
 
   # Multi-queue configuration
   queues:
@@ -46,7 +46,7 @@ rabbitmq:
       routing_key: "data.collected"
       handler_module: "internal.analytics.delivery.rabbitmq.consumer.handler"
       handler_class: "AnalyticsHandler"
-      prefetch_count: 10
+      prefetch_count: 1
       enabled: true
 
   # Publisher config
