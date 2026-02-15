@@ -56,4 +56,4 @@ COPY --chown=analytics:analytics . .
 USER analytics
 
 # Run consumer
-CMD ["python", "-m", "command.consumer.main"]
+CMD ["python", "-m", "apps.consumer.main"]
