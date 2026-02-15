@@ -1,325 +1,69 @@
-.PHONY: help install dev-install upgrade run-api run-consumer run-example-preprocessing run-example-intent dev-up dev-down dev-logs download-phobert download-spacy-model test test-phobert test-spacyyake test-preprocessing test-intent test-sentiment test-impact test-integration test-integration-minio test-integration-e2e test-integration-performance test-integration-crawler test-unit test-models example-sentiment example-impact clean format lint db-init db-migrate db-upgrade db-downgrade validate-config validate-migration backup-db
+.PHONY: help install sync run-consumer test lint format clean spacy-model spacy-list
 
-# ==============================================================================
-# HELPERS
-# ==============================================================================
+# Default target
 help:
-	@echo "Available command (Managed by uv):"
-	@echo ""
-	@echo "DEPENDENCIES:"
-	@echo "  make install                 - Install dependencies (Sync environment)"
-	@echo "  make upgrade                 - Upgrade all packages in lock file"
-	@echo ""
-	@echo "RUN SERVICES:"
-	@echo "  make run-api                 - Run API service locally"
-	@echo "  make run-consumer            - Run Consumer service locally"
-	@echo "  make run-example-preprocessing - Run Text Preprocessor example"
-	@echo "  make run-example-intent      - Run Intent Classifier example"
-	@echo ""
-	@echo "DEV ENVIRONMENT (Docker):"
-	@echo "  make dev-up                  - Start dev services (Postgres, Redis, MinIO, RabbitMQ, API)"
-	@echo "  make dev-down                - Stop dev services"
-	@echo "  make dev-logs                - View dev services logs"
-	@echo "  make dev-api-logs            - View API service logs"
-	@echo ""
-	@echo "AI MODELS:"
-	@echo "  make download-phobert        - Download PhoBERT ONNX model"
-	@echo "  make download-spacy-model    - Download SpaCy model"
-	@echo ""
-	@echo "TESTING:"
-	@echo "  make test                    - Run all tests"
-	@echo "  make test-api                - Run API service tests"
-	@echo "  make test-unit               - Run all unit tests"
-	@echo "  make test-models             - Run database model tests"
-	@echo "  make test-phobert            - Run PhoBERT tests"
-	@echo "  make test-spacyyake          - Run SpaCy-YAKE tests"
-	@echo "  make test-preprocessing      - Run Text Preprocessor tests"
-	@echo "  make test-intent             - Run Intent Classifier tests"
-	@echo "  make test-sentiment          - Run Sentiment (ABSA) tests"
-	@echo "  make test-impact             - Run Impact & Risk Calculator tests"
-	@echo ""
-	@echo "INTEGRATION TESTS (Crawler Integration):"
-	@echo "  make test-integration        - Run all integration tests"
-	@echo "  make test-integration-minio  - Run MinIO batch fetching tests"
-	@echo "  make test-integration-e2e    - Run end-to-end event processing tests"
-	@echo "  make test-integration-performance - Run performance & load tests"
-	@echo "  make test-integration-crawler - Run crawler format compatibility tests"
-	@echo ""
-	@echo "MIGRATION & VALIDATION:"
-	@echo "  make validate-config         - Validate configuration on startup"
-	@echo "  make validate-migration      - Run migration validation script"
-	@echo "  make backup-db               - Create database backup"
-	@echo ""
-	@echo "DATABASE:"
-	@echo "  make db-init                 - Initialize Alembic"
-	@echo "  make db-migrate              - Create new migration"
-	@echo "  make db-upgrade              - Apply migrations"
-	@echo "  make db-downgrade            - Rollback last migration"
-	@echo ""
-	@echo "CODE QUALITY:"
-	@echo "  make format                  - Format code (black)"
-	@echo "  make lint                    - Lint code (flake8)"
-	@echo "  make clean                   - Clean up cache files"
+	@echo "Available commands:"
+	@echo "  make install       - Install dependencies"
+	@echo "  make sync          - Sync dependencies with lock file"
+	@echo "  make run-consumer  - Run consumer service"
+	@echo "  make test          - Run tests"
+	@echo "  make lint          - Run linters"
+	@echo "  make format        - Format code"
+	@echo "  make clean         - Clean cache and build files"
+	@echo "  make spacy-model   - Download SpaCy model"
+	@echo "  make spacy-list    - List installed SpaCy models"
 
-# ==============================================================================
-# DEPENDENCY MANAGEMENT
-# ==============================================================================
+# Install dependencies
 install:
 	uv sync
 
-dev-install:
+# Sync dependencies
+sync:
 	uv sync
 
-upgrade:
-	uv lock --upgrade
-
-# ==============================================================================
-# RUN SERVICES
-# ==============================================================================
-run-api:
-	PYTHONPATH=. uv run command/api/main.py
-
+# Run consumer service
 run-consumer:
-	PYTHONPATH=. uv run command/consumer/main.py
+	uv run python -m apps.consumer.main
 
-run-example-preprocessing:
-	@echo "Running Text Preprocessor example..."
-	@PYTHONPATH=. uv run examples/preprocess_example.py
-
-run-example-intent:
-	@echo "Running Intent Classifier example..."
-	@PYTHONPATH=. uv run examples/intent_classifier_example.py
-
-# ==============================================================================
-# DEV ENVIRONMENT
-# ==============================================================================
-dev-up:
-	docker-compose -f docker-compose.dev.yml up -d
-
-dev-down:
-	docker-compose -f docker-compose.dev.yml down
-
-dev-logs:
-	docker-compose -f docker-compose.dev.yml logs -f
-
-dev-api-logs:
-	docker-compose -f docker-compose.dev.yml logs -f analytics-api
-
-# ==============================================================================
-# AI MODELS
-# ==============================================================================
-download-phobert:
-	@echo "Downloading PhoBERT ONNX model..."
-	@uv run python scripts/download_phobert_model.py
-
-download-spacy-model:
-	@echo "Downloading multilingual SpaCy model (xx_ent_wiki_sm)..."
-	@echo "This is the recommended model for Vietnamese text with spaCy 3.8.11"
-	@echo "Vietnamese models (vi_core_news_*) are community-built and may not work"
-	@echo ""
-	@echo "Ensuring pip is available..."
-	@uv pip install pip > /dev/null 2>&1 || true
-	@echo "Downloading model (this may take a minute)..."
-	@uv run python -m spacy download xx_ent_wiki_sm || \
-		(echo "xx_ent_wiki_sm download failed. Code will use blank('vi') model.")
-	@echo "SpaCy model installation completed."
-
-# ==============================================================================
-# TESTING
-# ==============================================================================
+# Run tests (placeholder)
 test:
-	@echo "Running all tests..."
-	PYTHONPATH=. uv run pytest -v
+	@echo "Running tests..."
+	uv run pytest tests/ -v
 
-test-api:
-	@echo "Running API service tests..."
-	@uv run pytest tests/api/ -v
-
-test-phobert:
-	@echo "Running PhoBERT tests..."
-	@uv run pytest tests/phobert/ -v
-
-test-spacyyake:
-	@echo "Running SpaCy-YAKE tests..."
-	@uv run pytest tests/spacyyake/ -v
-
-test-preprocessing:
-	@echo "Running Text Preprocessor tests..."
-	@uv run pytest tests/preprocessing/ -v
-
-test-preprocessing-unit:
-	@echo "Running Text Preprocessor unit tests..."
-	@uv run pytest tests/preprocessing/test_unit.py -v
-
-test-preprocessing-integration:
-	@echo "Running Text Preprocessor integration tests..."
-	@uv run pytest tests/preprocessing/test_integration.py -v
-
-test-preprocessing-performance:
-	@echo "Running Text Preprocessor performance tests..."
-	@uv run pytest tests/preprocessing/test_performance.py -v
-
-test-intent:
-	@echo "Running Intent Classifier tests..."
-	@uv run pytest tests/intent/ -v
-
-test-intent-unit:
-	@echo "Running Intent Classifier unit tests..."
-	@uv run pytest tests/intent/test_unit.py -v
-
-test-intent-integration:
-	@echo "Running Intent Classifier integration tests..."
-	@uv run pytest tests/intent/test_integration.py -v
-
-test-intent-performance:
-	@echo "Running Intent Classifier performance tests..."
-	@uv run pytest tests/intent/test_performance.py -v
-
-# ==============================================================================
-# SENTIMENT (ABSA)
-# ==============================================================================
-test-sentiment:
-	@echo "Running SentimentAnalyzer (ABSA) tests..."
-	@uv run pytest tests/sentiment -v
-
-example-sentiment:
-	@echo "Running SentimentAnalyzer example..."
-	PYTHONPATH=. uv run python examples/sentiment_example.py
-
-example-impact:
-	@echo "Running ImpactCalculator example..."
-	PYTHONPATH=. uv run python examples/impact_calculator_example.py
-
-# Impact module tests
-test-impact:
-	@echo "Running Impact & Risk Calculator tests..."
-	@uv run pytest tests/impact -v
-
-# Unit tests
-test-unit:
-	@echo "Running all unit tests..."
-	@uv run pytest tests/ -v --ignore=tests/integration
-
-# Database model tests
-test-models:
-	@echo "Running database model tests..."
-	@uv run pytest tests/test_models/ -v
-
-# ==============================================================================
-# INTEGRATION TESTS (Crawler Integration)
-# ==============================================================================
-test-integration:
-	@echo "Running all integration tests..."
-	@uv run pytest tests/integration/ -v
-
-test-integration-minio:
-	@echo "Running MinIO batch fetching tests..."
-	@uv run pytest tests/integration/test_minio_batch_fetching.py -v
-
-test-integration-e2e:
-	@echo "Running end-to-end event processing tests..."
-	@uv run pytest tests/integration/test_e2e_event_processing.py -v
-
-test-integration-performance:
-	@echo "Running performance & load tests..."
-	@uv run pytest tests/integration/test_performance.py -v
-
-test-integration-crawler:
-	@echo "Running crawler format compatibility tests..."
-	@uv run pytest tests/integration/test_crawler_format_compatibility.py -v
-
-# ==============================================================================
-# MIGRATION & VALIDATION
-# ==============================================================================
-validate-config:
-	@echo "Validating configuration..."
-	@PYTHONPATH=. uv run python -c "from core.config_validation import validate_config_on_startup; import sys; sys.exit(0 if validate_config_on_startup() else 1)"
-
-validate-migration:
-	@echo "Running migration validation..."
-	@PYTHONPATH=. uv run python scripts/validate_migration.py
-
-backup-db:
-	@echo "Creating database backup..."
-	@./scripts/backup_database.sh
-
-# ==============================================================================
-# DATABASE
-# ==============================================================================
-db-init:
-	PYTHONPATH=. uv run alembic init migrations
-
-db-migrate:
-	@read -p "Enter migration message: " msg; \
-	PYTHONPATH=. uv run alembic revision --autogenerate -m "$$msg"
-
-db-upgrade:
-	PYTHONPATH=. uv run alembic upgrade head
-
-db-downgrade:
-	PYTHONPATH=. uv run alembic downgrade -1
-
-# ==============================================================================
-# CODE QUALITY
-# ==============================================================================
-clean:
-	@echo "Cleaning up compiled files and caches..."
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
-	find . -type f -name "*.pyo" -delete
-	find . -type f -name "*.pyd" -delete
-	rm -rf .pytest_cache
-	rm -rf htmlcov
-	rm -rf .coverage
-	rm -rf dist
-	rm -rf build
-	rm -rf *.egg-info
-	uv cache clean
-
-format:
-	uv run black core/ infrastructure/ command/ internal/ tests/
-
+# Lint code (placeholder)
 lint:
-	uv run flake8 core/ infrastructure/ command/ internal/ tests/ --max-line-length=100
+	@echo "Running linters..."
+	uv run ruff check .
 
-# ==============================================================================
-# DOCKER
-# ==============================================================================
-docker-build:
-	docker build -f command/consumer/Dockerfile -t smap-analytics-consumer:latest .
+# Format code (placeholder)
+format:
+	@echo "Formatting code..."
+	uv run ruff format .
 
-docker-build-api:
-	docker build -f command/api/Dockerfile -t analytics-engine:latest .
+# Download SpaCy model
+spacy-model:
+	@echo "Downloading SpaCy multilingual model..."
+	uv pip install https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.7.0/xx_ent_wiki_sm-3.7.0-py3-none-any.whl
 
-docker-build-push:
-	./scripts/build-consumer.sh build-push
+# List installed SpaCy models
+spacy-list:
+	@echo "Installed SpaCy models:"
+	@uv run python -c "import spacy; print('\\n'.join(spacy.util.get_installed_models()))" 2>/dev/null || echo "No models installed"
 
-docker-login:
-	./scripts/build-consumer.sh login
+# Clean cache and build files
+clean:
+	@echo "Cleaning cache and build files..."
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	find . -type f -name "*.pyo" -delete 2>/dev/null || true
+	@echo "Clean complete!"
 
-docker-run:
-	docker-compose up -d
-
-docker-stop:
-	docker-compose down
-
-# ==============================================================================
-# KUBERNETES
-# ==============================================================================
-k8s-deploy:
-	kubectl apply -k k8s/
-
-k8s-delete:
-	kubectl delete -k k8s/
-
-k8s-logs-consumer:
-	kubectl logs -n smap -l app=smap-analytics -f
-
-k8s-logs-api:
-	kubectl logs -l app=analytics-api -f
-
-k8s-status:
-	kubectl get all -n smap
-
-k8s-api-status:
-	kubectl get pods,svc,ingress -l app=analytics-api
+# Development setup
+dev-setup: install
+	@echo "Development environment setup complete!"
+	@echo ""
+	@echo "Optional: Download SpaCy model with 'make spacy-model'"
+	@echo "Run 'make run-consumer' to start the consumer service"
