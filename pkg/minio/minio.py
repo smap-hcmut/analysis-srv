@@ -2,44 +2,16 @@ from __future__ import annotations
 
 import io
 import json
-from typing import Dict, List, Optional, Union, Protocol, runtime_checkable
+from typing import Dict, List, Optional, Union
 
 import zstandard as zstd  # type: ignore
 from minio import Minio  # type: ignore
 from minio.error import S3Error  # type: ignore
 
 from loguru import logger
+from .interface import IObjectStorage
 from .type import MinIOConfig, CompressionConfig, UploadResult
 from .constant import *
-
-
-@runtime_checkable
-class IObjectStorage(Protocol):
-    """Protocol defining the object storage interface."""
-
-    def download_json(
-        self, bucket: str, object_path: str
-    ) -> Union[Dict[str, object], List[Dict[str, object]]]:
-        """Download and parse a JSON object."""
-        ...
-
-    def download_batch(self, bucket: str, object_path: str) -> List[Dict[str, object]]:
-        """Download a batch of items."""
-        ...
-
-    def upload_json(
-        self,
-        bucket: str,
-        object_path: str,
-        data: Dict[str, object],
-        compress: bool = True,
-    ) -> UploadResult:
-        """Upload a JSON object with optional compression."""
-        ...
-
-    def object_exists(self, bucket: str, object_path: str) -> bool:
-        """Check if object exists."""
-        ...
 
 
 class MinioAdapterError(Exception):
@@ -486,7 +458,6 @@ class MinioAdapter(IObjectStorage):
 
 
 __all__ = [
-    "IObjectStorage",
     "MinioAdapter",
     "MinioAdapterError",
     "MinioObjectNotFoundError",

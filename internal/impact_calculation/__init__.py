@@ -8,6 +8,7 @@ from .type import (
     Output,
     Input,
 )
+from .errors import ErrInvalidInput, ErrCalculationFailed
 from .usecase import New, ImpactCalculation
 
 __all__ = [
@@ -19,6 +20,8 @@ __all__ = [
     "ImpactBreakdown",
     "Output",
     "Input",
+    "ErrInvalidInput",
+    "ErrCalculationFailed",
     "New",
     "ImpactCalculation",
 ]

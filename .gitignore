@@ -20,6 +20,9 @@ dist/
 .env
 .env.local
 
+# --- Config with secrets ---
+config/config.yaml
+
 # --- Test & Lint tool caches ---
 .coverage
 .htmlcov/

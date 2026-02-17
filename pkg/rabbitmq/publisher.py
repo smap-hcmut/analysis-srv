@@ -1,32 +1,16 @@
 from __future__ import annotations
 
 import json
-from typing import Optional, Protocol, Union, runtime_checkable
+from typing import Optional, Union
 
 import aio_pika
 from aio_pika import Message, DeliveryMode, ExchangeType
 from aio_pika.abc import AbstractRobustChannel, AbstractExchange
 from loguru import logger
 
+from .interface import IMessagePublisher
 from .constant import *
 from .type import PublisherConfig, MessagePayload
-
-
-@runtime_checkable
-class IMessagePublisher(Protocol):
-    """Protocol defining the message publisher interface."""
-
-    async def setup(self) -> None:
-        """Setup publisher (declare exchange, etc.)."""
-        ...
-
-    async def publish(self, message: dict, routing_key: Optional[str] = None) -> None:
-        """Publish a message to the exchange."""
-        ...
-
-    def is_ready(self) -> bool:
-        """Check if publisher is ready to publish."""
-        ...
 
 
 class RabbitMQPublisherError(Exception):

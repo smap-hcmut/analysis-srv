@@ -1,4 +1,8 @@
-"""Use case for analyzed post operations."""
+"""Use case for analyzed post operations.
+
+Convention: UseCase class delegates to method files.
+Each public method is implemented in its own file.
+"""
 
 from typing import Optional
 
@@ -8,9 +12,16 @@ from ..interface import IAnalyzedPostUseCase
 from ..type import CreateAnalyzedPostInput, UpdateAnalyzedPostInput
 from ..repository.interface import IAnalyzedPostRepository
 
+# Import method implementations
+from .create import create as _create
+from .update import update as _update
+
 
 class AnalyzedPostUseCase(IAnalyzedPostUseCase):
-    """Use case for managing analyzed posts."""
+    """Use case for managing analyzed posts.
+
+    Convention: implUseCase struct (private) with injected dependencies.
+    """
 
     def __init__(
         self,
@@ -18,7 +29,7 @@ class AnalyzedPostUseCase(IAnalyzedPostUseCase):
         logger: Optional[Logger] = None,
     ):
         """Initialize use case.
-        
+
         Args:
             repository: Repository for data access
             logger: Logger instance (optional)
@@ -27,37 +38,12 @@ class AnalyzedPostUseCase(IAnalyzedPostUseCase):
         self.logger = logger
 
     async def create(self, input_data: CreateAnalyzedPostInput) -> AnalyzedPost:
-        """Create a new analyzed post record.
-        
-        Args:
-            input_data: Data for creating analyzed post
-            
-        Returns:
-            Created AnalyzedPost instance
-        """
-        if self.logger:
-            self.logger.debug(f"[AnalyzedPostUseCase] Creating analyzed post")
-        
-        return await self.repository.save(input_data.data)
+        """Create a new analyzed post record."""
+        return await _create(self, input_data)
 
     async def update(self, post_id: str, input_data: UpdateAnalyzedPostInput) -> AnalyzedPost:
-        """Update an existing analyzed post record.
-        
-        Args:
-            post_id: ID of post to update
-            input_data: Data for updating analyzed post
-            
-        Returns:
-            Updated AnalyzedPost instance
-        """
-        if self.logger:
-            self.logger.debug(f"[AnalyzedPostUseCase] Updating analyzed post: {post_id}")
-        
-        # Merge post_id into data
-        data = input_data.data.copy()
-        data["id"] = post_id
-        
-        return await self.repository.save(data)
+        """Update an existing analyzed post record."""
+        return await _update(self, post_id, input_data)
 
 
 __all__ = ["AnalyzedPostUseCase"]

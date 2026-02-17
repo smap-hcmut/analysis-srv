@@ -1,0 +1,33 @@
+"""Interface for Logger operations."""
+
+from typing import Iterator, Optional, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class ILogger(Protocol):
+    """Protocol defining the Logger interface."""
+
+    def trace_context(
+        self, trace_id: Optional[str] = None, request_id: Optional[str] = None
+    ) -> Iterator[None]: ...
+
+    def set_trace_id(self, trace_id: str) -> None: ...
+
+    def get_trace_id(self) -> Optional[str]: ...
+
+    def set_request_id(self, request_id: str) -> None: ...
+
+    def get_request_id(self) -> Optional[str]: ...
+
+    def debug(self, message: str, **kwargs) -> None: ...
+
+    def info(self, message: str, **kwargs) -> None: ...
+
+    def warn(self, message: str, **kwargs) -> None: ...
+
+    def error(self, message: str, **kwargs) -> None: ...
+
+    def exception(self, message: str, **kwargs) -> None: ...
+
+
+__all__ = ["ILogger"]

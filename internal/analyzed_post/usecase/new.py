@@ -1,4 +1,7 @@
-"""Factory function for creating analyzed post use case."""
+"""Factory function for creating analyzed post use case.
+
+Convention: new.py is STRICTLY a factory — struct + New() + optional setters.
+"""
 
 from typing import Optional
 
@@ -12,11 +15,11 @@ def New(
     logger: Optional[Logger] = None,
 ) -> AnalyzedPostUseCase:
     """Create a new analyzed post use case instance.
-    
+
     Args:
         repository: Repository for data access
         logger: Logger instance (optional)
-        
+
     Returns:
         AnalyzedPostUseCase instance
     """

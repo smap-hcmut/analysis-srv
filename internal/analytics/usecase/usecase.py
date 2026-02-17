@@ -1,19 +1,10 @@
-"""Analytics Orchestrator - core business logic.
-
-This usecase orchestrates the full analytics pipeline:
-1. Text preprocessing
-2. Intent classification (gatekeeper)
-3. Keyword extraction
-4. Sentiment analysis
-5. Impact calculation
-6. Persistence via repository
-"""
+"""Analytics Orchestrator - core business logic."""
 
 from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from pkg.logger.logger import Logger
 from internal.analyzed_post.interface import IAnalyzedPostUseCase

@@ -12,6 +12,12 @@ from .type import (
     PostData,
     AnalyticsResult,
 )
+from .errors import (
+    ErrPipelineProcessing,
+    ErrInvalidInput,
+    ErrPreprocessingFailed,
+    ErrPersistenceFailed,
+)
 
 # Import factory functions
 from .usecase.new import New as NewAnalyticsPipeline
@@ -20,18 +26,24 @@ from .delivery.rabbitmq.consumer.new import New as NewAnalyticsHandler
 __all__ = [
     # Interface
     "IAnalyticsPipeline",
-    
+
     # Types
     "Config",
     "Input",
     "Output",
     "PostData",
     "AnalyticsResult",
-    
+
+    # Errors
+    "ErrPipelineProcessing",
+    "ErrInvalidInput",
+    "ErrPreprocessingFailed",
+    "ErrPersistenceFailed",
+
     # Factory functions
     "NewAnalyticsPipeline",
     "NewAnalyticsHandler",
-    
+
     # Constants
     "MODEL_VERSION",
     "DEFAULT_SENTIMENT_LABEL",

@@ -1,38 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, Optional, Protocol, runtime_checkable
+from typing import Awaitable, Callable, Optional
 
 import aio_pika
 from aio_pika import IncomingMessage
 from aio_pika.abc import AbstractRobustChannel, AbstractRobustConnection
 from loguru import logger
 
+from .interface import IMessageConsumer
 from .constant import *
 from .type import RabbitMQConfig
-
-
-@runtime_checkable
-class IMessageConsumer(Protocol):
-    """Protocol defining the message consumer interface."""
-
-    async def connect(self) -> None:
-        """Establish connection to message broker."""
-        ...
-
-    async def close(self) -> None:
-        """Close connection gracefully."""
-        ...
-
-    async def consume(
-        self, message_handler: Callable[[IncomingMessage], Awaitable[None]]
-    ) -> None:
-        """Start consuming messages from the queue."""
-        ...
-
-    def is_connected(self) -> bool:
-        """Check if connected to message broker."""
-        ...
 
 
 class RabbitMQClient(IMessageConsumer):
@@ -140,17 +118,6 @@ class RabbitMQClient(IMessageConsumer):
         Raises:
             RuntimeError: If not connected to RabbitMQ
             Exception: If consumption fails
-
-        Example:
-            ```python
-            async def handle_message(message: IncomingMessage):
-                async with message.process():
-                    data = json.loads(message.body)
-                    # Process data...
-                    # Message auto-acked if no exception
-
-            await client.consume(handle_message)
-            ```
         """
         if not self.connection or not self.channel:
             raise RuntimeError("Not connected to RabbitMQ. Call connect() first.")

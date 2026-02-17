@@ -7,6 +7,7 @@ from .type import (
     Output,
     Input,
 )
+from .errors import ErrInvalidInput, ErrAnalysisFailed, ErrModelNotLoaded
 from .usecase import New, SentimentAnalysis
 
 __all__ = [
@@ -17,6 +18,9 @@ __all__ = [
     "AspectSentiment",
     "Output",
     "Input",
+    "ErrInvalidInput",
+    "ErrAnalysisFailed",
+    "ErrModelNotLoaded",
     "New",
     "SentimentAnalysis",
 ]

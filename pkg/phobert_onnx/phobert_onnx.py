@@ -1,7 +1,7 @@
 import torch  # type: ignore
 import warnings
 from pathlib import Path
-from typing import Dict, List, Protocol, runtime_checkable
+from typing import Dict, List
 
 # Suppress numpy deprecation warning from pyvi (happens when loading pickle model)
 with warnings.catch_warnings():
@@ -11,6 +11,7 @@ with warnings.catch_warnings():
 
 from transformers import AutoTokenizer  # type: ignore
 from optimum.onnxruntime import ORTModelForSequenceClassification  # type: ignore
+from .interface import IPhoBERTONNX
 from .constant import (
     MODEL_FILE_NAME,
     DEFAULT_NEUTRAL_RESPONSE,
@@ -26,23 +27,6 @@ from .constant import (
     ERROR_MODEL_LOAD_FAILED,
 )
 from .type import PhoBERTConfig, PhobertOnnxOutput, PhobertOnnxProbability
-
-
-@runtime_checkable
-class IPhoBERTONNX(Protocol):
-    """Protocol defining the PhoBERT ONNX interface."""
-
-    def predict(
-        self, text: str, return_probabilities: bool = True
-    ) -> PhobertOnnxOutput:
-        """Predict sentiment for a single text."""
-        ...
-
-    def predict_batch(
-        self, texts: List[str], return_probabilities: bool = True
-    ) -> List[PhobertOnnxOutput]:
-        """Predict sentiment for multiple texts."""
-        ...
 
 
 class PhoBERTONNX(IPhoBERTONNX):
@@ -239,5 +223,4 @@ class PhoBERTONNX(IPhoBERTONNX):
 __all__ = [
     "PhoBERTConfig",
     "PhoBERTONNX",
-    "IPhoBERTONNX",
 ]

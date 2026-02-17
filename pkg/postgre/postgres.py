@@ -1,42 +1,14 @@
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Protocol, runtime_checkable
+from typing import AsyncGenerator
 
 from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from .interface import IDatabase
 from .type import PostgresConfig
 from .constant import *
-
-
-@runtime_checkable
-class IDatabase(Protocol):
-    """Protocol for database operations."""
-
-    async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
-        """Get database session.
-
-        Yields:
-            AsyncSession instance
-
-        Example:
-            >>> async with db.get_session() as session:
-            ...     result = await session.execute(query)
-        """
-        ...
-
-    async def health_check(self) -> bool:
-        """Check database connectivity.
-
-        Returns:
-            True if database is healthy, False otherwise
-        """
-        ...
-
-    async def close(self) -> None:
-        """Close database connections and cleanup resources."""
-        ...
 
 
 class PostgresDatabase:
@@ -183,6 +155,5 @@ class PostgresDatabase:
 
 
 __all__ = [
-    "IDatabase",
     "PostgresDatabase",
 ]

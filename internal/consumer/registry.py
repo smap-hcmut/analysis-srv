@@ -1,13 +1,4 @@
-"""Domain registry for consumer application.
-
-This module provides centralized initialization of all domain services
-(usecases, repositories) specifically for the consumer application.
-
-Pattern:
-- Each app has its own registry
-- Registry initializes domain services with proper dependencies
-- Services are initialized once and reused throughout the app lifecycle
-"""
+"""Domain registry for consumer application."""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -50,9 +41,6 @@ from internal.analytics import (
 class DomainServices:
     """Container for all domain services used by consumer app.
 
-    This struct holds initialized instances of all domain usecases
-    and repositories that the consumer application needs.
-
     Attributes:
         text_processing: Text preprocessing use case
         intent_classification: Intent classification use case
@@ -75,27 +63,6 @@ class DomainServices:
 class ConsumerRegistry:
     """Registry for consumer application domain services.
 
-    This class provides centralized initialization of all domain services
-    needed by the consumer application. Each application (consumer, api, worker)
-    should have its own registry.
-
-    Pattern inspired by Golang's term packages:
-    - Each domain has a New() factory function
-    - Logger is injected from Dependencies
-    - Config is extracted from Dependencies
-    - Services are initialized once and cached
-
-    Example:
-        deps = await init_dependencies(config)
-        registry = ConsumerRegistry(deps)
-        services = registry.initialize()
-
-        # Use services in handlers
-        text_output = services.text_processing.process(text_input)
-        intent_output = services.intent_classification.process(intent_input)
-        keyword_output = services.keyword_extraction.process(keyword_input)
-        sentiment_output = services.sentiment_analysis.process(sentiment_input)
-        impact_output = services.impact_calculation.process(impact_input)
     """
 
     def __init__(self, deps: Dependencies):
@@ -111,9 +78,6 @@ class ConsumerRegistry:
 
     def initialize(self) -> DomainServices:
         """Initialize all domain services for consumer app.
-
-        This method creates instances of all domain usecases and repositories
-        with proper dependency injection. Services are cached after first initialization.
 
         Returns:
             DomainServices container with all initialized services

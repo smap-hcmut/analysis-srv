@@ -1,44 +1,16 @@
 import sys
-from typing import Optional, Iterator, Protocol, runtime_checkable
+from typing import Optional, Iterator
 from contextvars import ContextVar
 from contextlib import contextmanager
 from loguru import logger as _loguru_logger  # type: ignore
 
+from .interface import ILogger
 from .constant import *
 from .type import LoggerConfig
 
 # Trace ID context variable (thread-safe, async-safe)
 _trace_id_var: ContextVar[Optional[str]] = ContextVar(TRACE_ID_KEY, default=None)
 _request_id_var: ContextVar[Optional[str]] = ContextVar(REQUEST_ID_KEY, default=None)
-
-
-@runtime_checkable
-class ILogger(Protocol):
-    """Protocol defining the Logger interface."""
-
-    def trace_context(
-        self, trace_id: Optional[str] = None, request_id: Optional[str] = None
-    ) -> Iterator[None]: ...
-
-    def set_trace_id(self, trace_id: str) -> None: ...
-
-    def get_trace_id(self) -> Optional[str]: ...
-
-    def set_request_id(self, request_id: str) -> None: ...
-
-    def get_request_id(self) -> Optional[str]: ...
-
-    def debug(self, message: str, **kwargs) -> None: ...
-
-    def info(self, message: str, **kwargs) -> None: ...
-
-    def warn(self, message: str, **kwargs) -> None: ...
-
-    def error(self, message: str, **kwargs) -> None: ...
-
-    def exception(self, message: str, **kwargs) -> None: ...
-
-    def bind(self, **kwargs) -> _loguru_logger: ...  # type: ignore
 
 
 class Logger(ILogger):
@@ -232,6 +204,5 @@ class Logger(ILogger):
 
 __all__ = [
     "Logger",
-    "ILogger",
     "LoggerConfig",
 ]

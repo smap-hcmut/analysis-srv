@@ -1,34 +1,8 @@
-from typing import Callable, Optional, Awaitable, Protocol, runtime_checkable
+from typing import Callable, Optional, Awaitable
 from aiokafka import AIOKafkaConsumer  # type: ignore
 from loguru import logger
+from .interface import IKafkaConsumer
 from .type import KafkaConsumerConfig, KafkaMessage, KafkaConsumerError
-
-
-@runtime_checkable
-class IKafkaConsumer(Protocol):
-    """Protocol defining the Kafka consumer interface."""
-
-    async def start(self) -> None:
-        """Start the consumer and connect to Kafka."""
-        ...
-
-    async def stop(self) -> None:
-        """Stop the consumer gracefully."""
-        ...
-
-    async def consume(
-        self, message_handler: Callable[[KafkaMessage], Awaitable[None]]
-    ) -> None:
-        """Start consuming messages from subscribed topics."""
-        ...
-
-    async def commit(self) -> None:
-        """Manually commit offsets."""
-        ...
-
-    def is_running(self) -> bool:
-        """Check if consumer is running."""
-        ...
 
 
 class KafkaConsumer(IKafkaConsumer):
@@ -126,15 +100,6 @@ class KafkaConsumer(IKafkaConsumer):
         Raises:
             RuntimeError: If consumer is not started
             KafkaConsumerError: If consumption fails
-
-        Example:
-            ```python
-            async def handle_message(message: KafkaMessage):
-                data = json.loads(message.value)
-                print(f"Received: {data}")
-
-            await consumer.consume(handle_message)
-            ```
         """
         if not self.consumer or not self._running:
             raise RuntimeError("Consumer not started. Call start() first.")

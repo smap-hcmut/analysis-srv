@@ -1,40 +1,9 @@
 import json
-from typing import Optional, Dict, List, Protocol, runtime_checkable
+from typing import Optional, Dict, List
 from aiokafka import AIOKafkaProducer  # type: ignore
 from loguru import logger
+from .interface import IKafkaProducer
 from .type import KafkaProducerConfig
-
-
-@runtime_checkable
-class IKafkaProducer(Protocol):
-    """Protocol defining the Kafka producer interface."""
-
-    async def start(self) -> None:
-        """Start the producer and connect to Kafka."""
-        ...
-
-    async def stop(self) -> None:
-        """Stop the producer gracefully."""
-        ...
-
-    async def send(
-        self,
-        topic: str,
-        value: bytes,
-        key: Optional[bytes] = None,
-        partition: Optional[int] = None,
-        headers: Optional[Dict[str, bytes]] = None,
-    ) -> None:
-        """Send a message to Kafka topic."""
-        ...
-
-    async def send_batch(self, messages: List[Dict[str, bytes]]) -> None:
-        """Send multiple messages in batch."""
-        ...
-
-    def is_running(self) -> bool:
-        """Check if producer is running."""
-        ...
 
 
 class KafkaProducerError(Exception):
@@ -146,15 +115,6 @@ class KafkaProducer(IKafkaProducer):
         Raises:
             RuntimeError: If producer is not started
             KafkaProducerError: If sending fails
-
-        Example:
-            ```python
-            await producer.send(
-                topic="analytics_topic",
-                value=json.dumps({"status": "ok"}).encode(),
-                key=b"key123"
-            )
-            ```
         """
         if not self.producer or not self._running:
             raise RuntimeError("Producer not started. Call start() first.")
@@ -229,14 +189,6 @@ class KafkaProducer(IKafkaProducer):
         Raises:
             RuntimeError: If producer is not started
             KafkaProducerError: If sending fails
-
-        Example:
-            ```python
-            await producer.send_batch([
-                {"topic": "analytics", "value": b"data1", "key": b"key1"},
-                {"topic": "analytics", "value": b"data2", "key": b"key2"},
-            ])
-            ```
         """
         if not self.producer or not self._running:
             raise RuntimeError("Producer not started. Call start() first.")

@@ -1,4 +1,8 @@
-"""Interface for Analyzed Post use case."""
+"""Interface for Analyzed Post use case.
+
+Convention: Single Flat Interface, methods grouped by comments.
+Methods accept dedicated Input/Output structs from types.py.
+"""
 
 from typing import Protocol, runtime_checkable
 
@@ -10,27 +14,13 @@ from .type import CreateAnalyzedPostInput, UpdateAnalyzedPostInput
 class IAnalyzedPostUseCase(Protocol):
     """Protocol for analyzed post operations."""
 
-    def create(self, input_data: CreateAnalyzedPostInput) -> AnalyzedPost:
-        """Create a new analyzed post record.
-        
-        Args:
-            input_data: Data for creating analyzed post
-            
-        Returns:
-            Created AnalyzedPost instance
-        """
+    # CRUD Operations
+    async def create(self, input_data: CreateAnalyzedPostInput) -> AnalyzedPost:
+        """Create a new analyzed post record."""
         ...
 
-    def update(self, post_id: str, input_data: UpdateAnalyzedPostInput) -> AnalyzedPost:
-        """Update an existing analyzed post record.
-        
-        Args:
-            post_id: ID of post to update
-            input_data: Data for updating analyzed post
-            
-        Returns:
-            Updated AnalyzedPost instance
-        """
+    async def update(self, post_id: str, input_data: UpdateAnalyzedPostInput) -> AnalyzedPost:
+        """Update an existing analyzed post record."""
         ...
 
 

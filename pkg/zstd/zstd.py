@@ -1,80 +1,9 @@
-from typing import BinaryIO, Protocol, runtime_checkable
+from typing import BinaryIO
 import zstandard as zstd  # type: ignore
 
+from .interface import IZstd
 from .constant import *
 from .type import ZstdConfig, ZstdCompressionInfo
-
-
-@runtime_checkable
-class IZstd(Protocol):
-    """
-    Protocol defining the compression interface.
-    """
-
-    def compress(self, data: bytes, level: int = DEFAULT_LEVEL) -> bytes:
-        """
-        Compress bytes data in memory.
-
-        Args:
-            data: Raw bytes to compress
-            level: Compression level (0=none, 1=fast, 2=default, 3=best)
-
-        Returns:
-            Compressed bytes
-        """
-        ...
-
-    def decompress(self, data: bytes) -> bytes:
-        """
-        Decompress bytes data in memory.
-
-        Args:
-            data: Compressed bytes
-
-        Returns:
-            Decompressed bytes
-        """
-        ...
-
-    def compress_stream(
-        self,
-        source: BinaryIO,
-        destination: BinaryIO,
-        level: int = DEFAULT_LEVEL,
-        chunk_size: int = DEFAULT_CHUNK_SIZE,
-    ) -> ZstdCompressionInfo:
-        """
-        Compress data from source stream to destination stream.
-
-        Args:
-            source: Input stream (readable binary)
-            destination: Output stream (writable binary)
-            level: Compression level
-            chunk_size: Size of chunks to process at a time
-
-        Returns:
-            Compression information (sizes, ratio)
-        """
-        ...
-
-    def decompress_stream(
-        self,
-        source: BinaryIO,
-        destination: BinaryIO,
-        chunk_size: int = DEFAULT_CHUNK_SIZE,
-    ) -> int:
-        """
-        Decompress data from source stream to destination stream.
-
-        Args:
-            source: Input stream (readable binary)
-            destination: Output stream (writable binary)
-            chunk_size: Size of chunks to process at a time
-
-        Returns:
-            Total bytes decompressed
-        """
-        ...
 
 
 class Zstd(IZstd):
@@ -268,7 +197,6 @@ class Zstd(IZstd):
 
 __all__ = [
     "Zstd",
-    "IZstd",
     "ZstdConfig",
     "ZstdCompressionInfo",
 ]

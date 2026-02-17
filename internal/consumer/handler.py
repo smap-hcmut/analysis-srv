@@ -5,14 +5,14 @@ from .type import Dependencies
 
 
 class MessageHandler:
-    """Message handler for processing incoming RabbitMQ messages.
+    """DEPRECATED: Legacy message handler.
 
-    This class contains the business logic for processing messages:
-    - Parse message payload
-    - Extract text content
-    - Run sentiment analysis
-    - Run keyword extraction
-    - Store/publish results
+    This handler is no longer used. The active handler is:
+    internal/analytics/delivery/rabbitmq/consumer/handler.py (AnalyticsHandler)
+
+    Convention violation: This handler calls pkg infrastructure directly
+    (deps.sentiment, deps.keyword_extractor) instead of going through UseCase.
+    Kept for reference only — do not use in new code.
     """
 
     def __init__(self, deps: Dependencies):

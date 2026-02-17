@@ -1,24 +1,12 @@
 import logging
 import warnings
 import numpy as np  # type: ignore
-from typing import Dict, List, Protocol, runtime_checkable
+from typing import Dict, List
 import spacy  # type: ignore
 import yake  # type: ignore
+from .interface import ISpacyYake
 from .constant import *
 from .type import SpacyYakeConfig, SpacyYakeOutput, SpacyYakeItem
-
-
-@runtime_checkable
-class ISpacyYake(Protocol):
-    """Protocol defining the keyword extractor interface."""
-
-    def extract(self, text: str) -> SpacyYakeOutput:
-        """Extract keywords from a single text."""
-        ...
-
-    def extract_batch(self, texts: List[str]) -> List[SpacyYakeOutput]:
-        """Extract keywords from multiple texts."""
-        ...
 
 
 class SpacyYake(ISpacyYake):
