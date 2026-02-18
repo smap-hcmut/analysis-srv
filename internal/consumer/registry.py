@@ -7,7 +7,7 @@ from internal.text_preprocessing import (
     Config as TextProcessingConfig,
 )
 from internal.intent_classification import (
-    New as NewIntentClassification,
+    NewIntentClassificationUseCase as NewIntentClassification,
     Config as IntentClassificationConfig,
 )
 from internal.keyword_extraction import (
@@ -34,12 +34,14 @@ from internal.builder import (
 )
 from internal.analytics import (
     NewAnalyticsPipeline,
-    NewAnalyticsHandler,
     Config as AnalyticsConfig,
     IAnalyticsUseCase,
 )
 from internal.analytics.delivery.kafka.producer.new import New as NewAnalyticsPublisher
 from internal.analytics.delivery.kafka.producer.type import PublishConfig
+from internal.analytics.delivery.kafka.consumer.new import (
+    new_kafka_handler as NewAnalyticsHandler,
+)
 
 
 @dataclass

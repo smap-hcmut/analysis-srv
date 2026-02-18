@@ -1,5 +1,5 @@
 from .interface import IAnalyticsUseCase, IAnalyticsPublisher
-from .type import AnalyticsResult, Input, Output
+from .type import AnalyticsResult, Input, Output, Config
 from .usecase.new import New as NewAnalyticsPipeline
 
 __all__ = [
@@ -8,5 +8,6 @@ __all__ = [
     "AnalyticsResult",
     "Input",
     "Output",
+    "Config",
     "NewAnalyticsPipeline",
 ]
