@@ -7,5 +7,5 @@ async def update(self, input: UpdatePostInsightInput) -> PostInsight:
     try:
         return await self.repository.upsert(UpsertOptions(data=input.to_dict()))
     except Exception as e:
-        self.logger.error(f"internal.post_insight.usecase.update: {e}")
+        self.logger.error("internal.post_insight.usecase.update: %s", e)
         raise ErrFailedToUpdate(e)

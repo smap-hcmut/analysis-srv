@@ -1,16 +1,13 @@
-"""Text preprocessing domain."""
-
-from .interface import ITextProcessing
-from .type import Config, Output
-from .errors import ErrInvalidInput, ErrPreprocessingFailed
-from .usecase import TextProcessing, New
+from .interface import ITextPreprocessingUseCase
+from .type import Input, Output, Config, Stats, SourceBreakdown
+from .usecase.new import New as NewTextPreprocessingUseCase
 
 __all__ = [
-    "ITextProcessing",
-    "Config",
+    "ITextPreprocessingUseCase",
+    "Input",
     "Output",
-    "ErrInvalidInput",
-    "ErrPreprocessingFailed",
-    "TextProcessing",
-    "New",
+    "Config",
+    "Stats",
+    "SourceBreakdown",
+    "NewTextPreprocessingUseCase",
 ]

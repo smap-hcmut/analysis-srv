@@ -121,3 +121,37 @@ pkg/<name>/
 5. **Not found → return None** — không raise error
 6. **Mỗi file một job** — types trong type.py, logic trong method files
 7. **new.py chỉ là factory** — không chứa interfaces, constants, helpers
+
+### 4.1 Logging Convention (Domain / UseCase)
+
+- **Mục tiêu**:
+  - Log đủ context để debug, không spam.
+  - Thống nhất format để dễ grep / search.
+
+- **Định dạng message**:
+  - **Prefix**: `"[<Domain>UseCase] <Action> ..."` hoặc `"[<Domain>] <Action> ..."` cho các hàm thuần.
+  - Ví dụ:
+    - `"[PostInsightUseCase] Creating post_insight record"`
+    - `"[TextPreprocessing] Processing started"`
+    - `"[TextPreprocessing] Processing completed"`
+
+- **Log info**:
+  - Chỉ log **các sự kiện chính**:
+    - Bắt đầu xử lý: input size, id, source_id, platform, v.v.
+    - Kết thúc: id tạo ra, cờ `is_too_short`, `has_spam`, ratios, v.v.
+  - Sử dụng `extra={...}` để ghi thêm structured fields:
+    - Ví dụ `extra={"project_id": input.project_id, "source_id": input.source_id}`.
+
+- **Log error (bắt buộc)**:
+  - Không dùng f-string trong message, luôn dùng **format string + args** hoặc structured logging:
+    - Format string + args (domain/usecase + location):
+      - `self.logger.error("internal.post_insight.usecase.create: %s", e)`
+    - Structured (message cố định + `extra`):
+      - `logger.error("[TextPreprocessing] Processing failed", extra={"error": str(e), "error_type": type(e).__name__})`
+  - Sau khi log, **luôn**:
+    - Raise lại error domain (`ErrFailedToCreate`, `ErrFailedToUpdate`, ...) hoặc re-raise exception gốc nếu muốn bubble lên.
+
+- **Không làm**:
+  - Không log raw payload quá lớn.
+  - Không log password/token/secrets.
+  - Không sử dụng format không thống nhất (ví dụ lúc thì `"TextPreprocessing - start"`, lúc thì `"[TextPreprocessing] start"`).

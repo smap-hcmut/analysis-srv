@@ -95,6 +95,26 @@ UNICODE_NORMALIZATION_FORM = "NFKC"
 DEFAULT_MIN_TEXT_LENGTH = 10
 DEFAULT_MAX_COMMENTS = 5
 
+# Spam Detection Thresholds
+MIN_TEXT_LENGTH = 5
+MIN_WORD_DIVERSITY = 0.3
+
+# Ads Keywords (Vietnamese + English)
+ADS_KEYWORDS = [
+    "mua ngay",
+    "giảm giá",
+    "khuyến mãi",
+    "sale off",
+    "click link",
+    "inbox",
+    "đặt hàng",
+    "liên hệ ngay",
+    "giá sốc",
+    "hot deal",
+    "freeship",
+    "miễn phí vận chuyển",
+]
+
 __all__ = [
     "FIELD_CONTENT",
     "FIELD_TEXT",
@@ -118,6 +138,7 @@ __all__ = [
     "PATTERN_EMOJI",
     "PATTERN_HASHTAG",
     "PATTERN_WHITESPACE",
+    "PATTERN_WHITESPACE",
     "PATTERN_PHONE_VN",
     "PATTERN_DUPLICATE_PERIODS",
     "SPAM_KEYWORDS",
@@ -126,4 +147,7 @@ __all__ = [
     "UNICODE_NORMALIZATION_FORM",
     "DEFAULT_MIN_TEXT_LENGTH",
     "DEFAULT_MAX_COMMENTS",
+    "MIN_TEXT_LENGTH",
+    "MIN_WORD_DIVERSITY",
+    "ADS_KEYWORDS",
 ]

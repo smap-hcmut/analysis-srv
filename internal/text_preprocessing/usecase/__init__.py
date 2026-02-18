@@ -1,6 +1,4 @@
-"""Text processing use case layer."""
-
-from .text_processing import TextProcessing
+from .usecase import TextPreprocessingUseCase
 from .new import New
 
-__all__ = ["TextProcessing", "New"]
+__all__ = ["TextPreprocessingUseCase", "New"]
