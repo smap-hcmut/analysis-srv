@@ -1,4 +1,4 @@
-from .sentiment_analysis import SentimentAnalysis
+from .usecase import SentimentAnalysisUseCase
 from .new import New
 
-__all__ = ["SentimentAnalysis", "New"]
+__all__ = ["SentimentAnalysisUseCase", "New"]

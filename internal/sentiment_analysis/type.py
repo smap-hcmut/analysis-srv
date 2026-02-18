@@ -4,8 +4,6 @@ from .constant import *
 
 @dataclass
 class Config:
-    """Configuration for sentiment analysis."""
-
     context_window_size: int = DEFAULT_CONTEXT_WINDOW_SIZE
     threshold_positive: float = DEFAULT_THRESHOLD_POSITIVE
     threshold_negative: float = DEFAULT_THRESHOLD_NEGATIVE
@@ -21,8 +19,6 @@ class Config:
 
 @dataclass
 class KeywordInput:
-    """Keyword input for aspect-based sentiment analysis."""
-
     keyword: str
     aspect: str = DEFAULT_ASPECT
     position: int | None = None
@@ -32,8 +28,6 @@ class KeywordInput:
 
 @dataclass
 class SentimentResult:
-    """Single sentiment analysis result."""
-
     label: str
     score: float
     confidence: float
@@ -44,8 +38,6 @@ class SentimentResult:
 
 @dataclass
 class AspectSentiment:
-    """Aspect-level sentiment result."""
-
     label: str
     score: float
     confidence: float
@@ -56,21 +48,12 @@ class AspectSentiment:
 
 @dataclass
 class Output:
-    """Output of sentiment analysis.
-
-    Attributes:
-        overall: Overall sentiment for full text
-        aspects: Aspect-level sentiments (empty dict if no keywords)
-    """
-
     overall: SentimentResult
     aspects: dict[str, AspectSentiment] = field(default_factory=dict)
 
 
 @dataclass
 class Input:
-    """Input structure for sentiment analysis."""
-
     text: str
     keywords: list[KeywordInput] = field(default_factory=list)
 

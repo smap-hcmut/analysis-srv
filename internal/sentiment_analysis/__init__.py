@@ -1,26 +1,14 @@
-from .interface import ISentimentAnalysis
-from .type import (
-    Config,
-    KeywordInput,
-    SentimentResult,
-    AspectSentiment,
-    Output,
-    Input,
-)
-from .errors import ErrInvalidInput, ErrAnalysisFailed, ErrModelNotLoaded
-from .usecase import New, SentimentAnalysis
+from .interface import ISentimentAnalysisUseCase
+from .type import Input, Output, Config, KeywordInput, SentimentResult, AspectSentiment
+from .usecase.new import New as NewSentimentAnalysisUseCase
 
 __all__ = [
-    "ISentimentAnalysis",
+    "ISentimentAnalysisUseCase",
+    "Input",
+    "Output",
     "Config",
     "KeywordInput",
     "SentimentResult",
     "AspectSentiment",
-    "Output",
-    "Input",
-    "ErrInvalidInput",
-    "ErrAnalysisFailed",
-    "ErrModelNotLoaded",
-    "New",
-    "SentimentAnalysis",
+    "NewSentimentAnalysisUseCase",
 ]
