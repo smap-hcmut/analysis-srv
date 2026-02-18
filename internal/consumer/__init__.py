@@ -1,16 +1,7 @@
-"""Consumer package for analytics service.
-
-This package contains:
-- Dependencies: Struct holding all service dependencies
-- IConsumerServer: Protocol interface for consumer server
-- ConsumerServer: Consumer server with multi-queue support
-- ConsumerRegistry: Registry for domain services initialization
-"""
-
-from .type import Dependencies
-from .interface import IConsumerServer
-from .server import ConsumerServer
-from .registry import ConsumerRegistry, DomainServices
+from internal.consumer.type import Dependencies
+from internal.consumer.interface import IConsumerServer
+from internal.consumer.server import ConsumerServer
+from internal.consumer.registry import ConsumerRegistry, DomainServices
 
 __all__ = [
     "Dependencies",

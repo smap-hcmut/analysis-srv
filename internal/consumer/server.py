@@ -1,262 +1,135 @@
 import asyncio
-import importlib
-from typing import Dict, List
+from typing import Optional
 
-from pkg.rabbitmq.consumer import RabbitMQClient
-from pkg.rabbitmq.type import RabbitMQConfig as RabbitMQClientConfig
+from pkg.kafka.consumer import KafkaConsumer
+from pkg.kafka.type import KafkaMessage
+from internal.analytics.delivery.kafka.consumer import new_kafka_handler
 
 from .interface import IConsumerServer
 from .type import Dependencies
 
 
 class ConsumerServer(IConsumerServer):
-    """Consumer server with multi-queue support.
-
-    This server manages multiple RabbitMQ consumers, each handling different
-    queues with their own domain-specific handlers.
-
-    Architecture:
-    - 1 server manages N consumers
-    - Each consumer connects to 1 queue
-    - Each queue has its own handler (from domain layer)
-    - All consumers run concurrently via asyncio.gather
-    """
-
     def __init__(self, deps: Dependencies):
-        """Initialize consumer server.
-
-        Args:
-            deps: Service dependencies
-        """
         self.deps = deps
         self.logger = deps.logger
         self._running = False
 
         # Consumer management
-        self.consumers: List[RabbitMQClient] = []
-        self.handlers: Dict[str, any] = {}
-        self.consumer_tasks: List[asyncio.Task] = []
+        self.consumer: Optional[KafkaConsumer] = None
+        self.handler = None
+        self.consumer_task: Optional[asyncio.Task] = None
 
         # Domain services registry
         self.registry = None
         self.domain_services = None
 
     async def start(self) -> None:
-        """Start all configured queue consumers.
-
-        This method:
-        1. Initializes domain services via registry
-        2. Loads handler classes dynamically from config
-        3. Creates RabbitMQ consumers for each queue
-        4. Starts consuming from all queues concurrently
-
-        Raises:
-            Exception: If server fails to start
-        """
         try:
             # Initialize domain services via registry
             from .registry import ConsumerRegistry
 
             self.registry = ConsumerRegistry(self.deps)
             self.domain_services = self.registry.initialize()
-            self.logger.info("Domain services initialized via registry")
 
-            queue_configs = self.deps.config.rabbitmq.queues
-
-            if not queue_configs:
-                self.logger.warn(
-                    "No queues configured, server will not consume messages"
+            # Get Kafka consumer config from dependencies
+            kafka_consumer_config = self.deps.kafka_consumer_config
+            if not kafka_consumer_config:
+                raise ValueError(
+                    "Kafka consumer configuration not provided in dependencies"
                 )
-                return
 
-            self.logger.info(
-                f"Starting consumer server with {len(queue_configs)} queue(s)"
+            # Log subscription intent per topic (config-driven)
+            for topic in kafka_consumer_config.topics:
+                self.logger.info(
+                    "Subscribing to topic=%s "
+                    "(group_id=%s, auto_offset_reset=%s, "
+                    "enable_auto_commit=%s, max_poll_records=%s, session_timeout_ms=%s)"
+                    % (
+                        topic,
+                        kafka_consumer_config.group_id,
+                        kafka_consumer_config.auto_offset_reset,
+                        kafka_consumer_config.enable_auto_commit,
+                        kafka_consumer_config.max_poll_records,
+                        kafka_consumer_config.session_timeout_ms,
+                    )
+                )
+
+            # Create Kafka consumer
+            self.consumer = KafkaConsumer(kafka_consumer_config)
+            await self.consumer.start()
+
+            # Create analytics handler
+            self.handler = new_kafka_handler(
+                pipeline=self.domain_services.analytics_handler.pipeline,
+                logger=self.logger,
             )
 
-            # Initialize consumers and handlers for each queue
-            for queue_config in queue_configs:
-                if not queue_config.enabled:
-                    self.logger.info(
-                        f"Queue '{queue_config.name}' is disabled, skipping"
-                    )
-                    continue
+            self.logger.info("Kafka consumer started, waiting for messages...")
 
-                # Get handler from domain services (already initialized in registry)
-                handler = self._get_handler_from_services(
-                    queue_config.handler_module,
-                    queue_config.handler_class,
-                )
-
-                # Create consumer for this queue
-                consumer = RabbitMQClient(
-                    RabbitMQClientConfig(
-                        url=self.deps.config.rabbitmq.url,
-                        queue_name=queue_config.name,
-                        exchange_name=queue_config.exchange,
-                        routing_key=queue_config.routing_key,
-                        prefetch_count=queue_config.prefetch_count,
-                    )
-                )
-
-                await consumer.connect()
-
-                self.consumers.append(consumer)
-                self.handlers[queue_config.name] = handler
-
-                self.logger.info(
-                    f"Initialized consumer for queue '{queue_config.name}' "
-                    f"(exchange: {queue_config.exchange}, routing_key: {queue_config.routing_key})"
-                )
-
-            if not self.consumers:
-                self.logger.warn(
-                    "No enabled queues found, server will not consume messages"
-                )
-                return
-
-            # Start consuming from all queues concurrently
+            # Start consuming
             self._running = True
-            self.logger.info("Consumer server started, waiting for messages...")
+            self.consumer_task = asyncio.create_task(
+                self._consume_loop(), name="kafka-consumer"
+            )
 
-            # Create tasks for each consumer
-            consume_tasks = []
-            for consumer, (queue_name, handler) in zip(
-                self.consumers, self.handlers.items()
-            ):
-                task = asyncio.create_task(
-                    consumer.consume(handler.handle), name=f"consumer-{queue_name}"
-                )
-                consume_tasks.append(task)
-                self.consumer_tasks.append(task)
+            # Wait for consumer task
+            await self.consumer_task
 
-            # Wait for all consumers (blocks until shutdown)
-            await asyncio.gather(*consume_tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            self.logger.info("Kafka consumer server cancelled")
 
         except Exception as e:
-            self.logger.error(f"Failed to start consumer server: {e}")
+            self.logger.error(f"Failed to start Kafka consumer server: {e}")
             self.logger.exception("Server start error:")
             raise
 
-    async def shutdown(self) -> None:
-        """Shutdown the consumer server gracefully.
-
-        This method:
-        1. Stops consuming new messages
-        2. Cancels all consumer tasks
-        3. Closes all RabbitMQ connections
-        4. Cleans up domain services
-        5. Cleans up resources
-        """
+    async def _consume_loop(self) -> None:
         try:
-            self.logger.info("Shutting down consumer server...")
+
+            async def message_handler(message: KafkaMessage) -> None:
+                await self.handler.handle(message)
+
+            # Start consuming (blocks until shutdown)
+            await self.consumer.consume(message_handler)
+
+        except asyncio.CancelledError:
+            self.logger.info("Consume loop cancelled")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error in consume loop: {e}")
+            self.logger.exception("Consume loop error:")
+            raise
+
+    async def shutdown(self) -> None:
+        try:
+            self.logger.info("Shutting down Kafka consumer server...")
             self._running = False
 
-            # Cancel all consumer tasks
-            for task in self.consumer_tasks:
-                if not task.done():
-                    task.cancel()
+            # Cancel consumer task
+            if self.consumer_task and not self.consumer_task.done():
+                self.consumer_task.cancel()
+                try:
+                    await self.consumer_task
+                except asyncio.CancelledError:
+                    pass
 
-            # Wait for tasks to complete cancellation
-            if self.consumer_tasks:
-                await asyncio.gather(*self.consumer_tasks, return_exceptions=True)
-
-            # Close all RabbitMQ connections
-            for consumer in self.consumers:
-                await consumer.close()
+            # Stop Kafka consumer
+            if self.consumer:
+                await self.consumer.stop()
 
             # Cleanup domain services
             if self.registry:
                 self.registry.shutdown()
 
-            self.logger.info("Consumer server shutdown complete")
+            self.logger.info("Kafka consumer server shutdown complete")
 
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}")
             self.logger.exception("Shutdown error:")
 
     def is_running(self) -> bool:
-        """Check if server is running.
-
-        Returns:
-            True if server is running, False otherwise
-        """
         return self._running
-
-    def _get_handler_from_services(self, module_path: str, class_name: str):
-        """Get handler from domain services.
-
-        Args:
-            module_path: Python module path (for logging/validation)
-            class_name: Handler class name (for logging/validation)
-
-        Returns:
-            Handler instance from domain services
-
-        Raises:
-            ValueError: If handler not found in domain services
-        """
-        # Map handler class names to domain services attributes
-        handler_map = {
-            "AnalyticsHandler": "analytics_handler",
-            # Add more handlers here as needed
-        }
-        
-        handler_attr = handler_map.get(class_name)
-        if not handler_attr:
-            raise ValueError(
-                f"Handler '{class_name}' not registered in handler_map. "
-                f"Available handlers: {list(handler_map.keys())}"
-            )
-        
-        handler = getattr(self.domain_services, handler_attr, None)
-        if handler is None:
-            raise ValueError(
-                f"Handler '{handler_attr}' not found in domain services. "
-                f"Make sure it's initialized in ConsumerRegistry."
-            )
-        
-        self.logger.info(f"Loaded handler: {module_path}.{class_name}")
-        return handler
-
-    def _load_handler(self, module_path: str, class_name: str, domain_services):
-        """Load handler class dynamically from module path.
-
-        Args:
-            module_path: Python module path (e.g., "internal.analytics.delivery.rabbitmq.handler")
-            class_name: Handler class name (e.g., "AnalyticsHandler")
-            domain_services: Domain services from registry
-
-        Returns:
-            Handler instance
-
-        Raises:
-            ImportError: If module or class cannot be loaded
-        """
-        try:
-            # Import module
-            module = importlib.import_module(module_path)
-
-            # Get class from module
-            handler_class = getattr(module, class_name)
-
-            # Instantiate handler with dependencies and domain services
-            handler = handler_class(self.deps, domain_services)
-
-            self.logger.info(f"Loaded handler: {module_path}.{class_name}")
-
-            return handler
-
-        except ImportError as e:
-            self.logger.error(f"Failed to import handler module '{module_path}': {e}")
-            raise
-        except AttributeError as e:
-            self.logger.error(
-                f"Handler class '{class_name}' not found in module '{module_path}': {e}"
-            )
-            raise
-        except Exception as e:
-            self.logger.error(f"Failed to instantiate handler '{class_name}': {e}")
-            raise
 
 
 __all__ = ["ConsumerServer"]

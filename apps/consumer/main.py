@@ -20,7 +20,7 @@ from pkg.kafka.type import (
     KafkaConsumerConfig as KafkaConsumerPkgConfig,
 )
 from config.config import load_config, Config
-from internal.consumer import KafkaConsumerServer, Dependencies
+from internal.consumer import ConsumerServer, Dependencies
 from internal.model.constant import (
     LOGGER_SERVICE_NAME,
     LOGGER_ENABLE_CONSOLE,
@@ -155,7 +155,7 @@ async def init_dependencies(config: Config) -> Dependencies:
     await kafka_producer.start()
     logger.info("Kafka producer initialized")
 
-    # Build Kafka consumer config (used by internal KafkaConsumerServer)
+    # Build Kafka consumer config (used by internal ConsumerServer)
     topics = config.kafka.topics or KAFKA_DEFAULT_TOPICS
     kafka_consumer_config = KafkaConsumerPkgConfig(
         bootstrap_servers=config.kafka.bootstrap_servers,
@@ -201,7 +201,7 @@ async def main():
         logger = deps.logger
 
         # Create Kafka consumer server
-        server = KafkaConsumerServer(deps)
+        server = ConsumerServer(deps)
 
         # Setup signal handlers for graceful shutdown
         loop = asyncio.get_running_loop()

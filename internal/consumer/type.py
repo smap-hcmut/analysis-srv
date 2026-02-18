@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from pkg.logger.logger import Logger
 from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
@@ -7,27 +8,13 @@ from pkg.postgre.postgres import PostgresDatabase
 from pkg.redis.redis import RedisCache
 from pkg.minio.minio import MinioAdapter
 from pkg.zstd.zstd import Zstd
+from pkg.kafka.producer import KafkaProducer
+from pkg.kafka.type import KafkaConsumerConfig
 from config.config import Config
 
 
 @dataclass
 class Dependencies:
-    """Dependencies container for consumer service.
-
-    This struct holds all initialized service dependencies that will be
-    injected into the consumer server.
-
-    Attributes:
-        logger: Logger instance for structured logging
-        db: PostgreSQL database instance
-        redis: Redis cache instance
-        minio: MinIO storage instance
-        zstd: Zstd compressor instance
-        sentiment: PhoBERT sentiment analyzer
-        keyword_extractor: SpaCy-YAKE keyword extractor
-        config: Application configuration
-    """
-
     logger: Logger
     db: PostgresDatabase
     redis: RedisCache
@@ -36,6 +23,8 @@ class Dependencies:
     sentiment: PhoBERTONNX
     keyword_extractor: SpacyYake
     config: Config
+    kafka_producer: Optional[KafkaProducer] = None
+    kafka_consumer_config: KafkaConsumerConfig | None = None
 
 
 __all__ = ["Dependencies"]
