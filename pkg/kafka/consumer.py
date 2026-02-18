@@ -26,10 +26,6 @@ class KafkaConsumer(IKafkaConsumer):
         self.consumer: Optional[AIOKafkaConsumer] = None
         self._running = False
 
-        logger.info(
-            f"Kafka consumer initialized (topics={config.topics}, group_id={config.group_id})"
-        )
-
     async def start(self) -> None:
         """Start the consumer and connect to Kafka.
 
@@ -39,10 +35,6 @@ class KafkaConsumer(IKafkaConsumer):
             KafkaConsumerError: If connection fails
         """
         try:
-            logger.info(
-                f"Starting Kafka consumer (bootstrap_servers={self.config.bootstrap_servers})..."
-            )
-
             # Create consumer
             self.consumer = AIOKafkaConsumer(
                 *self.config.topics,
@@ -58,11 +50,6 @@ class KafkaConsumer(IKafkaConsumer):
             # Start consumer
             await self.consumer.start()
             self._running = True
-
-            logger.info(
-                f"Kafka consumer started successfully (topics={self.config.topics}, "
-                f"group_id={self.config.group_id})"
-            )
 
         except Exception as e:
             logger.error(f"Failed to start Kafka consumer: {e}")
@@ -105,10 +92,6 @@ class KafkaConsumer(IKafkaConsumer):
             raise RuntimeError("Consumer not started. Call start() first.")
 
         try:
-            logger.info(
-                f"Starting message consumption from topics {self.config.topics}..."
-            )
-
             async for msg in self.consumer:
                 try:
                     # Convert aiokafka message to our KafkaMessage model
@@ -168,7 +151,6 @@ class KafkaConsumer(IKafkaConsumer):
             bool: True if running, False otherwise
         """
         return self._running and self.consumer is not None
-
 
 __all__ = [
     "IKafkaConsumer",

@@ -33,11 +33,6 @@ class KafkaProducer(IKafkaProducer):
         self.producer: Optional[AIOKafkaProducer] = None
         self._running = False
 
-        logger.info(
-            f"Kafka producer initialized (bootstrap_servers={config.bootstrap_servers}, "
-            f"acks={config.acks})"
-        )
-
     async def start(self) -> None:
         """Start the producer and connect to Kafka.
 
@@ -47,10 +42,6 @@ class KafkaProducer(IKafkaProducer):
             KafkaProducerError: If connection fails
         """
         try:
-            logger.info(
-                f"Starting Kafka producer (bootstrap_servers={self.config.bootstrap_servers})..."
-            )
-
             # Create producer
             self.producer = AIOKafkaProducer(
                 bootstrap_servers=self.config.bootstrap_servers,
@@ -65,11 +56,6 @@ class KafkaProducer(IKafkaProducer):
             # Start producer
             await self.producer.start()
             self._running = True
-
-            logger.info(
-                f"Kafka producer started successfully (acks={self.config.acks}, "
-                f"compression={self.config.compression_type})"
-            )
 
         except Exception as e:
             logger.error(f"Failed to start Kafka producer: {e}")

@@ -1,244 +1,550 @@
-# Output Payload — SMAP Analytics Service
+# Output Payload — SMAP Analysis Service
 
 ## Tổng quan
 
-Sau khi xử lý qua pipeline 5 giai đoạn, kết quả được persist vào table `schema_analyst.analyzed_posts` trong PostgreSQL. Mỗi record đại diện cho một bài viết đã được phân tích đầy đủ, bao gồm cả dữ liệu gốc từ crawler và kết quả AI.
+Sau khi xử lý qua pipeline 5 giai đoạn, Analysis Service tạo ra 2 loại output:
+
+1. **Database**: Persist vào table `analytics.post_analytics` trong PostgreSQL
+2. **Kafka**: Publish enriched output (batch array) lên topic `smap.analytics.output` cho Knowledge Service
 
 ---
 
-## Database Target
+## 1. Database Output
 
-- Schema: `schema_analyst`
-- Table: `analyzed_posts`
-- Primary Key: `id` (string, từ `meta.id` của input)
-- ORM: SQLAlchemy 2.x async
+### 1.1 Database Target
 
----
+- **Schema**: `analytics`
+- **Table**: `post_analytics`
+- **Primary Key**: `id` (UUID)
+- **ORM**: SQLAlchemy 2.x async
 
-## Cấu trúc Output Record
+### 1.2 Table Structure
 
-### Identifiers
+Table `analytics.post_analytics` chứa kết quả phân tích đầy đủ với 50+ columns được nhóm theo các categories:
 
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `id` | VARCHAR(255) | Không | — | Primary key. Lấy từ `meta.id` của input payload. ID bài viết trên platform gốc. |
-| `project_id` | VARCHAR(255) | Có | NULL | UUID project trên SMAP. Lấy từ `payload.project_id` hoặc extract từ `job_id`. Pipeline sanitize để đảm bảo UUID hợp lệ. |
-| `platform` | VARCHAR(50) | Không | `"UNKNOWN"` | Platform nguồn, normalized thành uppercase: `TIKTOK`, `FACEBOOK`, `YOUTUBE`, `INSTAGRAM`, `UNKNOWN`. |
+#### Core Identity
+- `id` (UUID) - Primary key, định danh duy nhất của record analytics
+- `project_id` (VARCHAR) - ID của project sở hữu data
+- `source_id` (VARCHAR) - ID của data source
 
-### Timestamps
+#### Content & Timestamps
+- `content` (TEXT) - Nội dung text gốc cần phân tích
+- `content_created_at` (TIMESTAMP) - Thời điểm nội dung được tạo bởi tác giả
+- `ingested_at` (TIMESTAMP) - Thời điểm hệ thống nhận dữ liệu
+- `platform` (VARCHAR) - Platform nguồn (facebook, tiktok, youtube, etc.)
 
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `published_at` | TIMESTAMPTZ | Có | NULL | Thời điểm bài viết được đăng trên platform. Lấy từ `meta.published_at`, fallback `now() UTC`. |
-| `analyzed_at` | TIMESTAMPTZ | Có | NULL | Thời điểm pipeline hoàn thành phân tích. Luôn là `now() UTC` tại thời điểm xử lý. |
+#### UAP Metadata
+- `uap_metadata` (JSONB) - Metadata từ UAP input (author, engagement, url, etc.)
 
-### Sentiment Analysis Results (Stage 4)
+#### Sentiment Analysis
+- `overall_sentiment` (VARCHAR) - POSITIVE, NEGATIVE, NEUTRAL, MIXED
+- `overall_sentiment_score` (FLOAT) - Điểm sentiment (-1 to 1)
+- `sentiment_confidence` (FLOAT) - Độ tin cậy (0-1)
+- `sentiment_explanation` (TEXT) - Giải thích sentiment (future)
 
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `overall_sentiment` | VARCHAR(50) | Không | `"NEUTRAL"` | Label cảm xúc tổng thể: `POSITIVE`, `NEGATIVE`, `NEUTRAL`. Phân loại dựa trên score với thresholds: positive ≥ 0.25, negative ≤ -0.25. |
-| `overall_sentiment_score` | FLOAT | Không | `0.0` | Điểm cảm xúc từ -1.0 (rất tiêu cực) đến 1.0 (rất tích cực). Output trực tiếp từ PhoBERT model. |
-| `overall_confidence` | FLOAT | Không | `0.0` | Độ tin cậy của kết quả sentiment (0.0 → 1.0). Phản ánh mức chắc chắn của model. |
-| `sentiment_probabilities` | JSONB | Không | `{}` | Phân phối xác suất cho 3 class sentiment. Format: `{"POSITIVE": 0.75, "NEGATIVE": 0.15, "NEUTRAL": 0.10}`. |
+#### Aspect-Based Sentiment
+- `aspects` (JSONB) - Array of aspects với polarity, confidence, evidence
 
-### Intent Classification Results (Stage 2)
+#### Keywords & Intent
+- `keywords` (TEXT[]) - Array of extracted keywords
+- `primary_intent` (VARCHAR) - DISCUSSION, QUESTION, COMPLAINT, PRAISE, SPAM, SEEDING
+- `intent_confidence` (FLOAT) - Độ tin cậy intent classification
 
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `primary_intent` | VARCHAR(50) | Không | `"DISCUSSION"` | Ý định chính của bài viết. Giá trị: `CRISIS`, `SEEDING`, `SPAM`, `COMPLAINT`, `LEAD`, `SUPPORT`, `DISCUSSION`. Xác định bằng regex pattern matching với priority-based conflict resolution. |
-| `intent_confidence` | FLOAT | Không | `0.0` | Độ tin cậy phân loại intent (0.0 → 1.0). Tính bằng: base 0.5 + 0.1 × số patterns matched, capped tại 1.0. |
+#### Risk Assessment
+- `risk_level` (VARCHAR) - LOW, MEDIUM, HIGH, CRITICAL
+- `risk_score` (FLOAT) - Điểm risk (0-1)
+- `risk_factors` (JSONB) - Array of risk factors với severity và description
+- `requires_attention` (BOOLEAN) - Flag cần xử lý ngay
+- `alert_triggered` (BOOLEAN) - Flag đã trigger alert
 
-### Impact Calculation Results (Stage 5)
+#### Engagement & Impact
+- `engagement_score` (FLOAT) - Điểm engagement (0-100)
+- `virality_score` (FLOAT) - Điểm viral (0+)
+- `influence_score` (FLOAT) - Điểm influence (0+)
+- `reach_estimate` (INT) - Ước tính reach
+- `impact_score` (FLOAT) - Điểm impact tổng hợp (0-100)
 
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `impact_score` | FLOAT | Không | `0.0` | Điểm ảnh hưởng tổng hợp (0 → 100). Tính từ engagement, reach, platform multiplier, và sentiment amplifier. |
-| `risk_level` | VARCHAR(50) | Không | `"LOW"` | Mức độ rủi ro: `CRITICAL` (impact≥70 + negative), `HIGH` (impact≥70), `MEDIUM` (impact≥40), `LOW`. |
-| `is_viral` | BOOLEAN | Không | `false` | Flag bài viết viral. `true` khi `impact_score ≥ 70.0`. |
-| `is_kol` | BOOLEAN | Không | `false` | Flag Key Opinion Leader. `true` khi `author.followers ≥ 50,000`. |
-| `impact_breakdown` | JSONB | Không | `{}` | Chi tiết tính toán impact. Format: `{"engagement_score": 12500.0, "reach_score": 16.4, "platform_multiplier": 1.0, "sentiment_amplifier": 1.1, "raw_impact": 13768.0}`. |
+#### Content Quality
+- `content_quality_score` (FLOAT) - Điểm chất lượng nội dung (future)
+- `is_spam` (BOOLEAN) - Flag spam detection
+- `is_bot` (BOOLEAN) - Flag bot detection (future)
+- `language` (VARCHAR) - Ngôn ngữ (vi, en, etc.) (future)
+- `language_confidence` (FLOAT) - Độ tin cậy language detection (future)
+- `toxicity_score` (FLOAT) - Điểm toxic (future)
+- `is_toxic` (BOOLEAN) - Flag toxic content (future)
 
-### Keyword Extraction Results (Stage 3)
+#### Processing Metadata
+- `processing_time_ms` (INT) - Thời gian xử lý (milliseconds)
+- `model_version` (VARCHAR) - Version của AI models
+- `processing_status` (VARCHAR) - success, error, skipped
+- `analyzed_at` (TIMESTAMP) - Thời điểm phân tích hoàn thành
+- `indexed_at` (TIMESTAMP) - Thời điểm index vào vector DB
+- `created_at` (TIMESTAMP) - Thời điểm tạo record
+- `updated_at` (TIMESTAMP) - Thời điểm update record
 
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `keywords` | TEXT[] | Không | `[]` | Danh sách từ khóa đã trích xuất. Tối đa 30 items. Kết hợp từ dictionary matching và AI (YAKE + spaCy NER). |
-| `aspects_breakdown` | JSONB | Không | `{}` | Phân tích cảm xúc theo aspect. Format: `{"DESIGN": {"label": "POSITIVE", "score": 0.6, "confidence": 0.8, "mentions": 2, "keywords": ["thiết kế", "ngoại thất"], "rating": 4}, ...}`. Aspects: `DESIGN`, `PERFORMANCE`, `PRICE`, `SERVICE`, `GENERAL`. |
-
-### Raw Metrics (passthrough từ input)
-
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `view_count` | INTEGER | Không | `0` | Lượt xem. Lấy từ `interaction.views`. |
-| `like_count` | INTEGER | Không | `0` | Lượt thích. Lấy từ `interaction.likes`. |
-| `comment_count` | INTEGER | Không | `0` | Số bình luận. Lấy từ `interaction.comments_count`. |
-| `share_count` | INTEGER | Không | `0` | Lượt chia sẻ. Lấy từ `interaction.shares`. |
-| `save_count` | INTEGER | Không | `0` | Lượt lưu. Lấy từ `interaction.saves`. |
-| `follower_count` | INTEGER | Không | `0` | Số followers tác giả. Lấy từ `author.followers`. |
-
-### Processing Metadata
-
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `processing_time_ms` | INTEGER | Không | `0` | Thời gian xử lý pipeline (milliseconds). Đo từ lúc bắt đầu `process()` đến khi hoàn thành. |
-| `model_version` | VARCHAR(50) | Không | `"1.0.0"` | Version của analytics model/pipeline. Configurable. |
-| `processing_status` | VARCHAR(50) | Không | `"success"` | Trạng thái xử lý: `success` (hoàn thành), `error` (lỗi, record vẫn được lưu), `skipped` (bỏ qua do spam/seeding). |
-
-### Crawler Metadata (Contract v2.0)
-
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `job_id` | VARCHAR(255) | Có | NULL | ID crawl job. Passthrough từ `EventMetadata.job_id`. Indexed cho query. |
-| `batch_index` | INTEGER | Có | NULL | Index batch trong job. Passthrough từ `EventMetadata.batch_index`. |
-| `task_type` | VARCHAR(50) | Có | NULL | Loại task crawl. Passthrough từ `EventMetadata.task_type`. |
-| `keyword_source` | VARCHAR(255) | Có | NULL | Từ khóa nguồn. Lấy từ `EventMetadata.keyword`. |
-| `crawled_at` | TIMESTAMPTZ | Có | NULL | Thời điểm crawl. Parse từ `envelope.timestamp` (ISO 8601). |
-| `pipeline_version` | VARCHAR(50) | Có | NULL | Version pipeline. Auto-generated: `"crawler_{platform}_v3"`. |
-| `brand_name` | VARCHAR(255) | Có | NULL | Tên thương hiệu. Passthrough từ `EventMetadata.brand_name`. |
-| `keyword` | VARCHAR(255) | Có | NULL | Từ khóa tìm kiếm. Passthrough từ `EventMetadata.keyword`. |
-
-### Content Fields (passthrough từ input)
-
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `content_text` | TEXT | Có | NULL | Nội dung text gốc. Lấy từ `content.text`. |
-| `content_transcription` | TEXT | Có | NULL | Transcript audio/video gốc. Lấy từ `content.transcription`. |
-| `media_duration` | INTEGER | Có | NULL | Thời lượng media (giây). Lấy từ `content.duration`. |
-| `hashtags` | TEXT[] | Có | NULL | Danh sách hashtags gốc. Lấy từ `content.hashtags`. |
-| `permalink` | TEXT | Có | NULL | URL gốc bài viết. Lấy từ `meta.permalink`. |
-
-### Author Fields (passthrough từ input)
-
-| Column | Type | Nullable | Default | Mô tả |
-|--------|------|----------|---------|-------|
-| `author_id` | VARCHAR(255) | Có | NULL | ID tác giả. Lấy từ `author.id`. |
-| `author_name` | VARCHAR(255) | Có | NULL | Tên hiển thị. Lấy từ `author.name`. |
-| `author_username` | VARCHAR(255) | Có | NULL | Username/handle. Lấy từ `author.username`. |
-| `author_avatar_url` | TEXT | Có | NULL | URL ảnh đại diện. Lấy từ `author.avatar_url`. |
-| `author_is_verified` | BOOLEAN | Không | `false` | Tài khoản xác minh. Lấy từ `author.is_verified`. |
-
----
-
-## Database Indexes
-
-| Index Name | Column(s) | Mục đích |
-|------------|-----------|----------|
-| `idx_post_analytics_project_id` | `project_id` | Query theo project |
-| `idx_post_analytics_job_id` | `job_id` | Query theo crawl job |
-| `idx_post_analytics_analyzed_at` | `analyzed_at` | Query theo thời gian phân tích |
-| `idx_post_analytics_platform` | `platform` | Filter theo platform |
-| `idx_post_analytics_risk_level` | `risk_level` | Filter bài viết rủi ro cao |
-
----
-
-## Ví dụ output record (JSON representation)
+### 1.3 Example Database Record
 
 ```json
 {
-  "id": "7312345678901234567",
-  "project_id": "proj-uuid-1234-5678-abcdef",
-  "platform": "TIKTOK",
-
-  "published_at": "2025-01-14T08:00:00+00:00",
-  "analyzed_at": "2025-01-15T10:30:05+00:00",
-
-  "overall_sentiment": "POSITIVE",
-  "overall_sentiment_score": 0.72,
-  "overall_confidence": 0.89,
-  "sentiment_probabilities": {
-    "POSITIVE": 0.89,
-    "NEGATIVE": 0.04,
-    "NEUTRAL": 0.07
-  },
-
-  "primary_intent": "DISCUSSION",
-  "intent_confidence": 0.6,
-
-  "impact_score": 78.5,
-  "risk_level": "HIGH",
-  "is_viral": true,
-  "is_kol": true,
-  "impact_breakdown": {
-    "engagement_score": 12890.0,
-    "reach_score": 16.4,
-    "platform_multiplier": 1.0,
-    "sentiment_amplifier": 1.1,
-    "raw_impact": 14196.0
-  },
-
-  "keywords": ["VinFast", "VF8", "pin", "review", "thiết kế"],
-  "aspects_breakdown": {
-    "PERFORMANCE": {
-      "label": "POSITIVE",
-      "score": 0.65,
-      "confidence": 0.82,
-      "mentions": 2,
-      "keywords": ["pin", "chạy êm"],
-      "rating": 4
+  "id": "analytics_550e8400-e29b-41d4-a716-446655440000",
+  "project_id": "proj_vf8_monitor_01",
+  "source_id": "src_fb_01",
+  
+  "content": "Xe đi êm nhưng pin sụt nhanh, giá hơi cao so với kỳ vọng.",
+  "content_created_at": "2026-02-07T09:55:00Z",
+  "ingested_at": "2026-02-07T10:00:00Z",
+  "platform": "facebook",
+  
+  "uap_metadata": {
+    "author": "fb_user_abc",
+    "author_name": "Nguyễn A",
+    "engagement": {
+      "like_count": 120,
+      "comment_count": 34,
+      "share_count": 5,
+      "view_count": 1111
     },
-    "DESIGN": {
-      "label": "POSITIVE",
-      "score": 0.58,
-      "confidence": 0.75,
-      "mentions": 1,
-      "keywords": ["thiết kế"],
-      "rating": 4
-    }
+    "url": "https://facebook.com/.../posts/987654321"
   },
-
-  "view_count": 150000,
-  "like_count": 8500,
-  "comment_count": 320,
-  "share_count": 450,
-  "save_count": 1200,
-  "follower_count": 85000,
-
-  "processing_time_ms": 245,
+  
+  "overall_sentiment": "NEGATIVE",
+  "overall_sentiment_score": -0.45,
+  "sentiment_confidence": 0.78,
+  "sentiment_explanation": null,
+  
+  "aspects": [
+    {
+      "aspect": "BATTERY",
+      "polarity": "NEGATIVE",
+      "confidence": 0.74,
+      "evidence": "pin sụt nhanh"
+    },
+    {
+      "aspect": "PRICE",
+      "polarity": "NEGATIVE",
+      "confidence": 0.71,
+      "evidence": "giá hơi cao"
+    }
+  ],
+  
+  "keywords": ["xe", "pin", "giá", "vf8"],
+  "primary_intent": "COMPLAINT",
+  "intent_confidence": 0.82,
+  
+  "risk_level": "MEDIUM",
+  "risk_score": 0.55,
+  "risk_factors": [
+    {
+      "factor": "NEGATIVE_SENTIMENT",
+      "severity": "MEDIUM",
+      "description": "Negative sentiment detected (score: -0.45)"
+    }
+  ],
+  "requires_attention": false,
+  "alert_triggered": false,
+  
+  "engagement_score": 45.2,
+  "virality_score": 0.08,
+  "influence_score": 12.5,
+  "reach_estimate": 1111,
+  "impact_score": 68.5,
+  
+  "content_quality_score": 0.0,
+  "is_spam": false,
+  "is_bot": false,
+  "language": null,
+  "language_confidence": 0.0,
+  "toxicity_score": 0.0,
+  "is_toxic": false,
+  
+  "processing_time_ms": 1250,
   "model_version": "1.0.0",
   "processing_status": "success",
-
-  "job_id": "proj-uuid-1234-5678-abcdef-job-001",
-  "batch_index": 0,
-  "task_type": "keyword_search",
-  "keyword_source": "VinFast VF8",
-  "crawled_at": "2025-01-15T10:30:00+00:00",
-  "pipeline_version": "crawler_tiktok_v3",
-  "brand_name": "VinFast",
-  "keyword": "VinFast VF8",
-
-  "content_text": "Review VinFast VF8 sau 1 năm sử dụng, pin vẫn rất tốt #vinfast #vf8",
-  "content_transcription": "Xin chào mọi người, hôm nay mình sẽ review chiếc VinFast VF8...",
-  "media_duration": 180,
-  "hashtags": ["vinfast", "vf8", "review"],
-  "permalink": "https://www.tiktok.com/@user123/video/7312345678901234567",
-
-  "author_id": "user123",
-  "author_name": "Reviewer Auto",
-  "author_username": "reviewer_auto",
-  "author_avatar_url": "https://p16-sign.tiktokcdn.com/avatar/user123.jpeg",
-  "author_is_verified": true
+  "analyzed_at": "2026-02-07T10:00:05Z",
+  "indexed_at": null,
+  "created_at": "2026-02-07T10:00:05Z",
+  "updated_at": "2026-02-07T10:00:05Z"
 }
 ```
 
-## Ví dụ output record khi lỗi
+### 1.4 Indexes
+
+```sql
+-- Primary key
+CREATE UNIQUE INDEX idx_post_analytics_pkey ON analytics.post_analytics(id);
+
+-- Query optimization
+CREATE INDEX idx_post_analytics_project ON analytics.post_analytics(project_id);
+CREATE INDEX idx_post_analytics_platform ON analytics.post_analytics(platform);
+CREATE INDEX idx_post_analytics_created ON analytics.post_analytics(content_created_at DESC);
+CREATE INDEX idx_post_analytics_analyzed ON analytics.post_analytics(analyzed_at DESC);
+CREATE INDEX idx_post_analytics_sentiment ON analytics.post_analytics(overall_sentiment);
+CREATE INDEX idx_post_analytics_risk ON analytics.post_analytics(risk_level);
+
+-- JSONB indexes
+CREATE INDEX idx_post_analytics_aspects_gin ON analytics.post_analytics USING GIN(aspects);
+CREATE INDEX idx_post_analytics_uap_gin ON analytics.post_analytics USING GIN(uap_metadata);
+CREATE INDEX idx_post_analytics_risk_factors_gin ON analytics.post_analytics USING GIN(risk_factors);
+
+-- Composite indexes
+CREATE INDEX idx_post_analytics_project_created ON analytics.post_analytics(project_id, content_created_at DESC);
+CREATE INDEX idx_post_analytics_project_sentiment ON analytics.post_analytics(project_id, overall_sentiment);
+```
+
+---
+
+## 2. Kafka Output (Enriched Output)
+
+### 2.1 Kafka Target
+
+- **Topic**: `smap.analytics.output`
+- **Format**: JSON array (batch)
+- **Consumer**: Knowledge Service + downstream services
+- **Compression**: gzip
+
+### 2.2 Enriched Output Structure
+
+Enriched Output là format JSON được publish lên Kafka, có cấu trúc nested rõ ràng hơn DB schema:
+
+```jsonc
+{
+  "enriched_version": "1.0",      // Version của enriched format
+  "event_id": "uuid",             // ID của event gốc
+  
+  "project": { ... },             // Project context
+  "identity": { ... },            // Document identity
+  "content": { ... },             // Content blocks
+  "nlp": { ... },                 // NLP analysis results
+  "business": { ... },            // Business metrics & alerts
+  "rag": { ... },                 // RAG indexing metadata
+  "provenance": { ... }           // Processing provenance
+}
+```
+
+### 2.3 Enriched Output Blocks
+
+#### Block: `project`
 
 ```json
-{
-  "id": "post-error-example",
-  "project_id": null,
-  "platform": "UNKNOWN",
-  "analyzed_at": "2025-01-15T10:30:05+00:00",
-  "overall_sentiment": "NEUTRAL",
-  "overall_sentiment_score": 0.0,
-  "overall_confidence": 0.0,
-  "primary_intent": "DISCUSSION",
-  "intent_confidence": 0.0,
-  "impact_score": 0.0,
-  "risk_level": "LOW",
-  "is_viral": false,
-  "is_kol": false,
-  "processing_status": "error",
-  "processing_time_ms": 0,
-  "model_version": "1.0.0"
+"project": {
+  "project_id": "proj_vf8_monitor_01",
+  "entity_type": "product",
+  "entity_name": "VF8",
+  "brand": "VinFast",
+  "campaign_id": "id_feb_campaign_2026_01"
 }
 ```
+
+#### Block: `identity`
+
+```json
+"identity": {
+  "source_type": "FACEBOOK",
+  "source_id": "src_fb_01",
+  "doc_id": "fb_post_987654321",
+  "doc_type": "post",
+  "url": "https://facebook.com/.../posts/987654321",
+  "language": "vi",
+  "published_at": "2026-02-07T09:55:00Z",
+  "ingested_at": "2026-02-07T10:00:00Z",
+  "author": {
+    "author_id": "fb_user_abc",
+    "display_name": "Nguyễn A",
+    "author_type": "user"
+  }
+}
+```
+
+#### Block: `content`
+
+```json
+"content": {
+  "text": "Xe đi êm nhưng pin sụt nhanh, giá hơi cao so với kỳ vọng.",
+  "clean_text": "Xe đi êm nhưng pin sụt nhanh, giá hơi cao so với kỳ vọng.",
+  "summary": "Người dùng khen xe êm nhưng phàn nàn pin tụt nhanh và giá cao."
+}
+```
+
+#### Block: `nlp`
+
+```json
+"nlp": {
+  "sentiment": {
+    "label": "NEGATIVE",
+    "score": -0.45,
+    "confidence": "HIGH",
+    "explanation": "Nội dung chứa nhiều cụm từ phàn nàn về pin và giá."
+  },
+  "aspects": [
+    {
+      "aspect": "BATTERY",
+      "polarity": "NEGATIVE",
+      "confidence": 0.74,
+      "evidence": "pin sụt nhanh"
+    },
+    {
+      "aspect": "PRICE",
+      "polarity": "NEGATIVE",
+      "confidence": 0.71,
+      "evidence": "giá hơi cao"
+    }
+  ],
+  "entities": [
+    { "type": "PRODUCT", "value": "VF8", "confidence": 0.92 }
+  ]
+}
+```
+
+#### Block: `business`
+
+```json
+"business": {
+  "impact": {
+    "engagement": {
+      "like_count": 120,
+      "comment_count": 34,
+      "share_count": 5,
+      "view_count": 1111
+    },
+    "engagement_score": 45.2,
+    "virality_score": 0.08,
+    "influence_score": 12.5,
+    "impact_score": 68.5,
+    "priority": "HIGH"
+  },
+  "alerts": [
+    {
+      "alert_type": "NEGATIVE_BRAND_SIGNAL",
+      "severity": "MEDIUM",
+      "reason": "Bài viết có sentiment NEGATIVE và lượng tương tác cao.",
+      "suggested_action": "Theo dõi thêm các comment liên quan đến pin và giá."
+    }
+  ]
+}
+```
+
+#### Block: `rag`
+
+```json
+"rag": {
+  "index": {
+    "should_index": true,
+    "quality_gate": {
+      "min_length_ok": true,
+      "has_aspect": true,
+      "not_spam": true
+    }
+  },
+  "citation": {
+    "source": "Facebook",
+    "title": "Facebook Post",
+    "snippet": "Xe đi êm nhưng pin sụt nhanh, giá hơi cao...",
+    "url": "https://facebook.com/.../posts/987654321",
+    "published_at": "2026-02-07T09:55:00Z"
+  },
+  "vector_ref": {
+    "provider": "qdrant",
+    "collection": "proj_vf8_monitor_01",
+    "point_id": "b6d6b1e2-9cf3-4e69-8fd0-5b1c8aab9f17"
+  }
+}
+```
+
+#### Block: `provenance`
+
+```json
+"provenance": {
+  "raw_ref": "minio://raw/proj_vf8_monitor_01/facebook/2026-02-07/batch_001.jsonl",
+  "pipeline": [
+    { "step": "normalize_uap", "at": "2026-02-07T10:00:30Z" },
+    { "step": "sentiment_analysis", "model": "phobert-sentiment-v1", "at": "2026-02-07T10:00:32Z" },
+    { "step": "aspect_extraction", "model": "phobert-aspect-v1", "at": "2026-02-07T10:00:34Z" },
+    { "step": "embedding", "model": "text-embedding-3-large", "at": "2026-02-07T10:00:36Z" }
+  ]
+}
+```
+
+### 2.4 Batch Publishing
+
+Kafka output được publish dưới dạng **array** (batch) để tối ưu throughput:
+
+```json
+[
+  {
+    "enriched_version": "1.0",
+    "event_id": "uuid-1",
+    "project": { ... },
+    ...
+  },
+  {
+    "enriched_version": "1.0",
+    "event_id": "uuid-2",
+    "project": { ... },
+    ...
+  }
+]
+```
+
+**Configuration:**
+
+```yaml
+kafka:
+  producer:
+    topic: "smap.analytics.output"
+    batch_publish_size: 10  # Gom 10 records rồi publish
+    linger_ms: 100
+    compression_type: "gzip"
+```
+
+---
+
+## 3. Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Analytics Pipeline                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. UAP Input (from RabbitMQ)                               │
+│     ↓                                                       │
+│  2. Text Preprocessing                                      │
+│     ↓                                                       │
+│  3. Intent Classification                                   │
+│     ↓                                                       │
+│  4. Keyword Extraction                                      │
+│     ↓                                                       │
+│  5. Sentiment Analysis (PhoBERT)                            │
+│     ↓                                                       │
+│  6. Impact Calculation                                      │
+│     ↓                                                       │
+│  7. Build AnalyticsResult                                   │
+│     ↓                                                       │
+│  ┌──────────────────────────────────────────────┐          │
+│  │  8a. Database Persistence                    │          │
+│  │      → INSERT INTO analytics.post_analytics  │          │
+│  └──────────────────────────────────────────────┘          │
+│     ↓                                                       │
+│  ┌──────────────────────────────────────────────┐          │
+│  │  8b. ResultBuilder                           │          │
+│  │      → Transform to Enriched Output          │          │
+│  └──────────────────────────────────────────────┘          │
+│     ↓                                                       │
+│  ┌──────────────────────────────────────────────┐          │
+│  │  8c. Kafka Producer                          │          │
+│  │      → Publish batch to smap.analytics.output│          │
+│  └──────────────────────────────────────────────┘          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                    ↓                    ↓
+         ┌──────────────────┐  ┌──────────────────┐
+         │   PostgreSQL     │  │  Kafka Topic     │
+         │  post_analytics  │  │ analytics.output │
+         └──────────────────┘  └──────────────────┘
+                                        ↓
+                              ┌──────────────────┐
+                              │ Knowledge Service│
+                              │  (Qdrant Index)  │
+                              └──────────────────┘
+```
+
+---
+
+## 4. Usage Examples
+
+### 4.1 Query Database
+
+```sql
+-- Get all negative posts about VF8
+SELECT id, content, overall_sentiment_score, aspects
+FROM analytics.post_analytics
+WHERE project_id = 'proj_vf8_monitor_01'
+  AND overall_sentiment = 'NEGATIVE'
+  AND content_created_at >= NOW() - INTERVAL '7 days'
+ORDER BY engagement_score DESC
+LIMIT 10;
+
+-- Find posts with battery complaints
+SELECT id, content, aspects
+FROM analytics.post_analytics
+WHERE project_id = 'proj_vf8_monitor_01'
+  AND aspects @> '[{"aspect": "BATTERY", "polarity": "NEGATIVE"}]'::jsonb
+ORDER BY content_created_at DESC;
+
+-- Get high-risk posts requiring attention
+SELECT id, content, risk_level, risk_factors
+FROM analytics.post_analytics
+WHERE requires_attention = true
+  AND risk_level IN ('HIGH', 'CRITICAL')
+ORDER BY risk_score DESC;
+```
+
+### 4.2 Consume Kafka
+
+```python
+# Knowledge Service consumer
+from aiokafka import AIOKafkaConsumer
+import json
+
+consumer = AIOKafkaConsumer(
+    'smap.analytics.output',
+    bootstrap_servers='172.16.21.206:9092',
+    group_id='knowledge-service',
+    value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+)
+
+async for message in consumer:
+    batch = message.value  # Array of enriched outputs
+    for enriched in batch:
+        # Index to Qdrant
+        if enriched['rag']['index']['should_index']:
+            await index_to_qdrant(enriched)
+```
+
+---
+
+## 5. Field Mapping: UAP Input → Database + Kafka
+
+| UAP Input Field             | DB Column                | Kafka Enriched Field          |
+| :-------------------------- | :----------------------- | :---------------------------- |
+| `event_id`                  | `id` (generated)         | `event_id`                    |
+| `ingest.project_id`         | `project_id`             | `project.project_id`          |
+| `ingest.source.source_id`   | `source_id`              | `identity.source_id`          |
+| `content.text`              | `content`                | `content.text`                |
+| `content.published_at`      | `content_created_at`     | `identity.published_at`       |
+| `ingest.batch.received_at`  | `ingested_at`            | `identity.ingested_at`        |
+| `ingest.source.source_type` | `platform`               | `identity.source_type`        |
+| `signals.engagement`        | `uap_metadata.engagement`| `business.impact.engagement`  |
+| AI Sentiment Result         | `overall_sentiment`      | `nlp.sentiment`               |
+| AI Aspect Result            | `aspects`                | `nlp.aspects`                 |
+| AI Keyword Result           | `keywords`               | (embedded in content)         |
+| Calculated Engagement Score | `engagement_score`       | `business.impact.engagement_score` |
+| Calculated Risk             | `risk_level`, `risk_score` | `business.alerts`           |
+
+---
+
+## 6. Migration Notes
+
+### From Legacy Schema
+
+**Old**: `schema_analyst.analyzed_posts` (flat structure)
+**New**: `analytics.post_analytics` (enriched structure)
+
+**Key Changes:**
+- Schema name: `schema_analyst` → `analytics`
+- Table name: `analyzed_posts` → `post_analytics`
+- ID type: VARCHAR(255) → UUID
+- Added 30+ new columns for enriched analytics
+- Added JSONB columns with GIN indexes
+- Added Kafka output publishing
+
+**Migration Script**: `migration/003_create_post_analytics.sql`
+
+---
+
+## References
+
+- **Database Schema**: `refactor_plan/indexing_input_schema.md`
+- **Enriched Output Spec**: `refactor_plan/input-output/output/OUTPUT_EXPLAIN.md`
+- **Example Output**: `refactor_plan/input-output/output/output_example.json`
+- **Input Format**: `documents/input_payload.md`
+- **Master Proposal**: `documents/master-proposal.md`

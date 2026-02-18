@@ -1,164 +1,289 @@
 -- ============================================================================
--- SMAP Analytics Service — Input Payload Schema
+-- SMAP Analysis Service — UAP v1.0 Input Schema (SQL Representation)
 -- ============================================================================
--- Mô tả cấu trúc JSON message mà service nhận từ RabbitMQ.
--- Queue: analytics.data.collected
--- Exchange: smap.events
--- Routing Key: data.collected
+-- Mô tả cấu trúc JSON message mà service nhận từ Kafka.
+-- Topic: smap.collector.output
+-- Consumer Group: schema_analyst-service
+-- Format: UAP v1.0 (Unified schema_analyst Protocol)
 --
 -- Đây KHÔNG phải table thực tế trong DB, mà là mô tả cấu trúc input
 -- dưới dạng SQL-like schema để dễ tham chiếu.
 -- ============================================================================
 
--- ─── Event Envelope (root level) ───────────────────────────────────────────
--- JSON message body gửi qua RabbitMQ
-CREATE TYPE input_event_envelope AS (
-    -- UUID định danh event, dùng cho tracing/logging. Default: "unknown"
+-- ─── UAP Record (root level) ───────────────────────────────────────────────
+-- JSON message body gửi qua RabbitMQ theo chuẩn UAP v1.0
+CREATE TYPE uap_record AS (
+    -- Phiên bản UAP schema. MUST be "1.0"
+    uap_version     TEXT,
+
+    -- UUID định danh message trong queue
     event_id        TEXT,
 
-    -- Loại event. Service chỉ xử lý "data.collected"
-    event_type      TEXT,
+    -- Metadata thu thập
+    ingest          uap_ingest,
 
-    -- ISO 8601 timestamp khi event được tạo. Parse thành crawled_at trong pipeline
-    timestamp       TEXT,
+    -- Nội dung chính cần phân tích
+    content         uap_content,
 
-    -- Payload chính chứa dữ liệu bài viết và metadata
-    payload         input_payload
+    -- Tín hiệu số (metrics)
+    signals         uap_signals,
+
+    -- Ngữ cảnh bổ sung
+    context         uap_context,
+
+    -- Dữ liệu gốc (debug)
+    raw             JSONB
 );
 
--- ─── Payload ───────────────────────────────────────────────────────────────
-CREATE TYPE input_payload AS (
-    -- ─── Batch/Job Context ───
-    -- UUID project trên SMAP platform. Nếu thiếu, extract từ job_id
+-- ─── Ingest Block ──────────────────────────────────────────────────────────
+CREATE TYPE uap_ingest AS (
+    -- [REQUIRED] ID của project sở hữu dữ liệu
     project_id      TEXT,
 
-    -- ID crawl job. Format có thể là "{project_uuid}-{suffix}"
-    job_id          TEXT,
+    -- Thông tin về thực thể đang theo dõi
+    entity          uap_entity,
 
-    -- Index batch trong job (0-based). Track tiến độ xử lý
-    batch_index     INTEGER,
+    -- Nguồn gốc dữ liệu
+    source          uap_source,
 
-    -- Tổng số bài viết trong batch. Metadata cho monitoring
-    content_count   INTEGER,
+    -- Thông tin đợt thu thập
+    batch           uap_batch,
 
-    -- Platform nguồn: "TIKTOK", "FACEBOOK", "YOUTUBE", "INSTAGRAM"
-    platform        TEXT,
-
-    -- Loại task crawl: "keyword_search", "profile_crawl", ...
-    task_type       TEXT,
-
-    -- Tên thương hiệu đang theo dõi
-    brand_name      TEXT,
-
-    -- Từ khóa tìm kiếm đã dùng để crawl. Cũng dùng làm keyword_source
-    keyword         TEXT,
-
-    -- Path tới file batch trên MinIO (alternative cho inline mode)
-    minio_path      TEXT,
-
-    -- ─── Inline Post Data ───
-    -- Metadata bài viết [REQUIRED: meta.id]
-    meta            input_meta,
-
-    -- Nội dung bài viết
-    content         input_content,
-
-    -- Số liệu tương tác
-    interaction     input_interaction,
-
-    -- Thông tin tác giả
-    author          input_author,
-
-    -- Danh sách bình luận
-    comments        input_comment[]
+    -- Trace cho debug/audit
+    trace           uap_trace
 );
 
--- ─── Meta ──────────────────────────────────────────────────────────────────
-CREATE TYPE input_meta AS (
-    -- [REQUIRED] ID duy nhất bài viết từ platform. Dùng làm PK trong DB
-    id              TEXT,
+CREATE TYPE uap_entity AS (
+    -- [REQUIRED] Loại thực thể: product, campaign, service, competitor, topic
+    entity_type     TEXT,
 
-    -- Platform nguồn (fallback nếu payload.platform không có)
-    platform        TEXT,
+    -- [REQUIRED] Tên cụ thể (VD: "VF8", "iPhone 15")
+    entity_name     TEXT,
 
-    -- URL gốc bài viết trên platform
-    permalink       TEXT,
-
-    -- ISO 8601 timestamp khi bài viết được đăng. Default: now() UTC
-    published_at    TEXT
+    -- Thương hiệu (VD: "VinFast")
+    brand           TEXT
 );
 
--- ─── Content ───────────────────────────────────────────────────────────────
-CREATE TYPE input_content AS (
-    -- Nội dung chính (caption/body). Input chính cho NLP pipeline
+CREATE TYPE uap_source AS (
+    -- [REQUIRED] ID cấu hình source trong DB
+    source_id       TEXT,
+
+    -- [REQUIRED] Loại nguồn: FACEBOOK, TIKTOK, YOUTUBE, INSTAGRAM, FILE_UPLOAD, WEBHOOK
+    source_type     TEXT,
+
+    -- Tham chiếu tài khoản/file gốc
+    account_ref     JSONB
+);
+
+CREATE TYPE uap_batch AS (
+    -- [REQUIRED] ID của batch
+    batch_id        TEXT,
+
+    -- [REQUIRED] Chế độ: SCHEDULED_CRAWL, MANUAL_UPLOAD, WEBHOOK
+    mode            TEXT,
+
+    -- [REQUIRED] Thời điểm hệ thống nhận dữ liệu (ISO8601)
+    received_at     TEXT
+);
+
+CREATE TYPE uap_trace AS (
+    -- Đường dẫn file raw gốc (MinIO/S3)
+    raw_ref         TEXT,
+
+    -- ID quy tắc mapping (nếu là File Upload)
+    mapping_id      TEXT
+);
+
+-- ─── Content Block ─────────────────────────────────────────────────────────
+CREATE TYPE uap_content AS (
+    -- [REQUIRED] ID gốc của bài viết bên nền tảng nguồn
+    doc_id          TEXT,
+
+    -- [REQUIRED] Loại nội dung: post, comment, video, news, feedback, review
+    doc_type        TEXT,
+
+    -- Nếu là comment, thuộc bài post nào?
+    parent          uap_parent,
+
+    -- Link trực tiếp đến bài viết gốc
+    url             TEXT,
+
+    -- Mã ngôn ngữ (vi, en)
+    language        TEXT,
+
+    -- [REQUIRED] Thời điểm nội dung được tạo bởi tác giả (ISO8601)
+    published_at    TEXT,
+
+    -- [REQUIRED] Người tạo nội dung
+    author          uap_author,
+
+    -- [REQUIRED] Văn bản cần phân tích
     text            TEXT,
 
-    -- Mô tả bài viết. Fallback nếu text rỗng
-    description     TEXT,
-
-    -- Transcript audio/video. Nối với text thành full_text cho phân tích
-    transcription   TEXT,
-
-    -- Danh sách hashtags
-    hashtags        TEXT[],
-
-    -- Thời lượng media (giây) cho video/audio
-    duration        INTEGER
+    -- Danh sách ảnh/video đính kèm
+    attachments     uap_attachment[]
 );
 
--- ─── Interaction ───────────────────────────────────────────────────────────
-CREATE TYPE input_interaction AS (
-    -- Lượt xem. Impact weight: ×0.01. Default: 0
-    views           INTEGER,
-
-    -- Lượt thích. Impact weight: ×1.0. Default: 0
-    likes           INTEGER,
-
-    -- Số bình luận. Impact weight: ×2.0. Default: 0
-    comments_count  INTEGER,
-
-    -- Lượt chia sẻ. Impact weight: ×5.0 (cao nhất). Default: 0
-    shares          INTEGER,
-
-    -- Lượt lưu/bookmark. Impact weight: ×3.0. Default: 0
-    saves           INTEGER
+CREATE TYPE uap_parent AS (
+    parent_id       TEXT,
+    parent_type     TEXT
 );
 
--- ─── Author ────────────────────────────────────────────────────────────────
-CREATE TYPE input_author AS (
-    -- ID tác giả trên platform
-    id              TEXT,
+CREATE TYPE uap_author AS (
+    -- ID người dùng bên nguồn
+    author_id       TEXT,
 
-    -- Tên hiển thị
-    name            TEXT,
+    -- [REQUIRED] Tên hiển thị
+    display_name    TEXT,
 
-    -- Username/handle (@username)
-    username        TEXT,
+    -- Loại: user, page, bot
+    author_type     TEXT,
 
-    -- URL ảnh đại diện
-    avatar_url      TEXT,
-
-    -- Số người theo dõi. Dùng tính is_kol (≥50,000) và reach_score. Default: 0
+    -- Số người theo dõi (dùng cho influence calculation)
     followers       INTEGER,
 
-    -- Tài khoản xác minh. Nếu true, reach_score ×1.2. Default: false
+    -- Tài khoản xác minh
     is_verified     BOOLEAN
 );
 
--- ─── Comment ───────────────────────────────────────────────────────────────
-CREATE TYPE input_comment AS (
-    -- Nội dung bình luận. Gộp vào full_text cho phân tích
-    text            TEXT,
+CREATE TYPE uap_attachment AS (
+    -- [REQUIRED] Loại: image, video, link
+    type            TEXT,
 
-    -- Lượt thích bình luận. Dùng sắp xếp ưu tiên. Default: 0
-    likes           INTEGER
+    -- URL của attachment
+    url             TEXT,
+
+    -- Mô tả nội dung (OCR text hoặc Caption)
+    content         TEXT
+);
+
+-- ─── Signals Block ─────────────────────────────────────────────────────────
+CREATE TYPE uap_signals AS (
+    -- Các chỉ số tương tác
+    engagement      uap_engagement,
+
+    -- Thông tin địa lý
+    geo             uap_geo
+);
+
+CREATE TYPE uap_engagement AS (
+    -- Số lượt thích/reaction. Default: 0
+    like_count      INTEGER,
+
+    -- Số lượt bình luận. Default: 0
+    comment_count   INTEGER,
+
+    -- Số lượt chia sẻ. Default: 0
+    share_count     INTEGER,
+
+    -- Số lượt xem. Default: 0
+    view_count      INTEGER,
+
+    -- Điểm đánh giá (1-5) nếu là Review
+    rating          NUMERIC
+);
+
+CREATE TYPE uap_geo AS (
+    -- Mã quốc gia (VD: "VN")
+    country         TEXT,
+
+    -- Thành phố
+    city            TEXT
+);
+
+-- ─── Context Block ─────────────────────────────────────────────────────────
+CREATE TYPE uap_context AS (
+    -- Bài viết match với từ khóa monitoring nào?
+    keywords_matched TEXT[],
+
+    -- ID chiến dịch (nếu thuộc chiến dịch đang track)
+    campaign_id     TEXT
 );
 
 -- ============================================================================
 -- VALIDATION RULES
 -- ============================================================================
--- 1. envelope.payload          MUST exist
--- 2. payload.minio_path OR payload.meta  MUST exist (ít nhất 1)
--- 3. payload.meta.id           MUST exist (field bắt buộc duy nhất)
--- 4. Tất cả field khác         OPTIONAL với default values hợp lý
+-- 1. uap_version               MUST be "1.0"
+-- 2. event_id                  MUST be valid UUID
+-- 3. ingest.project_id         MUST NOT be empty
+-- 4. ingest.entity.entity_type MUST be valid enum
+-- 5. ingest.source.source_type MUST be valid enum
+-- 6. content.doc_id            MUST NOT be empty
+-- 7. content.text              MUST NOT be empty (or have attachments with content)
+-- 8. content.published_at      MUST be valid ISO8601
+-- 9. All other fields          OPTIONAL with sensible defaults
+-- ============================================================================
+
+-- ============================================================================
+-- EXAMPLE UAP MESSAGE
+-- ============================================================================
+-- {
+--   "uap_version": "1.0",
+--   "event_id": "b6d6b1e2-9cf3-4e69-8fd0-5b1c8aab9f17",
+--   "ingest": {
+--     "project_id": "proj_vf8_monitor_01",
+--     "entity": {
+--       "entity_type": "product",
+--       "entity_name": "VF8",
+--       "brand": "VinFast"
+--     },
+--     "source": {
+--       "source_id": "src_fb_01",
+--       "source_type": "FACEBOOK",
+--       "account_ref": {"name": "VinFast Vietnam", "id": "1234567890"}
+--     },
+--     "batch": {
+--       "batch_id": "batch_2026_02_07_001",
+--       "mode": "SCHEDULED_CRAWL",
+--       "received_at": "2026-02-07T10:00:00Z"
+--     },
+--     "trace": {
+--       "raw_ref": "minio://raw/proj_vf8_monitor_01/facebook/2026-02-07/batch_001.jsonl",
+--       "mapping_id": "map_fb_default_v3"
+--     }
+--   },
+--   "content": {
+--     "doc_id": "fb_post_987654321",
+--     "doc_type": "post",
+--     "url": "https://facebook.com/.../posts/987654321",
+--     "language": "vi",
+--     "published_at": "2026-02-07T09:55:00Z",
+--     "author": {
+--       "author_id": "fb_user_abc",
+--       "display_name": "Nguyễn A",
+--       "author_type": "user"
+--     },
+--     "text": "Xe đi êm nhưng pin sụt nhanh, giá hơi cao so với kỳ vọng."
+--   },
+--   "signals": {
+--     "engagement": {
+--       "like_count": 120,
+--       "comment_count": 34,
+--       "share_count": 5,
+--       "view_count": 1111
+--     },
+--     "geo": {"country": "VN"}
+--   },
+--   "context": {
+--     "keywords_matched": ["vf8", "pin", "giá"],
+--     "campaign_id": "id_feb_campaign_2026_01"
+--   }
+-- }
+-- ============================================================================
+
+-- ============================================================================
+-- MIGRATION NOTES
+-- ============================================================================
+-- Legacy format (REMOVED): Event Envelope
+-- - Broker: RabbitMQ
+-- - Queue: schema_analyst.data.collected
+-- - Flat structure with payload.meta, payload.content, payload.interaction
+--
+-- Current format: UAP v1.0
+-- - Broker: Kafka
+-- - Topic: smap.collector.output
+-- - Nested structure with ingest, content, signals blocks
+-- - Entity context for AI model selection
+-- - Trace block for audit trail
+-- - Attachments support for multimodal analysis
 -- ============================================================================

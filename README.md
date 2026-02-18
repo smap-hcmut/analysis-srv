@@ -1,6 +1,6 @@
 # SMAP Analytics Service
 
-Analytics engine for SMAP platform: consumes social media crawl events from RabbitMQ, runs NLP pipeline (sentiment, intent, keywords, impact), and persists results to PostgreSQL.
+Analytics engine for SMAP platform: consumes social media crawl events from Kafka, runs NLP pipeline (sentiment, intent, keywords, impact), and persists results to PostgreSQL + publishes enriched output to Kafka.
 
 ---
 
@@ -8,50 +8,51 @@ Analytics engine for SMAP platform: consumes social media crawl events from Rabb
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌─────────────────────────────────┐
-│  Crawler /  │     │    RabbitMQ      │     │   Analytics Consumer            │
-│  n8n / API  │────▶│ smap.events      │────▶│   (this service)                │
-│             │     │ data.collected   │     │                                 │
+│  Collector  │     │      Kafka       │     │   Analytics Consumer            │
+│  Service    │────▶│ smap.collector   │────▶│   (this service)                │
+│             │     │    .output       │     │                                 │
 └─────────────┘     └──────────────────┘     └─────────────┬───────────────────┘
                                                            │
                         ┌──────────────────────────────────┼──────────────────┐
                         ▼                  ▼               ▼                  ▼
                  ┌──────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-                 │ PostgreSQL   │   │   Redis     │   │   MinIO     │   │ SpaCy-YAKE /│
-                 │schema_analyst│   │   (cache)   │   │ (batch raw) │   │ PhoBERT     │
+                 │ PostgreSQL   │   │   Kafka     │   │   MinIO     │   │ SpaCy-YAKE /│
+                 │  analytics   │   │  (output)   │   │ (batch raw) │   │ PhoBERT     │
                  └──────────────┘   └─────────────┘   └─────────────┘   └─────────────┘
 ```
 
 **Single service:**
 
-- **Consumer Service**: RabbitMQ consumer that subscribes to `analytics.data.collected`, runs the 5-stage analytics pipeline (preprocess → intent → keywords → sentiment → impact), and writes to `schema_analyst.analyzed_posts`.
+- **Consumer Service**: Kafka consumer that subscribes to `smap.collector.output` (UAP v1.0 format), runs the 5-stage analytics pipeline (preprocess → intent → keywords → sentiment → impact), writes to `analytics.post_analytics`, and publishes enriched output to Kafka topic `smap.analytics.output`.
 
-**Note**: API layer (FastAPI health/metrics) is planned; current entry point is consumer only.
+**Note**: API layer (FastAPI health/metrics) is planned; current entry point is Kafka consumer only.
 
 ---
 
 ## Tech Stack
 
-| Component       | Technology             | Purpose                          |
-| --------------- | ---------------------- | -------------------------------- |
-| Language        | Python 3.12+           | Backend                          |
-| Package manager | uv                     | Dependencies, lock file          |
-| Message queue   | RabbitMQ (aio-pika)    | Event-driven analytics           |
-| Database        | PostgreSQL             | Analyzed posts (schema_analyst)  |
-| ORM             | SQLAlchemy 2.x (async) | Async persistence                |
-| Cache / storage | Redis, MinIO           | Cache, batch raw data (optional) |
-| Sentiment       | PhoBERT (ONNX)         | Vietnamese sentiment             |
-| Keywords        | YAKE + spaCy           | Keyword extraction, NER          |
-| Config          | YAML + env             | config/config.yaml               |
+| Component       | Technology             | Purpose                           |
+| --------------- | ---------------------- | --------------------------------- |
+| Language        | Python 3.12+           | Backend                           |
+| Package manager | uv                     | Dependencies, lock file           |
+| Message queue   | Kafka (aiokafka)       | Event-driven analytics (I/O)      |
+| Database        | PostgreSQL             | Analyzed posts (analytics schema) |
+| ORM             | SQLAlchemy 2.x (async) | Async persistence                 |
+| Cache / storage | Redis, MinIO           | Cache, batch raw data (optional)  |
+| Sentiment       | PhoBERT (ONNX)         | Vietnamese sentiment              |
+| Keywords        | YAKE + spaCy           | Keyword extraction, NER           |
+| Config          | YAML + env             | config/config.yaml                |
 
 ---
 
 ## Features
 
-- **Event-driven pipeline**: Consume `data.collected` from RabbitMQ; support inline payload or `minio_path` batch.
+- **Event-driven pipeline**: Consume UAP v1.0 messages from Kafka `smap.collector.output`; support inline payload or `minio_path` batch.
 - **5-stage analytics**: Text preprocessing → Intent classification → Keyword extraction → Sentiment analysis (PhoBERT) → Impact calculation.
-- **Persistence**: Async insert/update into `schema_analyst.analyzed_posts` with full crawler and AI result fields.
+- **Persistence**: Async insert/update into `analytics.post_analytics` with full crawler and AI result fields.
+- **Output publishing**: Publish enriched output (batch array) to Kafka topic `smap.analytics.output` for Knowledge Service.
 - **Domain-driven design**: Clear separation: analytics (orchestrator), analyzed_post (repository), sentiment/intent/keyword/impact (AI domains), consumer (infrastructure).
-- **Configurable**: YAML config for DB, RabbitMQ queues, PhoBERT, YAKE, impact weights, batch size, retries.
+- **Configurable**: YAML config for DB, Kafka consumer/producer, PhoBERT, YAKE, impact weights, batch size, retries.
 - **Graceful shutdown**: SIGTERM/SIGINT handled; in-flight message processed before exit.
 
 ---
@@ -62,8 +63,8 @@ Analytics engine for SMAP platform: consumes social media crawl events from Rabb
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- PostgreSQL 15+ (schema `schema_analyst` must exist)
-- RabbitMQ
+- PostgreSQL 15+ (schema `analytics` must exist)
+- Kafka (input + output topics)
 - Redis (optional, for cache)
 - MinIO (optional, for batch payloads)
 
@@ -77,8 +78,8 @@ cd analysis-srv
 uv sync
 
 # Copy and edit config
-cp config/config.yaml config/config.local.yaml
-# Edit database URL, RabbitMQ URL, Redis, MinIO, etc.
+cp config/config.yaml.example config/config.yaml
+# Edit database URL, Kafka bootstrap servers, Redis, MinIO, etc.
 ```
 
 **Optional**: Use env vars to override config (see [Configuration](#configuration)).
@@ -87,13 +88,13 @@ cp config/config.yaml config/config.local.yaml
 
 ```bash
 # Create schema if not exists (as DB superuser or analyst_master)
-psql -h localhost -U postgres -d smap -c "CREATE SCHEMA IF NOT EXISTS schema_analyst;"
+psql -h localhost -U postgres -d smap -c "CREATE SCHEMA IF NOT EXISTS analytics;"
 
-# Run migration (creates schema_analyst.analyzed_posts)
-uv run python scripts/run_migration.py migration/001_create_analyzed_posts_table.sql
+# Run migration (creates analytics.post_analytics)
+uv run python scripts/run_migration.py migration/003_create_post_analytics.sql
 
 # Or with custom URL
-uv run python scripts/run_migration.py migration/001_create_analyzed_posts_table.sql "postgresql://user:pass@host:5432/smap"
+uv run python scripts/run_migration.py migration/003_create_post_analytics.sql "postgresql://user:pass@host:5432/smap"
 ```
 
 **Note**: Default migration script uses `analyst_master`; runtime uses `analyst_prod` (SELECT/INSERT/UPDATE/DELETE). Adjust users and grants per environment.
@@ -118,10 +119,11 @@ uv run python -m apps.consumer.main
 ### 5. Test
 
 ```bash
-# Send a test message to RabbitMQ (adjust URL in script if needed)
-uv run python scripts/test_analytics_message.py
+# Send a test message to Kafka (adjust broker URL in script if needed)
+# Note: Test script needs to be updated for Kafka
+# uv run python scripts/test_analytics_message.py
 
-# Check logs for "[AnalyticsHandler] Message processed" and DB for new row in schema_analyst.analyzed_posts
+# Check logs for "[KafkaHandler] Message processed" and DB for new row in analytics.post_analytics
 ```
 
 ---
@@ -139,25 +141,31 @@ service:
 database:
   url: "postgresql+asyncpg://analyst_prod:analyst_prod_pwd@host:5432/smap"
   url_sync: "postgresql://analyst_prod:analyst_prod_pwd@host:5432/smap"
-  schema: "schema_analyst"
+  schema: "analytics"
   pool_size: 20
   max_overflow: 10
 
-rabbitmq:
-  url: "amqp://admin:password@host:5672/"
-  prefetch_count: 1
-  queues:
-    - name: "analytics.data.collected"
-      exchange: "smap.events"
-      routing_key: "data.collected"
-      handler_module: "internal.analytics.delivery.rabbitmq.consumer.handler"
-      handler_class: "AnalyticsHandler"
-      prefetch_count: 1
-      enabled: true
-  publish:
-    exchange: "results.inbound"
-    routing_key: "analyze.result"
-    enabled: true
+kafka:
+  bootstrap_servers: "172.16.21.206:9092"
+  
+  consumer:
+    group_id: "analytics-service"
+    topics:
+      - "smap.collector.output"
+    auto_offset_reset: "earliest"
+    enable_auto_commit: false
+    max_poll_records: 10
+    session_timeout_ms: 30000
+    heartbeat_interval_ms: 10000
+  
+  producer:
+    topic: "smap.analytics.output"
+    acks: "all"
+    compression_type: "gzip"
+    enable_idempotence: true
+    batch_publish_size: 10
+    linger_ms: 100
+    max_in_flight_requests: 5
 
 phobert:
   model_path: "internal/model/phobert"
@@ -191,7 +199,7 @@ impact:
     kol_followers: 50000
 ```
 
-Config is loaded by `config.config.load_config()` from YAML and optional env (e.g. `DATABASE_URL`, `RABBITMQ_URL`). See `config/config.py` for all keys and `ConfigLoader`.
+Config is loaded by `config.config.load_config()` from YAML and optional env (e.g. `DATABASE_URL`, `KAFKA_BOOTSTRAP_SERVERS`). See `config/config.py` for all keys and `ConfigLoader`.
 
 ---
 
@@ -246,8 +254,8 @@ Consumer expects a JSON envelope on the queue:
 }
 ```
 
-- **Required**: Either `payload.meta` (inline post) or `payload.minio_path` (batch).
-- **Output**: Rows in `schema_analyst.analyzed_posts` with IDs from `meta.id`, plus sentiment, intent, keywords, impact (when AI stages are enabled).
+- **Required**: UAP v1.0 format with `ingest`, `content`, `signals` blocks.
+- **Output**: Rows in `analytics.post_analytics` with enriched fields, plus Kafka message to `smap.analytics.output`.
 
 ---
 
@@ -261,26 +269,29 @@ analysis-srv/
 ├── internal/
 │   ├── analytics/         # Orchestration: pipeline, handler, types, constants
 │   │   ├── usecase/       # AnalyticsPipeline (5-stage orchestration)
-│   │   └── delivery/rabbitmq/consumer/  # AnalyticsHandler (message adapter)
+│   │   └── delivery/      # Message adapters (Kafka consumer/producer)
+│   │       ├── kafka/     # Kafka consumer handler + producer
+│   │       └── rabbitmq/  # UAP parser (reused, broker-agnostic)
 │   ├── analyzed_post/     # Persistence: usecase, repository (PostgreSQL)
 │   ├── sentiment_analysis/ # PhoBERT sentiment (usecase, interface)
 │   ├── intent_classification/ # Intent patterns (usecase, interface)
 │   ├── keyword_extraction/   # YAKE + spaCy (usecase, interface)
 │   ├── impact_calculation/   # Impact score (usecase, interface)
 │   ├── text_preprocessing/   # Text normalization (usecase, interface)
-│   ├── consumer/           # ConsumerServer, ConsumerRegistry, Dependencies
+│   ├── consumer/           # KafkaConsumerServer, ConsumerRegistry, Dependencies
 │   └── model/             # SQLAlchemy models (analyzed_post), PhoBERT assets
 ├── pkg/                    # Shared infrastructure
 │   ├── logger/             # Structured logging
 │   ├── postgre/            # Async PostgreSQL (asyncpg, SQLAlchemy)
 │   ├── redis/              # Redis client
-│   ├── rabbitmq/           # aio-pika consumer
+│   ├── kafka/              # Kafka consumer/producer (aiokafka)
+│   ├── rabbitmq/           # aio-pika consumer (kept as reusable package)
 │   ├── minio/              # MinIO client + compression
 │   ├── zstd/               # Zstd compression
 │   ├── phobert_onnx/       # PhoBERT ONNX inference
 │   └── spacy_yake/         # SpaCy + YAKE keyword extraction
-├── migration/              # SQL migrations (schema_analyst)
-├── scripts/                # run_migration.py, test_analytics_message.py
+├── migration/              # SQL migrations (analytics schema)
+├── scripts/                # run_migration.py, test scripts
 └── documents/              # IMPLEMENTATION_STATUS.md, etc.
 ```
 
@@ -324,7 +335,7 @@ docker build -t analysis-srv:latest -f apps/consumer/Dockerfile .
 docker run -d -p 8000:8000 \
   -v $(pwd)/config:/app/config \
   -e DATABASE_URL="postgresql+asyncpg://..." \
-  -e RABBITMQ_URL="amqp://..." \
+  -e KAFKA_BOOTSTRAP_SERVERS="..." \
   analysis-srv:latest
 ```
 
@@ -332,7 +343,7 @@ docker run -d -p 8000:8000 \
 
 Override config via env when running in production (see `ConfigLoader` for supported keys), e.g.:
 
-- `DATABASE_URL`, `RABBITMQ_URL`, `REDIS_HOST`, `MINIO_ENDPOINT`, etc.
+- `DATABASE_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`, `MINIO_ENDPOINT`, etc.
 
 ---
 
@@ -340,6 +351,7 @@ Override config via env when running in production (see `ConfigLoader` for suppo
 
 - **Credentials**: Do not commit `config.local.yaml` or secrets; use env or secret manager in production.
 - **DB**: Use least-privilege user (`analyst_prod`) for runtime; reserve `analyst_master` for migrations.
+- **Network**: Restrict Kafka and PostgreSQL access to trusted networks/VPC.
 - **Network**: Restrict RabbitMQ and PostgreSQL access to trusted networks/VPC.
 
 ---

@@ -14,8 +14,35 @@ from pkg.minio.minio import MinioAdapter
 from pkg.minio.type import MinIOConfig as MinioPkgConfig, CompressionConfig
 from pkg.zstd.zstd import Zstd
 from pkg.zstd.type import ZstdConfig
+from pkg.kafka.producer import KafkaProducer
+from pkg.kafka.type import (
+    KafkaProducerConfig as KafkaProducerPkgConfig,
+    KafkaConsumerConfig as KafkaConsumerPkgConfig,
+)
 from config.config import load_config, Config
-from internal.consumer import ConsumerServer, Dependencies
+from internal.consumer import KafkaConsumerServer, Dependencies
+from internal.model.constant import (
+    LOGGER_SERVICE_NAME,
+    LOGGER_ENABLE_CONSOLE,
+    LOGGER_COLORIZE,
+    LOGGER_ENABLE_TRACE_ID,
+    POSTGRES_SCHEMA,
+    PHOBERT_MODEL_PATH,
+    PHOBERT_MAX_LENGTH,
+    SPACY_MODEL,
+    SPACY_YAKE_LANGUAGE,
+    SPACY_YAKE_N,
+    SPACY_YAKE_DEDUP_LIM,
+    SPACY_YAKE_MAX_KEYWORDS,
+    SPACY_MAX_KEYWORDS,
+    SPACY_ENTITY_WEIGHT,
+    SPACY_CHUNK_WEIGHT,
+    KAFKA_DEFAULT_TOPICS,
+    KAFKA_PRODUCER_ACKS,
+    KAFKA_PRODUCER_COMPRESSION_TYPE,
+    KAFKA_PRODUCER_ENABLE_IDEMPOTENCE,
+    KAFKA_PRODUCER_LINGER_MS,
+)
 
 
 async def init_dependencies(config: Config) -> Dependencies:
@@ -27,23 +54,23 @@ async def init_dependencies(config: Config) -> Dependencies:
     Returns:
         Dependencies struct with all initialized instances
     """
-    # 1. Initialize logger
+    # Initialize logger
     logger = Logger(
         LoggerConfig(
             level=config.logging.level,
-            enable_console=config.logging.enable_console,
-            colorize=config.logging.colorize,
-            service_name=config.logging.service_name,
-            enable_trace_id=False,
+            enable_console=LOGGER_ENABLE_CONSOLE,
+            colorize=LOGGER_COLORIZE,
+            service_name=LOGGER_SERVICE_NAME,
+            enable_trace_id=LOGGER_ENABLE_TRACE_ID,
         )
     )
     logger.info("Logger initialized")
 
-    # 2. Initialize PostgreSQL database
+    # Initialize PostgreSQL database
     db = PostgresDatabase(
         PostgresConfig(
             database_url=config.database.url,
-            schema=config.database.schema,
+            schema=POSTGRES_SCHEMA,
             pool_size=config.database.pool_size,
             max_overflow=config.database.max_overflow,
         )
@@ -52,7 +79,7 @@ async def init_dependencies(config: Config) -> Dependencies:
         raise RuntimeError("PostgreSQL health check failed")
     logger.info("PostgreSQL connection verified")
 
-    # 3. Initialize Redis cache
+    # Initialize Redis
     redis = RedisCache(
         RedisPkgConfig(
             host=config.redis.host,
@@ -66,7 +93,7 @@ async def init_dependencies(config: Config) -> Dependencies:
         raise RuntimeError("Redis health check failed")
     logger.info("Redis connection verified")
 
-    # 4. Initialize MinIO storage
+    # Initialize MinIO
     minio = MinioAdapter(
         MinioPkgConfig(
             endpoint=config.minio.endpoint,
@@ -76,96 +103,123 @@ async def init_dependencies(config: Config) -> Dependencies:
         ),
         CompressionConfig(
             enabled=config.compression.enabled,
-            algorithm=config.compression.algorithm,
+            algorithm="zstd",
             level=config.compression.default_level,
             min_size_bytes=config.compression.min_size_bytes,
         ),
     )
     logger.info("MinIO storage initialized")
 
-    # 5. Initialize Zstd compressor
-    zstd_compressor = Zstd(
+    # Initialize Data compressor
+    data_compressor = Zstd(
         ZstdConfig(
             default_level=config.compression.default_level,
         )
     )
-    logger.info("Zstd compressor initialized")
+    logger.info("Data compressor initialized")
 
-    # 6. Initialize sentiment analyzer (PhoBERT)
+    # Initialize Sentiment analyzer
     sentiment = PhoBERTONNX(
         PhoBERTConfig(
-            model_path=config.phobert.model_path,
-            max_length=config.phobert.max_length,
+            model_path=PHOBERT_MODEL_PATH,
+            max_length=PHOBERT_MAX_LENGTH,
         )
     )
     logger.info("Sentiment analyzer initialized")
 
-    # 7. Initialize keyword extractor (SpaCy-YAKE)
+    # Initialize Keyword extractor
     keyword_extractor = SpacyYake(
         SpacyYakeConfig(
-            spacy_model=config.keyword_extraction.spacy_model,
-            yake_language=config.keyword_extraction.yake_language,
-            yake_n=config.keyword_extraction.yake_n,
-            yake_dedup_lim=config.keyword_extraction.yake_dedup_lim,
-            yake_max_keywords=config.keyword_extraction.yake_max_keywords,
-            max_keywords=config.keyword_extraction.max_keywords,
-            entity_weight=config.keyword_extraction.entity_weight,
-            chunk_weight=config.keyword_extraction.chunk_weight,
+            spacy_model=SPACY_MODEL,
+            yake_language=SPACY_YAKE_LANGUAGE,
+            yake_n=SPACY_YAKE_N,
+            yake_dedup_lim=SPACY_YAKE_DEDUP_LIM,
+            yake_max_keywords=SPACY_YAKE_MAX_KEYWORDS,
+            max_keywords=SPACY_MAX_KEYWORDS,
+            entity_weight=SPACY_ENTITY_WEIGHT,
+            chunk_weight=SPACY_CHUNK_WEIGHT,
         )
     )
     logger.info("Keyword extractor initialized")
+
+    # Initialize Kafka Producer
+    kafka_producer = KafkaProducer(
+        KafkaProducerPkgConfig(
+            bootstrap_servers=config.kafka.bootstrap_servers,
+            acks=KAFKA_PRODUCER_ACKS,
+            compression_type=KAFKA_PRODUCER_COMPRESSION_TYPE,
+            enable_idempotence=KAFKA_PRODUCER_ENABLE_IDEMPOTENCE,
+            linger_ms=KAFKA_PRODUCER_LINGER_MS,
+        )
+    )
+    await kafka_producer.start()
+    logger.info("Kafka producer initialized")
+
+    # Build Kafka consumer config (used by internal KafkaConsumerServer)
+    topics = config.kafka.topics or KAFKA_DEFAULT_TOPICS
+    kafka_consumer_config = KafkaConsumerPkgConfig(
+        bootstrap_servers=config.kafka.bootstrap_servers,
+        topics=topics,
+        group_id=config.kafka.group_id,
+        auto_offset_reset="earliest",
+        enable_auto_commit=False,
+        max_poll_records=10,
+        session_timeout_ms=30000,
+    )
 
     return Dependencies(
         logger=logger,
         db=db,
         redis=redis,
         minio=minio,
-        zstd=zstd_compressor,
+        zstd=data_compressor,
         sentiment=sentiment,
         keyword_extractor=keyword_extractor,
         config=config,
+        kafka_producer=kafka_producer,
+        kafka_consumer_config=kafka_consumer_config,
     )
 
 
 async def main():
     """Main entry point for analytics consumer service.
 
-    Flow:
-    1. Load configuration
-    2. Initialize dependencies (logger, db, redis, etc.)
-    3. Create consumer server (registry initialized inside server.start())
-    4. Start server
+    Raises:
+        Exception: If service fails to start
     """
+    # Initialize deps - safe cleanup
+    deps = None
     server = None
     logger = None
 
     try:
-        # 1. Load configuration
+        # Load configuration
         app_config = load_config()
-        print(
-            f"Configuration loaded: {app_config.service.name} v{app_config.service.version}"
-        )
 
-        # 2. Initialize all dependencies
+        # Initialize all dependencies
         deps = await init_dependencies(app_config)
         logger = deps.logger
 
-        # 3. Create consumer server
-        server = ConsumerServer(deps)
+        # Create Kafka consumer server
+        server = KafkaConsumerServer(deps)
 
-        # 4. Setup signal handlers for graceful shutdown
+        # Setup signal handlers for graceful shutdown
         loop = asyncio.get_running_loop()
 
         def signal_handler(sig):
             """Handle shutdown signals."""
-            logger.info(f"Received signal {sig}, shutting down gracefully...")
+            if logger:
+                logger.info(f"Received signal {sig}, shutting down gracefully...")
+            else:
+                print(f"Received signal {sig}, shutting down gracefully...")
             # Create task to shutdown server
-            asyncio.create_task(server.shutdown())
+            if server:
+                asyncio.create_task(server.shutdown())
 
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, lambda s=sig: signal_handler(s))
 
-        # 5. Start server
+        # Start server
         await server.start()
 
     except KeyboardInterrupt:
@@ -182,25 +236,32 @@ async def main():
             import traceback
 
             traceback.print_exc()
-        # Exit with error code
-        import sys
-
-        sys.exit(1)
     finally:
         if server:
             await server.shutdown()
+        # Cleanup Kafka producer
+        if logger:
+            logger.info("Cleaning up dependencies...")
+        try:
+            if deps and deps.kafka_producer:
+                await deps.kafka_producer.stop()
+        except Exception as e:
+            msg = f"Error stopping Kafka producer: {e}"
+            if logger:
+                logger.error(msg)
+            else:
+                print(msg)
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass  # Already handled in main()
+        pass
     except SystemExit:
-        raise  # Preserve exit code
+        raise
 
 
-# Entry point for script
 def run():
     """Entry point for console script."""
     try:

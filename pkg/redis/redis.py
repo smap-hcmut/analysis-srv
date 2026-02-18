@@ -55,8 +55,6 @@ class RedisCache:
             # Create Redis client
             self.client = aioredis.Redis(connection_pool=self.pool)
 
-            logger.info(f"Redis client initialized")
-
         except Exception as e:
             logger.error(f"Failed to initialize Redis client: {e}")
             raise
@@ -265,8 +263,7 @@ class RedisCache:
             return False
 
     async def close(self) -> None:
-        """Close Redis connection and cleanup resources.
-        """
+        """Close Redis connection and cleanup resources."""
         if self.client:
             await self.client.close()
             logger.info("Redis connection closed")

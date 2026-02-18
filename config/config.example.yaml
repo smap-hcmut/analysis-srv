@@ -1,0 +1,69 @@
+database:
+  url: "postgresql+asyncpg://<user>:<password>@<host>:5432/<database>"
+  url_sync: "postgresql://<user>:<password>@<host>:5432/<database>"
+  pool_size: 20
+  max_overflow: 10
+
+logging:
+  level: "INFO"
+  debug: false
+
+kafka:
+  bootstrap_servers: "172.16.21.206:9092"
+  # List of topics that this consumer service will subscribe to.
+  # Example:
+  #   - "smap.collector.output"
+  #   - "smap.collector.dlq"
+  topics:
+    - "smap.collector.output"
+  # Kafka consumer group id for this analytics consumer service
+  group_id: "analytics-service"
+
+redis:
+  host: "<host>"
+  port: 6379
+  db: 0
+  password: "<password>"
+  max_connections: 50
+
+minio:
+  endpoint: "<host>:9000"
+  access_key: "<access_key>"
+  secret_key: "<secret_key>"
+  secure: false
+  crawl_results_bucket: "crawl-results"
+
+compression:
+  enabled: true
+  default_level: 2
+  min_size_bytes: 1024
+
+preprocessor:
+  min_text_length: 10
+  max_comments: 5
+
+intent_classifier:
+  confidence_threshold: 0.5
+  patterns_path: "config/intent_patterns.yaml"
+
+impact:
+  weight:
+    view: 0.01
+    like: 1.0
+    comment: 2.0
+    save: 3.0
+    share: 5.0
+  platform:
+    tiktok: 1.0
+    facebook: 1.2
+    youtube: 1.5
+    instagram: 1.1
+    unknown: 1.0
+  amplifier:
+    negative: 1.5
+    neutral: 1.0
+    positive: 1.1
+  threshold:
+    viral: 70.0
+    kol_followers: 50000
+    max_raw_score: 100000.0

@@ -64,8 +64,6 @@ class PostgresDatabase:
                 autocommit=False,
             )
 
-            logger.info(f"PostgreSQL engine initialized")
-
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL engine: {e}")
             raise

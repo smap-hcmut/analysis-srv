@@ -1,232 +1,295 @@
 -- ============================================================================
--- SMAP Analytics Service — Output Payload Schema
+-- SMAP Analysis Service — Output Schema (schema_analyst.post_schema_analyst)
 -- ============================================================================
--- Table: schema_analyst.analyzed_posts
+-- Table: schema_analyst.post_schema_analyst
 -- Mô tả cấu trúc dữ liệu output mà pipeline persist vào PostgreSQL.
--- Mỗi record = 1 bài viết đã phân tích đầy đủ (dữ liệu gốc + kết quả AI).
+-- Mỗi record = 1 bài viết đã phân tích đầy đủ (UAP input + kết quả AI enriched).
+--
+-- Schema này là kết quả của Phase 3 migration, thay thế legacy schema
+-- schema_analyst.analyzed_posts với cấu trúc enriched và nhiều fields mới.
 -- ============================================================================
 
 CREATE SCHEMA IF NOT EXISTS schema_analyst;
 
-CREATE TABLE schema_analyst.analyzed_posts (
+CREATE TABLE schema_analyst.post_schema_analyst (
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- IDENTIFIERS
+    -- CORE IDENTITY
     -- ═══════════════════════════════════════════════════════════════════════
 
-    -- Primary key. Lấy từ meta.id của input — ID bài viết trên platform gốc
-    id                      VARCHAR(255)    PRIMARY KEY,
+    -- Primary key. UUID định danh duy nhất của record schema_analyst
+    -- Generated hoặc từ UAP event_id
+    id                      UUID            PRIMARY KEY,
 
-    -- UUID project trên SMAP. Lấy từ payload.project_id hoặc extract từ job_id.
-    -- Pipeline sanitize để đảm bảo UUID hợp lệ (loại bỏ suffix nếu có)
-    project_id              VARCHAR(255)    NULL,
+    -- UUID project trên SMAP. Từ UAP ingest.project_id
+    -- Dùng để filter trong Campaign (RAG scope)
+    project_id              VARCHAR(255)    NOT NULL,
 
-    -- Platform nguồn, normalized uppercase: TIKTOK, FACEBOOK, YOUTUBE, INSTAGRAM, UNKNOWN
-    platform                VARCHAR(50)     NOT NULL DEFAULT 'UNKNOWN',
-
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- TIMESTAMPS
-    -- ═══════════════════════════════════════════════════════════════════════
-
-    -- Thời điểm bài viết được đăng trên platform. Từ meta.published_at, fallback now() UTC
-    published_at            TIMESTAMPTZ     NULL,
-
-    -- Thời điểm pipeline hoàn thành phân tích. Luôn là now() UTC tại thời điểm xử lý
-    analyzed_at             TIMESTAMPTZ     NULL,
+    -- ID của data source. Từ UAP ingest.source.source_id
+    -- Truy vết nguồn gốc data
+    source_id               VARCHAR(255)    NULL,
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- SENTIMENT ANALYSIS RESULTS (Stage 4 — PhoBERT ONNX)
+    -- CONTENT & TIMESTAMPS
     -- ═══════════════════════════════════════════════════════════════════════
 
-    -- Label cảm xúc tổng thể: POSITIVE, NEGATIVE, NEUTRAL
-    -- Thresholds: positive ≥ 0.25, negative ≤ -0.25
+    -- Nội dung text gốc cần phân tích. Từ UAP content.text
+    -- Input chính cho AI pipeline và RAG search
+    content                 TEXT            NOT NULL,
+
+    -- Thời điểm nội dung được tạo bởi tác giả (Business time)
+    -- Từ UAP content.published_at. Dùng cho trend charts, temporal queries
+    content_created_at      TIMESTAMPTZ     NOT NULL,
+
+    -- Thời điểm hệ thống nhận dữ liệu (System time)
+    -- Từ UAP ingest.batch.received_at. Dùng cho debug, latency measurement
+    ingested_at             TIMESTAMPTZ     NOT NULL,
+
+    -- Platform nguồn: facebook, tiktok, youtube, instagram, file_upload, webhook
+    -- Từ UAP ingest.source.source_type (lowercase)
+    platform                VARCHAR(50)     NOT NULL,
+
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- UAP METADATA (JSONB — Schema-less, linh hoạt cho từng platform)
+    -- ═══════════════════════════════════════════════════════════════════════
+
+    -- Metadata từ UAP input: author, engagement, url, hashtags, location, etc.
+    -- Format: {
+    --   "author": "nguyen_van_a_2024",
+    --   "author_display_name": "Nguyễn Văn A",
+    --   "author_followers": 15000,
+    --   "engagement": {"views": 45000, "likes": 3200, "comments": 156, "shares": 89},
+    --   "video_url": "https://...",
+    --   "hashtags": ["#VinFast", "#VF8"],
+    --   "location": "Hà Nội, Việt Nam"
+    -- }
+    uap_metadata            JSONB           NOT NULL DEFAULT '{}',
+
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- SENTIMENT ANALYSIS (PhoBERT ONNX)
+    -- ═══════════════════════════════════════════════════════════════════════
+
+    -- Label cảm xúc tổng thể: POSITIVE, NEGATIVE, NEUTRAL, MIXED
     overall_sentiment       VARCHAR(50)     NOT NULL DEFAULT 'NEUTRAL',
 
     -- Điểm cảm xúc: -1.0 (rất tiêu cực) → 1.0 (rất tích cực)
-    -- Output trực tiếp từ PhoBERT model
     overall_sentiment_score FLOAT           NOT NULL DEFAULT 0.0,
 
     -- Độ tin cậy kết quả sentiment: 0.0 → 1.0
-    overall_confidence      FLOAT           NOT NULL DEFAULT 0.0,
+    sentiment_confidence    FLOAT           NOT NULL DEFAULT 0.0,
+
+    -- Giải thích sentiment (future - explainable AI)
+    sentiment_explanation   TEXT            NULL,
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- INTENT CLASSIFICATION RESULTS (Stage 2 — Regex Pattern Matching)
+    -- ASPECT-BASED SENTIMENT (JSONB Array)
     -- ═══════════════════════════════════════════════════════════════════════
 
-    -- Ý định chính: CRISIS, SEEDING, SPAM, COMPLAINT, LEAD, SUPPORT, DISCUSSION
-    -- Priority-based conflict resolution khi nhiều patterns match
+    -- Phân tích cảm xúc theo aspect
+    -- Format: [
+    --   {
+    --     "aspect": "BATTERY",
+    --     "aspect_display_name": "Pin",
+    --     "polarity": "NEGATIVE",
+    --     "confidence": 0.74,
+    --     "evidence": "pin sụt nhanh",
+    --     "mentions": [{"text": "pin sụt nhanh", "start_pos": 15, "end_pos": 29}],
+    --     "impact_score": 0.81,
+    --     "explanation": "Người dùng phàn nàn về độ bền pin"
+    --   }
+    -- ]
+    aspects                 JSONB           NOT NULL DEFAULT '[]',
+
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- KEYWORDS & INTENT
+    -- ═══════════════════════════════════════════════════════════════════════
+
+    -- Danh sách từ khóa đã trích xuất (YAKE + spaCy NER)
+    keywords                TEXT[]          NOT NULL DEFAULT '{}',
+
+    -- Ý định chính: DISCUSSION, QUESTION, COMPLAINT, PRAISE, SPAM, SEEDING
     primary_intent          VARCHAR(50)     NOT NULL DEFAULT 'DISCUSSION',
 
-    -- Độ tin cậy phân loại intent: 0.0 → 1.0
-    -- Công thức: base 0.5 + 0.1 × số patterns matched, capped 1.0
+    -- Độ tin cậy intent classification: 0.0 → 1.0
     intent_confidence       FLOAT           NOT NULL DEFAULT 0.0,
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- IMPACT CALCULATION RESULTS (Stage 5)
+    -- RISK ASSESSMENT (Multi-factor)
     -- ═══════════════════════════════════════════════════════════════════════
 
-    -- Điểm ảnh hưởng tổng hợp: 0 → 100
-    -- Formula: (EngagementScore + ReachScore) × PlatformMultiplier × SentimentAmplifier
-    -- Normalized: (RawImpact / 100000) × 100, capped [0, 100]
-    impact_score            FLOAT           NOT NULL DEFAULT 0.0,
-
-    -- Mức rủi ro dựa trên impact_score và sentiment:
-    --   CRITICAL: impact ≥ 70 AND sentiment = NEGATIVE
-    --   HIGH:     impact ≥ 70
-    --   MEDIUM:   impact ≥ 40
-    --   LOW:      còn lại
+    -- Mức rủi ro: LOW, MEDIUM, HIGH, CRITICAL
     risk_level              VARCHAR(50)     NOT NULL DEFAULT 'LOW',
 
-    -- Flag bài viết viral: true khi impact_score ≥ 70.0
-    is_viral                BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- Điểm risk (0-1) từ multi-factor assessment
+    risk_score              FLOAT           NOT NULL DEFAULT 0.0,
 
-    -- Flag Key Opinion Leader: true khi author.followers ≥ 50,000
-    is_kol                  BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- Chi tiết risk factors
+    -- Format: [
+    --   {
+    --     "factor": "NEGATIVE_SENTIMENT",
+    --     "severity": "MEDIUM",
+    --     "description": "Negative sentiment detected (score: -0.45)"
+    --   },
+    --   {
+    --     "factor": "KEYWORD_MATCH",
+    --     "severity": "HIGH",
+    --     "description": "Crisis keywords detected: lừa đảo, cháy"
+    --   }
+    -- ]
+    risk_factors            JSONB           NOT NULL DEFAULT '[]',
 
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- BREAKDOWNS (JSONB — kết quả chi tiết từ AI modules)
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- Flag cần xử lý ngay (risk_level = HIGH or CRITICAL)
+    requires_attention      BOOLEAN         NOT NULL DEFAULT FALSE,
 
-    -- Phân tích cảm xúc theo aspect (từ Stage 3 keywords + Stage 4 sentiment)
-    -- Format: {"DESIGN": {"label": "POSITIVE", "score": 0.6, "confidence": 0.8,
-    --          "mentions": 2, "keywords": ["thiết kế"], "rating": 4}, ...}
-    -- Aspects: DESIGN, PERFORMANCE, PRICE, SERVICE, GENERAL
-    aspects_breakdown       JSONB           NOT NULL DEFAULT '{}',
-
-    -- Danh sách từ khóa đã trích xuất (Stage 3). Tối đa 30 items
-    -- Kết hợp dictionary matching (DICT) và AI (YAKE + spaCy NER)
-    keywords                TEXT[]          NOT NULL DEFAULT '{}',
-
-    -- Phân phối xác suất 3 class sentiment
-    -- Format: {"POSITIVE": 0.75, "NEGATIVE": 0.15, "NEUTRAL": 0.10}
-    sentiment_probabilities JSONB           NOT NULL DEFAULT '{}',
-
-    -- Chi tiết tính toán impact score
-    -- Format: {"engagement_score": 12500.0, "reach_score": 16.4,
-    --          "platform_multiplier": 1.0, "sentiment_amplifier": 1.1,
-    --          "raw_impact": 13768.0}
-    impact_breakdown        JSONB           NOT NULL DEFAULT '{}',
+    -- Flag đã trigger alert
+    alert_triggered         BOOLEAN         NOT NULL DEFAULT FALSE,
 
     -- ═══════════════════════════════════════════════════════════════════════
-    -- RAW METRICS (passthrough từ input interaction + author)
+    -- ENGAGEMENT & IMPACT (Phase 4 - New Calculations)
     -- ═══════════════════════════════════════════════════════════════════════
 
-    -- Lượt xem. Từ interaction.views. Impact weight: ×0.01
-    view_count              INTEGER         NOT NULL DEFAULT 0,
+    -- Điểm engagement (0-100)
+    -- Formula: (likes*1 + comments*2 + shares*3) / views * 100, cap 100
+    engagement_score        FLOAT           NOT NULL DEFAULT 0.0,
 
-    -- Lượt thích. Từ interaction.likes. Impact weight: ×1.0
-    like_count              INTEGER         NOT NULL DEFAULT 0,
+    -- Điểm viral (0+)
+    -- Formula: shares / (likes + comments + 1)
+    virality_score          FLOAT           NOT NULL DEFAULT 0.0,
 
-    -- Số bình luận. Từ interaction.comments_count. Impact weight: ×2.0
-    comment_count           INTEGER         NOT NULL DEFAULT 0,
+    -- Điểm influence (0+)
+    -- Formula: (followers / 1M) * engagement_score
+    influence_score         FLOAT           NOT NULL DEFAULT 0.0,
 
-    -- Lượt chia sẻ. Từ interaction.shares. Impact weight: ×5.0 (cao nhất)
-    share_count             INTEGER         NOT NULL DEFAULT 0,
+    -- Ước tính reach (từ view_count hoặc calculated)
+    reach_estimate          INTEGER         NOT NULL DEFAULT 0,
 
-    -- Lượt lưu/bookmark. Từ interaction.saves. Impact weight: ×3.0
-    save_count              INTEGER         NOT NULL DEFAULT 0,
+    -- Điểm impact tổng hợp (0-100)
+    impact_score            FLOAT           NOT NULL DEFAULT 0.0,
 
-    -- Số followers tác giả. Từ author.followers. Dùng tính is_kol và reach_score
-    follower_count          INTEGER         NOT NULL DEFAULT 0,
+    -- ═══════════════════════════════════════════════════════════════════════
+    -- CONTENT QUALITY (Future)
+    -- ═══════════════════════════════════════════════════════════════════════
+
+    -- Điểm chất lượng nội dung (future - NLP features)
+    content_quality_score   FLOAT           NOT NULL DEFAULT 0.0,
+
+    -- Flag spam detection (Phase 4 - heuristics)
+    is_spam                 BOOLEAN         NOT NULL DEFAULT FALSE,
+
+    -- Flag bot detection (future - behavioral analysis)
+    is_bot                  BOOLEAN         NOT NULL DEFAULT FALSE,
+
+    -- Ngôn ngữ (future - langdetect)
+    language                VARCHAR(10)     NULL,
+
+    -- Độ tin cậy language detection (future)
+    language_confidence     FLOAT           NOT NULL DEFAULT 0.0,
+
+    -- Điểm toxic (future - toxicity model)
+    toxicity_score          FLOAT           NOT NULL DEFAULT 0.0,
+
+    -- Flag toxic content (future)
+    is_toxic                BOOLEAN         NOT NULL DEFAULT FALSE,
 
     -- ═══════════════════════════════════════════════════════════════════════
     -- PROCESSING METADATA
     -- ═══════════════════════════════════════════════════════════════════════
 
-    -- Thời gian xử lý pipeline (ms). Đo từ process() start → end
+    -- Thời gian xử lý pipeline (ms)
     processing_time_ms      INTEGER         NOT NULL DEFAULT 0,
 
-    -- Version analytics model/pipeline. Configurable, default "1.0.0"
+    -- Version schema_analyst model/pipeline
     model_version           VARCHAR(50)     NOT NULL DEFAULT '1.0.0',
 
-    -- Trạng thái xử lý:
-    --   "success"  — hoàn thành đầy đủ pipeline
-    --   "error"    — lỗi xảy ra, record vẫn được lưu với default values
-    --   "skipped"  — bỏ qua AI stages do spam/seeding intent
+    -- Trạng thái xử lý: success, error, skipped
     processing_status       VARCHAR(50)     NOT NULL DEFAULT 'success',
 
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- CRAWLER METADATA (Contract v2.0 — passthrough từ EventMetadata)
-    -- ═══════════════════════════════════════════════════════════════════════
+    -- Thời điểm phân tích hoàn thành
+    analyzed_at             TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
-    -- ID crawl job. Passthrough từ EventMetadata.job_id
-    job_id                  VARCHAR(255)    NULL,
+    -- Thời điểm index vào vector DB (updated by Knowledge Service)
+    indexed_at              TIMESTAMPTZ     NULL,
 
-    -- Index batch trong job (0-based). Passthrough từ EventMetadata.batch_index
-    batch_index             INTEGER         NULL,
+    -- Thời điểm tạo record
+    created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
-    -- Loại task crawl: "keyword_search", "profile_crawl", ...
-    task_type               VARCHAR(50)     NULL,
-
-    -- Từ khóa nguồn. Lấy từ EventMetadata.keyword
-    keyword_source          VARCHAR(255)    NULL,
-
-    -- Thời điểm crawl. Parse từ envelope.timestamp (ISO 8601)
-    crawled_at              TIMESTAMPTZ     NULL,
-
-    -- Version pipeline. Auto-generated: "crawler_{platform}_v3"
-    pipeline_version        VARCHAR(50)     NULL,
-
-    -- Tên thương hiệu đang theo dõi
-    brand_name              VARCHAR(255)    NULL,
-
-    -- Từ khóa tìm kiếm đã dùng để crawl
-    keyword                 VARCHAR(255)    NULL,
-
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- CONTENT FIELDS (passthrough từ input content)
-    -- ═══════════════════════════════════════════════════════════════════════
-
-    -- Nội dung text gốc (caption/body). Từ content.text
-    content_text            TEXT            NULL,
-
-    -- Transcript audio/video gốc. Từ content.transcription
-    content_transcription   TEXT            NULL,
-
-    -- Thời lượng media (giây). Từ content.duration
-    media_duration          INTEGER         NULL,
-
-    -- Danh sách hashtags gốc. Từ content.hashtags
-    hashtags                TEXT[]          NULL,
-
-    -- URL gốc bài viết trên platform. Từ meta.permalink
-    permalink               TEXT            NULL,
-
-    -- ═══════════════════════════════════════════════════════════════════════
-    -- AUTHOR FIELDS (passthrough từ input author)
-    -- ═══════════════════════════════════════════════════════════════════════
-
-    -- ID tác giả trên platform
-    author_id               VARCHAR(255)    NULL,
-
-    -- Tên hiển thị tác giả
-    author_name             VARCHAR(255)    NULL,
-
-    -- Username/handle (@username)
-    author_username         VARCHAR(255)    NULL,
-
-    -- URL ảnh đại diện
-    author_avatar_url       TEXT            NULL,
-
-    -- Tài khoản xác minh. Nếu true, reach_score ×1.2 trong impact calculation
-    author_is_verified      BOOLEAN         NOT NULL DEFAULT FALSE
+    -- Thời điểm update record
+    updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- INDEXES
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Query theo project
-CREATE INDEX idx_post_analytics_project_id  ON schema_analyst.analyzed_posts (project_id);
+-- Primary key
+CREATE UNIQUE INDEX idx_post_schema_analyst_pkey ON schema_analyst.post_schema_analyst(id);
 
--- Query theo crawl job
-CREATE INDEX idx_post_analytics_job_id      ON schema_analyst.analyzed_posts (job_id);
+-- Query optimization
+CREATE INDEX idx_post_schema_analyst_project ON schema_analyst.post_schema_analyst(project_id);
+CREATE INDEX idx_post_schema_analyst_platform ON schema_analyst.post_schema_analyst(platform);
+CREATE INDEX idx_post_schema_analyst_created ON schema_analyst.post_schema_analyst(content_created_at DESC);
+CREATE INDEX idx_post_schema_analyst_analyzed ON schema_analyst.post_schema_analyst(analyzed_at DESC);
+CREATE INDEX idx_post_schema_analyst_sentiment ON schema_analyst.post_schema_analyst(overall_sentiment);
+CREATE INDEX idx_post_schema_analyst_risk ON schema_analyst.post_schema_analyst(risk_level);
+CREATE INDEX idx_post_schema_analyst_intent ON schema_analyst.post_schema_analyst(primary_intent);
 
--- Query theo thời gian phân tích (time-series, dashboard)
-CREATE INDEX idx_post_analytics_analyzed_at ON schema_analyst.analyzed_posts (analyzed_at);
+-- JSONB indexes (GIN for efficient JSONB queries)
+CREATE INDEX idx_post_schema_analyst_aspects_gin ON schema_analyst.post_schema_analyst USING GIN(aspects);
+CREATE INDEX idx_post_schema_analyst_uap_gin ON schema_analyst.post_schema_analyst USING GIN(uap_metadata);
+CREATE INDEX idx_post_schema_analyst_risk_factors_gin ON schema_analyst.post_schema_analyst USING GIN(risk_factors);
 
--- Filter theo platform
-CREATE INDEX idx_post_analytics_platform    ON schema_analyst.analyzed_posts (platform);
+-- Composite indexes
+CREATE INDEX idx_post_schema_analyst_project_created ON schema_analyst.post_schema_analyst(project_id, content_created_at DESC);
+CREATE INDEX idx_post_schema_analyst_project_sentiment ON schema_analyst.post_schema_analyst(project_id, overall_sentiment);
+CREATE INDEX idx_post_schema_analyst_project_risk ON schema_analyst.post_schema_analyst(project_id, risk_level);
 
--- Filter bài viết rủi ro cao (alert system)
-CREATE INDEX idx_post_analytics_risk_level  ON schema_analyst.analyzed_posts (risk_level);
+-- Attention flags
+CREATE INDEX idx_post_schema_analyst_attention ON schema_analyst.post_schema_analyst(requires_attention) WHERE requires_attention = TRUE;
+CREATE INDEX idx_post_schema_analyst_spam ON schema_analyst.post_schema_analyst(is_spam) WHERE is_spam = TRUE;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- EXAMPLE QUERIES
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Get all negative posts about a project in last 7 days
+-- SELECT id, content, overall_sentiment_score, aspects
+-- FROM schema_analyst.post_schema_analyst
+-- WHERE project_id = 'proj_vf8_monitor_01'
+--   AND overall_sentiment = 'NEGATIVE'
+--   AND content_created_at >= NOW() - INTERVAL '7 days'
+-- ORDER BY engagement_score DESC
+-- LIMIT 10;
+
+-- Find posts with specific aspect complaints
+-- SELECT id, content, aspects
+-- FROM schema_analyst.post_schema_analyst
+-- WHERE project_id = 'proj_vf8_monitor_01'
+--   AND aspects @> '[{"aspect": "BATTERY", "polarity": "NEGATIVE"}]'::jsonb
+-- ORDER BY content_created_at DESC;
+
+-- Get high-risk posts requiring attention
+-- SELECT id, content, risk_level, risk_factors
+-- FROM schema_analyst.post_schema_analyst
+-- WHERE requires_attention = true
+--   AND risk_level IN ('HIGH', 'CRITICAL')
+-- ORDER BY risk_score DESC;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- MIGRATION NOTES
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Legacy schema (REMOVED in Phase 6):
+-- - Schema: schema_analyst
+-- - Table: analyzed_posts
+-- - ID type: VARCHAR(255)
+-- - Flat structure with limited enrichment
+--
+-- Current schema (Phase 3+):
+-- - Schema: schema_analyst
+-- - Table: post_schema_analyst
+-- - ID type: UUID
+-- - Enriched structure with 50+ columns
+-- - JSONB columns for flexible metadata
+-- - GIN indexes for efficient JSONB queries
+-- - Support for Phase 4 business logic (engagement, virality, influence)
+-- - Support for Phase 2 Kafka output publishing
+-- ═══════════════════════════════════════════════════════════════════════════

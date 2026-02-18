@@ -7,21 +7,11 @@ from dotenv import load_dotenv
 
 
 @dataclass
-class ServiceConfig:
-    """Service information."""
-
-    name: str = "analytics-engine"
-    version: str = "0.1.0"
-    environment: str = "development"
-
-
-@dataclass
 class DatabaseConfig:
     """Database configuration."""
 
     url: str = "postgresql+asyncpg://dev:dev123@localhost:5432/analytics_dev"
     url_sync: str = "postgresql://dev:dev123@localhost:5432/analytics_dev"
-    schema: str = "schema_analyst"
     pool_size: int = 20
     max_overflow: int = 10
 
@@ -32,72 +22,15 @@ class LoggingConfig:
 
     level: str = "INFO"
     debug: bool = False
-    enable_console: bool = True
-    colorize: bool = True
-    service_name: str = "analytics-engine"
 
 
 @dataclass
-class PhoBERTConfig:
-    """PhoBERT model configuration."""
+class KafkaConfig:
+    """Kafka configuration."""
 
-    model_path: str = "internal/model/phobert_sentiment"
-    max_length: int = 256
-
-
-@dataclass
-class KeywordExtractionConfig:
-    """Keyword extraction configuration."""
-
-    spacy_model: str = "xx_ent_wiki_sm"
-    yake_language: str = "vi"
-    yake_n: int = 2
-    yake_dedup_lim: float = 0.8
-    yake_max_keywords: int = 30
-    max_keywords: int = 30
-    entity_weight: float = 0.7
-    chunk_weight: float = 0.5
-
-
-@dataclass
-class AspectMappingConfig:
-    """Aspect mapping configuration."""
-
-    enabled: bool = False
-    dictionary_path: str = "config/aspects.yaml"
-    unknown_label: str = "UNKNOWN"
-
-
-@dataclass
-class RabbitMQQueueConfig:
-    """Configuration for a single queue consumer."""
-
-    name: str
-    exchange: str
-    routing_key: str
-    handler_module: str
-    handler_class: str
-    prefetch_count: int = 10
-    enabled: bool = True
-
-
-@dataclass
-class RabbitMQPublishConfig:
-    """RabbitMQ publish configuration."""
-
-    exchange: str = "results.inbound"
-    routing_key: str = "analyze.result"
-    enabled: bool = True
-
-
-@dataclass
-class RabbitMQConfig:
-    """RabbitMQ configuration."""
-
-    url: str = "amqp://guest:guest@localhost/"
-    prefetch_count: int = 10
-    queues: List[RabbitMQQueueConfig] = field(default_factory=list)
-    publish: RabbitMQPublishConfig = field(default_factory=RabbitMQPublishConfig)
+    bootstrap_servers: str = "localhost:9092"
+    topics: List[str] = field(default_factory=list)
+    group_id: str = "analytics-service"
 
 
 @dataclass
@@ -128,7 +61,6 @@ class CompressionConfig:
 
     enabled: bool = True
     default_level: int = 2
-    algorithm: str = "zstd"
     min_size_bytes: int = 1024
 
 
@@ -144,7 +76,6 @@ class PreprocessorConfig:
 class IntentClassifierConfig:
     """Intent classifier configuration."""
 
-    enabled: bool = True
     confidence_threshold: float = 0.5
     patterns_path: str = "config/intent_patterns.yaml"
 
@@ -200,53 +131,6 @@ class ImpactConfig:
 
 
 @dataclass
-class BatchExpectedSizeConfig:
-    """Expected batch sizes per platform."""
-
-    tiktok: int = 50
-    youtube: int = 20
-
-
-@dataclass
-class BatchConfig:
-    """Batch processing configuration."""
-
-    max_concurrent: int = 5
-    timeout_seconds: int = 30
-    expected_size: BatchExpectedSizeConfig = field(
-        default_factory=BatchExpectedSizeConfig
-    )
-
-
-@dataclass
-class ErrorConfig:
-    """Error handling configuration."""
-
-    max_retries_per_item: int = 3
-    backoff_base_seconds: float = 1.0
-    backoff_max_seconds: float = 60.0
-
-
-@dataclass
-class DebugConfig:
-    """Debug monitoring configuration."""
-
-    raw_data: str = "false"
-    sample_rate: int = 100
-
-
-@dataclass
-class APIConfig:
-    """API service configuration."""
-
-    host: str = "0.0.0.0"
-    port: int = 8000
-    workers: int = 1
-    cors_origins: List[str] = field(default_factory=lambda: ["*"])
-    root_path: str = ""
-
-
-@dataclass
 class Config:
     """Main configuration container.
 
@@ -254,15 +138,9 @@ class Config:
     Similar to Go's Viper config struct.
     """
 
-    service: ServiceConfig = field(default_factory=ServiceConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-    phobert: PhoBERTConfig = field(default_factory=PhoBERTConfig)
-    keyword_extraction: KeywordExtractionConfig = field(
-        default_factory=KeywordExtractionConfig
-    )
-    aspect_mapping: AspectMappingConfig = field(default_factory=AspectMappingConfig)
-    rabbitmq: RabbitMQConfig = field(default_factory=RabbitMQConfig)
+    kafka: KafkaConfig = field(default_factory=KafkaConfig)
     redis: RedisConfig = field(default_factory=RedisConfig)
     minio: MinIOConfig = field(default_factory=MinIOConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
@@ -271,10 +149,6 @@ class Config:
         default_factory=IntentClassifierConfig
     )
     impact: ImpactConfig = field(default_factory=ImpactConfig)
-    batch: BatchConfig = field(default_factory=BatchConfig)
-    error: ErrorConfig = field(default_factory=ErrorConfig)
-    debug: DebugConfig = field(default_factory=DebugConfig)
-    api: APIConfig = field(default_factory=APIConfig)
 
 
 class ConfigLoader:
@@ -287,25 +161,12 @@ class ConfigLoader:
     """
 
     def __init__(self):
+        # Core loader settings actually used by the loader
         self.config_name = "config"
-        self.config_type = "yaml"
         self.config_paths = [".", "config", "/etc/analytics"]
         self.env_prefix = "ANALYTICS"
         self.auto_env = True
         self._raw_config: Dict[str, Any] = {}
-
-    def set_config_name(self, name: str) -> None:
-        """Set config file name (without extension)."""
-        self.config_name = name
-
-    def add_config_path(self, path: str) -> None:
-        """Add path to search for config files."""
-        if path not in self.config_paths:
-            self.config_paths.append(path)
-
-    def set_env_prefix(self, prefix: str) -> None:
-        """Set environment variable prefix."""
-        self.env_prefix = prefix.upper()
 
     def read_config(self) -> Config:
         """Read configuration from all sources.
@@ -414,41 +275,9 @@ class ConfigLoader:
 
         return value if value is not None else default
 
-    def _build_queue_configs(self) -> List[RabbitMQQueueConfig]:
-        """Build queue configurations from YAML."""
-        queues_data = self._raw_config.get("rabbitmq", {}).get("queues", [])
-
-        if not queues_data:
-            return []
-
-        queue_configs = []
-        for queue_data in queues_data:
-            if not isinstance(queue_data, dict):
-                continue
-
-            queue_config = RabbitMQQueueConfig(
-                name=queue_data.get("name", ""),
-                exchange=queue_data.get("exchange", ""),
-                routing_key=queue_data.get("routing_key", ""),
-                handler_module=queue_data.get("handler_module", ""),
-                handler_class=queue_data.get("handler_class", ""),
-                prefetch_count=queue_data.get("prefetch_count", 10),
-                enabled=queue_data.get("enabled", True),
-            )
-
-            if queue_config.enabled and queue_config.name:
-                queue_configs.append(queue_config)
-
-        return queue_configs
-
     def _build_config(self) -> Config:
         """Build Config object from loaded values."""
         return Config(
-            service=ServiceConfig(
-                name=self._get_value("service.name", "analytics-engine"),
-                version=self._get_value("service.version", "0.1.0"),
-                environment=self._get_value("service.environment", "development"),
-            ),
             database=DatabaseConfig(
                 url=self._get_value(
                     "database.url",
@@ -458,63 +287,19 @@ class ConfigLoader:
                     "database.url_sync",
                     "postgresql://dev:dev123@localhost:5432/analytics_dev",
                 ),
-                schema=self._get_value("database.schema", "schema_analyst"),
                 pool_size=self._get_value("database.pool_size", 20),
                 max_overflow=self._get_value("database.max_overflow", 10),
             ),
             logging=LoggingConfig(
                 level=self._get_value("logging.level", "INFO"),
                 debug=self._get_value("logging.debug", False),
-                enable_console=self._get_value("logging.enable_console", True),
-                colorize=self._get_value("logging.colorize", True),
-                service_name=self._get_value(
-                    "logging.service_name", "analytics-engine"
-                ),
             ),
-            phobert=PhoBERTConfig(
-                model_path=self._get_value(
-                    "phobert.model_path", "internal/model/phobert_sentiment"
+            kafka=KafkaConfig(
+                bootstrap_servers=self._get_value(
+                    "kafka.bootstrap_servers", "localhost:9092"
                 ),
-                max_length=self._get_value("phobert.max_length", 256),
-            ),
-            keyword_extraction=KeywordExtractionConfig(
-                spacy_model=self._get_value(
-                    "keyword_extraction.spacy_model", "xx_ent_wiki_sm"
-                ),
-                yake_language=self._get_value("keyword_extraction.yake_language", "vi"),
-                yake_n=self._get_value("keyword_extraction.yake_n", 2),
-                yake_dedup_lim=self._get_value(
-                    "keyword_extraction.yake_dedup_lim", 0.8
-                ),
-                yake_max_keywords=self._get_value(
-                    "keyword_extraction.yake_max_keywords", 30
-                ),
-                max_keywords=self._get_value("keyword_extraction.max_keywords", 30),
-                entity_weight=self._get_value("keyword_extraction.entity_weight", 0.7),
-                chunk_weight=self._get_value("keyword_extraction.chunk_weight", 0.5),
-            ),
-            aspect_mapping=AspectMappingConfig(
-                enabled=self._get_value("aspect_mapping.enabled", False),
-                dictionary_path=self._get_value(
-                    "aspect_mapping.dictionary_path", "config/aspects.yaml"
-                ),
-                unknown_label=self._get_value(
-                    "aspect_mapping.unknown_label", "UNKNOWN"
-                ),
-            ),
-            rabbitmq=RabbitMQConfig(
-                url=self._get_value("rabbitmq.url", "amqp://guest:guest@localhost/"),
-                prefetch_count=self._get_value("rabbitmq.prefetch_count", 10),
-                queues=self._build_queue_configs(),
-                publish=RabbitMQPublishConfig(
-                    exchange=self._get_value(
-                        "rabbitmq.publish.exchange", "results.inbound"
-                    ),
-                    routing_key=self._get_value(
-                        "rabbitmq.publish.routing_key", "analyze.result"
-                    ),
-                    enabled=self._get_value("rabbitmq.publish.enabled", True),
-                ),
+                topics=self._get_value("kafka.topics", []),
+                group_id=self._get_value("kafka.group_id", "analytics-service"),
             ),
             redis=RedisConfig(
                 host=self._get_value("redis.host", "localhost"),
@@ -535,7 +320,6 @@ class ConfigLoader:
             compression=CompressionConfig(
                 enabled=self._get_value("compression.enabled", True),
                 default_level=self._get_value("compression.default_level", 2),
-                algorithm=self._get_value("compression.algorithm", "zstd"),
                 min_size_bytes=self._get_value("compression.min_size_bytes", 1024),
             ),
             preprocessor=PreprocessorConfig(
@@ -543,7 +327,6 @@ class ConfigLoader:
                 max_comments=self._get_value("preprocessor.max_comments", 5),
             ),
             intent_classifier=IntentClassifierConfig(
-                enabled=self._get_value("intent_classifier.enabled", True),
                 confidence_threshold=self._get_value(
                     "intent_classifier.confidence_threshold", 0.5
                 ),
@@ -581,34 +364,6 @@ class ConfigLoader:
                     ),
                 ),
             ),
-            batch=BatchConfig(
-                max_concurrent=self._get_value("batch.max_concurrent", 5),
-                timeout_seconds=self._get_value("batch.timeout_seconds", 30),
-                expected_size=BatchExpectedSizeConfig(
-                    tiktok=self._get_value("batch.expected_size.tiktok", 50),
-                    youtube=self._get_value("batch.expected_size.youtube", 20),
-                ),
-            ),
-            error=ErrorConfig(
-                max_retries_per_item=self._get_value("error.max_retries_per_item", 3),
-                backoff_base_seconds=self._get_value("error.backoff_base_seconds", 1.0),
-                backoff_max_seconds=self._get_value("error.backoff_max_seconds", 60.0),
-            ),
-            debug=DebugConfig(
-                raw_data=self._get_value("debug.raw_data", "false"),
-                sample_rate=self._get_value("debug.sample_rate", 100),
-            ),
-            api=APIConfig(
-                host=self._get_value("api.host", "0.0.0.0"),
-                port=self._get_value("api.port", 8000),
-                workers=self._get_value("api.workers", 1),
-                cors_origins=(
-                    self._get_value("api.cors_origins", ["*"])
-                    if isinstance(self._get_value("api.cors_origins", ["*"]), list)
-                    else ["*"]
-                ),
-                root_path=self._get_value("api.root_path", ""),
-            ),
         )
 
     def _validate(self, config: Config) -> None:
@@ -619,17 +374,13 @@ class ConfigLoader:
         if not config.database.url:
             errors.append("database.url is required")
 
-        # Validate RabbitMQ
-        if not config.rabbitmq.url:
-            errors.append("rabbitmq.url is required")
+        # Validate Kafka
+        if not config.kafka.bootstrap_servers:
+            errors.append("kafka.bootstrap_servers is required")
 
         # Validate MinIO
         if not config.minio.endpoint:
             errors.append("minio.endpoint is required")
-
-        # Validate API port
-        if config.api.port <= 0 or config.api.port > 65535:
-            errors.append("api.port must be between 1 and 65535")
 
         if errors:
             raise ValueError(
@@ -638,28 +389,10 @@ class ConfigLoader:
             )
 
 
-_config: Optional[Config] = None
-
-
 def load_config() -> Config:
-    """Load configuration (singleton).
+    """Load configuration.
 
     Returns:
         Config object
     """
-    global _config
-    if _config is None:
-        loader = ConfigLoader()
-        _config = loader.read_config()
-    return _config
-
-
-def get_config() -> Config:
-    """Get loaded configuration.
-
-    Returns:
-        Config object
-    """
-    if _config is None:
-        return load_config()
-    return _config
+    return ConfigLoader().read_config()

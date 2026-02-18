@@ -1,29 +1,21 @@
-# .gitignore for Python + uv + Whisper.cpp STT project
-
-# --- Bytecode ---
 __pycache__/
 *.py[cod]
 *$py.class
 
-# --- Virtual environment directories ---
 .venv/
 ENV/
 env/
 venv/
 
-# --- Build outputs / Distribution artifacts ---
 *.egg-info/
 build/
 dist/
 
-# --- Environment variable files ---
 .env
 .env.local
 
-# --- Config with secrets ---
 config/config.yaml
 
-# --- Test & Lint tool caches ---
 .coverage
 .htmlcov/
 .mypy_cache/
@@ -31,24 +23,19 @@ config/config.yaml
 .ruff_cache/
 
 
-# --- PhoBERT Models & Artifacts ---
 internal/model/phobert/
 *.onnx
 *.safetensors
 training_args.bin
 
-# --- Logs ---
 logs/
 *.log
 
-# --- Temporary files & directories ---
 temp/
 tmp/
 
-# --- Docker ---
 .docker/
 
-# --- IDE/editor/system files ---
 .DS_Store
 .idea/
 .vscode/
@@ -57,11 +44,5 @@ Thumbs.db
 *.swo
 *.swp
 
-# --- OpenSpec ---
-# AGENTS.md
-# CLAUDE.md
-# .agent/
-# .claude/
-# .cursor/
-
 term/
+refactor_plan/

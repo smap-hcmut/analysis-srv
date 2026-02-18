@@ -70,8 +70,6 @@ class MinioAdapter(IObjectStorage):
         self._compressor = zstd.ZstdCompressor(level=self.compression_config.level)
         self._decompressor = zstd.ZstdDecompressor()
 
-        logger.info("MinIO adapter initialized")
-
     def _compress_data(self, data: bytes, level: Optional[int] = None) -> bytes:
         """Compress data using Zstd algorithm.
 

@@ -9,7 +9,6 @@ from .type import (
     Config,
     Input,
     Output,
-    PostData,
     AnalyticsResult,
 )
 from .errors import (
@@ -21,29 +20,24 @@ from .errors import (
 
 # Import factory functions
 from .usecase.new import New as NewAnalyticsPipeline
-from .delivery.rabbitmq.consumer.new import New as NewAnalyticsHandler
+from .delivery.kafka.consumer.new import new_kafka_handler as NewAnalyticsHandler
 
 __all__ = [
     # Interface
     "IAnalyticsPipeline",
-
     # Types
     "Config",
     "Input",
     "Output",
-    "PostData",
     "AnalyticsResult",
-
     # Errors
     "ErrPipelineProcessing",
     "ErrInvalidInput",
     "ErrPreprocessingFailed",
     "ErrPersistenceFailed",
-
     # Factory functions
     "NewAnalyticsPipeline",
     "NewAnalyticsHandler",
-
     # Constants
     "MODEL_VERSION",
     "DEFAULT_SENTIMENT_LABEL",

@@ -1,6 +1,6 @@
 -- Migration: Create analyzed_posts table
 -- Description: Table to store analyzed social media posts with sentiment, intent, and impact data
--- Author: Analytics Team
+-- Author: schema_analyst Team
 -- Date: 2024-02-12
 
 -- Create analyzed_posts table
