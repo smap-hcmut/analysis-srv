@@ -1,5 +1,12 @@
 # Phase 2: Code Plan — Output Layer Refactoring (Enriched Output + Kafka Publisher)
 
+**⚠️ IMPLEMENTATION STATUS:**
+- ✅ **COMPLETED** - ResultBuilder and Kafka publisher fully implemented
+- **Actual Schema**: `schema_analysis.post_insight` (NOT `analytics.post_analytics`)
+- **Reference**: See `documents/analysis.md` for current implementation status
+
+---
+
 **Ref:** `documents/master-proposal.md` (Phase 2)
 **Convention:** `documents/convention/`
 **Output Spec:** `refactor_plan/input-output/ouput/output_example.json`, `refactor_plan/indexing_input_schema.md`

@@ -1,5 +1,13 @@
 # Phase 1: Code Plan — Input Layer Refactoring (UAP Parser)
 
+**⚠️ IMPLEMENTATION STATUS:**
+- ✅ **COMPLETED** - UAP parser fully implemented
+- **Actual Consumer**: Kafka (NOT RabbitMQ as in some parts of this plan)
+- **Actual Path**: `internal/analytics/delivery/kafka/consumer/` (NOT rabbitmq)
+- **Reference**: See `documents/analysis.md` for current implementation status
+
+---
+
 **Ref:** `documents/master-proposal.md` (Phase 1)
 **Convention:** `documents/convention/`
 **UAP Spec:** `refactor_plan/input-output/input/UAP_INPUT_SCHEMA.md`

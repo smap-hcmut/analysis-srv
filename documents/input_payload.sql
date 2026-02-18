@@ -3,8 +3,8 @@
 -- ============================================================================
 -- Mô tả cấu trúc JSON message mà service nhận từ Kafka.
 -- Topic: smap.collector.output
--- Consumer Group: schema_analyst-service
--- Format: UAP v1.0 (Unified schema_analyst Protocol)
+-- Consumer Group: analytics-service
+-- Format: UAP v1.0 (Unified Analytics Protocol)
 --
 -- Đây KHÔNG phải table thực tế trong DB, mà là mô tả cấu trúc input
 -- dưới dạng SQL-like schema để dễ tham chiếu.
@@ -276,7 +276,7 @@ CREATE TYPE uap_context AS (
 -- ============================================================================
 -- Legacy format (REMOVED): Event Envelope
 -- - Broker: RabbitMQ
--- - Queue: schema_analyst.data.collected
+-- - Queue: analytics.data.collected
 -- - Flat structure with payload.meta, payload.content, payload.interaction
 --
 -- Current format: UAP v1.0

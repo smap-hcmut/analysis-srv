@@ -1,5 +1,12 @@
 # Phase 5: Code Plan — Data Mapping Implementation
 
+**⚠️ IMPORTANT NOTE - ACTUAL IMPLEMENTATION:**
+- **Actual Schema**: `schema_analysis` (NOT `analytics` as in this plan)
+- **Actual Table**: `post_insight` (NOT `post_analytics` as in this plan)
+- **Reference**: See `internal/model/post_insight.py` for actual schema
+
+---
+
 **Ref:** `documents/master-proposal.md` (Phase 5), `refactor_plan/04_data_mapping.md`
 **Convention:** `documents/convention/`
 **Depends on:** Phase 1 + Phase 2 + Phase 3 + Phase 4 (done)

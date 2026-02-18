@@ -15,8 +15,14 @@ from internal.text_preprocessing.type import (
     ContentInput,
 )
 from internal.sentiment_analysis.interface import ISentimentAnalysisUseCase
+from internal.sentiment_analysis.type import (
+    Input as SAInput,
+    KeywordInput,
+)
 from internal.intent_classification.interface import IIntentClassificationUseCase
+from internal.intent_classification.type import Input as IntentClassificationInput
 from internal.keyword_extraction.interface import IKeywordExtractionUseCase
+from internal.keyword_extraction.type import Input as KeywordExtractionInput
 from internal.impact_calculation.interface import IImpactCalculationUseCase
 from internal.impact_calculation.type import (
     Input as ICInput,
@@ -272,20 +278,91 @@ class AnalyticsProcess:
         # === STAGE 2: INTENT CLASSIFICATION ===
 
         if self.config.enable_intent_classification and self.intent_classifier:
-            # TODO: Implement intent classification
-            pass
+            try:
+                ic_input = IntentClassificationInput(text=full_text)
+                ic_output = self.intent_classifier.process(ic_input)
+                
+                # Update result
+                result.primary_intent = ic_output.intent.name
+                result.intent_confidence = ic_output.confidence
+                
+                # Skip if spam/seeding
+                if ic_output.should_skip:
+                    result.processing_status = "success_skipped"
+                    result.risk_level = "LOW"
+                    # Early return - skip remaining stages
+                    return result
+            
+            except Exception as e:
+                self.logger.error(f"internal.analytics.usecase.process: Intent classification failed: {e}")
+                # Continue pipeline even if intent classification fails
 
         # === STAGE 3: KEYWORD EXTRACTION ===
 
+        keywords_for_sentiment = []  # Store for Stage 4 (ABSA)
+
         if self.config.enable_keyword_extraction and self.keyword_extractor:
-            # TODO: Implement keyword extraction
-            pass
+            try:
+                ke_input = KeywordExtractionInput(text=full_text)
+                ke_output = self.keyword_extractor.process(ke_input)
+                
+                # Update result - extract keyword strings
+                result.keywords = [kw.keyword for kw in ke_output.keywords]
+                
+                # Store keywords with aspect info for sentiment analysis
+                keywords_for_sentiment = ke_output.keywords
+            
+            except Exception as e:
+                self.logger.error(f"internal.analytics.usecase.process: Keyword extraction failed: {e}")
+                # Continue pipeline even if keyword extraction fails
 
         # === STAGE 4: SENTIMENT ANALYSIS ===
 
         if self.config.enable_sentiment_analysis and self.sentiment_analyzer:
-            # TODO: Implement sentiment analysis
-            pass
+            try:
+                # Prepare keywords for ABSA (convert KeywordItem → KeywordInput)
+                keyword_inputs = [
+                    KeywordInput(
+                        keyword=kw.keyword,
+                        aspect=kw.aspect,  # Already string from KeywordItem
+                        position=None,  # Not available from keyword extraction
+                        score=kw.score,
+                        source=kw.source,
+                    )
+                    for kw in keywords_for_sentiment
+                ]
+                
+                sa_input = SAInput(text=full_text, keywords=keyword_inputs)
+                sa_output = self.sentiment_analyzer.process(sa_input)
+                
+                # Update result - Overall sentiment
+                result.overall_sentiment = sa_output.overall.label
+                result.overall_sentiment_score = sa_output.overall.score
+                result.overall_confidence = sa_output.overall.confidence
+                
+                # Store probabilities if available
+                if sa_output.overall.probabilities:
+                    result.sentiment_probabilities = sa_output.overall.probabilities
+                
+                # Update result - Aspects breakdown
+                aspects_list = []
+                for aspect_name, aspect_sentiment in sa_output.aspects.items():
+                    aspects_list.append({
+                        "aspect": aspect_name,
+                        "polarity": aspect_sentiment.label,
+                        "confidence": aspect_sentiment.confidence,
+                        "score": aspect_sentiment.score,
+                        "evidence": ", ".join(aspect_sentiment.keywords[:3]) if aspect_sentiment.keywords else "",
+                        "mentions": aspect_sentiment.mentions,
+                        "rating": aspect_sentiment.rating,
+                    })
+                
+                if aspects_list:
+                    result.aspects_breakdown = {"aspects": aspects_list}
+            
+            except Exception as e:
+                self.logger.error(f"internal.analytics.usecase.process: Sentiment analysis failed: {e}")
+                # Continue pipeline even if sentiment analysis fails
 
         # === STAGE 5: IMPACT CALCULATION ===
 

@@ -1,7 +1,7 @@
 -- ============================================================================
--- SMAP Analysis Service — Output Schema (schema_analyst.post_schema_analyst)
+-- SMAP Analysis Service — Output Schema (schema_analysis.post_insight)
 -- ============================================================================
--- Table: schema_analyst.post_schema_analyst
+-- Table: schema_analysis.post_insight
 -- Mô tả cấu trúc dữ liệu output mà pipeline persist vào PostgreSQL.
 -- Mỗi record = 1 bài viết đã phân tích đầy đủ (UAP input + kết quả AI enriched).
 --
@@ -9,9 +9,9 @@
 -- schema_analyst.analyzed_posts với cấu trúc enriched và nhiều fields mới.
 -- ============================================================================
 
-CREATE SCHEMA IF NOT EXISTS schema_analyst;
+CREATE SCHEMA IF NOT EXISTS schema_analysis;
 
-CREATE TABLE schema_analyst.post_schema_analyst (
+CREATE TABLE schema_analysis.post_insight (
 
     -- ═══════════════════════════════════════════════════════════════════════
     -- CORE IDENTITY
@@ -222,30 +222,30 @@ CREATE TABLE schema_analyst.post_schema_analyst (
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- Primary key
-CREATE UNIQUE INDEX idx_post_schema_analyst_pkey ON schema_analyst.post_schema_analyst(id);
+CREATE UNIQUE INDEX idx_post_insight_pkey ON schema_analysis.post_insight(id);
 
 -- Query optimization
-CREATE INDEX idx_post_schema_analyst_project ON schema_analyst.post_schema_analyst(project_id);
-CREATE INDEX idx_post_schema_analyst_platform ON schema_analyst.post_schema_analyst(platform);
-CREATE INDEX idx_post_schema_analyst_created ON schema_analyst.post_schema_analyst(content_created_at DESC);
-CREATE INDEX idx_post_schema_analyst_analyzed ON schema_analyst.post_schema_analyst(analyzed_at DESC);
-CREATE INDEX idx_post_schema_analyst_sentiment ON schema_analyst.post_schema_analyst(overall_sentiment);
-CREATE INDEX idx_post_schema_analyst_risk ON schema_analyst.post_schema_analyst(risk_level);
-CREATE INDEX idx_post_schema_analyst_intent ON schema_analyst.post_schema_analyst(primary_intent);
+CREATE INDEX idx_post_insight_project ON schema_analysis.post_insight(project_id);
+CREATE INDEX idx_post_insight_platform ON schema_analysis.post_insight(platform);
+CREATE INDEX idx_post_insight_created ON schema_analysis.post_insight(content_created_at DESC);
+CREATE INDEX idx_post_insight_analyzed ON schema_analysis.post_insight(analyzed_at DESC);
+CREATE INDEX idx_post_insight_sentiment ON schema_analysis.post_insight(overall_sentiment);
+CREATE INDEX idx_post_insight_risk ON schema_analysis.post_insight(risk_level);
+CREATE INDEX idx_post_insight_intent ON schema_analysis.post_insight(primary_intent);
 
 -- JSONB indexes (GIN for efficient JSONB queries)
-CREATE INDEX idx_post_schema_analyst_aspects_gin ON schema_analyst.post_schema_analyst USING GIN(aspects);
-CREATE INDEX idx_post_schema_analyst_uap_gin ON schema_analyst.post_schema_analyst USING GIN(uap_metadata);
-CREATE INDEX idx_post_schema_analyst_risk_factors_gin ON schema_analyst.post_schema_analyst USING GIN(risk_factors);
+CREATE INDEX idx_post_insight_aspects_gin ON schema_analysis.post_insight USING GIN(aspects);
+CREATE INDEX idx_post_insight_uap_gin ON schema_analysis.post_insight USING GIN(uap_metadata);
+CREATE INDEX idx_post_insight_risk_factors_gin ON schema_analysis.post_insight USING GIN(risk_factors);
 
 -- Composite indexes
-CREATE INDEX idx_post_schema_analyst_project_created ON schema_analyst.post_schema_analyst(project_id, content_created_at DESC);
-CREATE INDEX idx_post_schema_analyst_project_sentiment ON schema_analyst.post_schema_analyst(project_id, overall_sentiment);
-CREATE INDEX idx_post_schema_analyst_project_risk ON schema_analyst.post_schema_analyst(project_id, risk_level);
+CREATE INDEX idx_post_insight_project_created ON schema_analysis.post_insight(project_id, content_created_at DESC);
+CREATE INDEX idx_post_insight_project_sentiment ON schema_analysis.post_insight(project_id, overall_sentiment);
+CREATE INDEX idx_post_insight_project_risk ON schema_analysis.post_insight(project_id, risk_level);
 
 -- Attention flags
-CREATE INDEX idx_post_schema_analyst_attention ON schema_analyst.post_schema_analyst(requires_attention) WHERE requires_attention = TRUE;
-CREATE INDEX idx_post_schema_analyst_spam ON schema_analyst.post_schema_analyst(is_spam) WHERE is_spam = TRUE;
+CREATE INDEX idx_post_insight_attention ON schema_analysis.post_insight(requires_attention) WHERE requires_attention = TRUE;
+CREATE INDEX idx_post_insight_spam ON schema_analysis.post_insight(is_spam) WHERE is_spam = TRUE;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- EXAMPLE QUERIES
@@ -253,7 +253,7 @@ CREATE INDEX idx_post_schema_analyst_spam ON schema_analyst.post_schema_analyst(
 
 -- Get all negative posts about a project in last 7 days
 -- SELECT id, content, overall_sentiment_score, aspects
--- FROM schema_analyst.post_schema_analyst
+-- FROM schema_analysis.post_insight
 -- WHERE project_id = 'proj_vf8_monitor_01'
 --   AND overall_sentiment = 'NEGATIVE'
 --   AND content_created_at >= NOW() - INTERVAL '7 days'
@@ -262,14 +262,14 @@ CREATE INDEX idx_post_schema_analyst_spam ON schema_analyst.post_schema_analyst(
 
 -- Find posts with specific aspect complaints
 -- SELECT id, content, aspects
--- FROM schema_analyst.post_schema_analyst
+-- FROM schema_analysis.post_insight
 -- WHERE project_id = 'proj_vf8_monitor_01'
 --   AND aspects @> '[{"aspect": "BATTERY", "polarity": "NEGATIVE"}]'::jsonb
 -- ORDER BY content_created_at DESC;
 
 -- Get high-risk posts requiring attention
 -- SELECT id, content, risk_level, risk_factors
--- FROM schema_analyst.post_schema_analyst
+-- FROM schema_analysis.post_insight
 -- WHERE requires_attention = true
 --   AND risk_level IN ('HIGH', 'CRITICAL')
 -- ORDER BY risk_score DESC;
@@ -284,8 +284,8 @@ CREATE INDEX idx_post_schema_analyst_spam ON schema_analyst.post_schema_analyst(
 -- - Flat structure with limited enrichment
 --
 -- Current schema (Phase 3+):
--- - Schema: schema_analyst
--- - Table: post_schema_analyst
+-- - Schema: schema_analysis
+-- - Table: post_insight
 -- - ID type: UUID
 -- - Enriched structure with 50+ columns
 -- - JSONB columns for flexible metadata

@@ -1,5 +1,13 @@
 # Phase 4: Code Plan — Business Logic Upgrade
 
+**⚠️ IMPORTANT NOTE - ACTUAL IMPLEMENTATION:**
+- **Actual Schema**: `schema_analysis` (NOT `analytics` as in this plan)
+- **Actual Table**: `post_insight` (NOT `post_analytics` as in this plan)
+- **Actual Helper**: `transform_to_post_insight()` (NOT `transform_to_post_analytics()`)
+- **Reference**: See `internal/model/post_insight.py` and `internal/post_insight/repository/postgre/helpers.py`
+
+---
+
 **Ref:** `documents/master-proposal.md` (Phase 4), `refactor_plan/05_business_logic.md`
 **Convention:** `documents/convention/`
 **Depends on:** Phase 1 + Phase 2 + Phase 3 (done)

@@ -687,18 +687,22 @@ Week 4: Phase 6 (Legacy Cleanup) — sau 2 tuần verify schema mới ổn đị
 
 ## 11. TÀI LIỆU THAM CHIẾU
 
-| Tài liệu              | Đường dẫn                                                          | Mô tả                               |
-| :-------------------- | :----------------------------------------------------------------- | :---------------------------------- |
-| Architecture Overview | `refactor_plan/01_architecture_overview.md`                        | Kiến trúc tổng quan Before/After    |
-| API Contract          | `refactor_plan/02_api_contract.md`                                 | Input/Output interface specs        |
-| Migration Steps       | `refactor_plan/03_migration_steps.md`                              | Execution plan gốc                  |
-| Data Mapping          | `refactor_plan/04_data_mapping.md`                                 | Field-by-field mapping UAP → Output |
-| Business Logic        | `refactor_plan/05_business_logic.md`                               | Formulas & algorithms               |
-| Indexing Schema       | `refactor_plan/indexing_input_schema.md`                           | Target DB schema chi tiết           |
-| UAP Input Schema      | `refactor_plan/input-output/input/UAP_INPUT_SCHEMA.md`             | UAP v1.0 spec                       |
-| Output Explain        | `refactor_plan/input-output/ouput/OUTPUT_EXPLAIN.md`               | Enriched Output business usage      |
-| Metric History        | `refactor_plan/input-output/METRIC_HISTORY_STRATEGY/brainstorm.md` | Time-series storage strategy        |
-| Current Status        | `documents/status.md`                                              | Implementation status hiện tại      |
-| Current Input         | `documents/input_payload.md`                                       | Event Envelope format hiện tại      |
-| Current Output        | `documents/output_payload.md`                                      | DB output format hiện tại           |
-| DDD Convention        | `documents/convention/domain_convention/convention.md`             | Coding standards                    |
+| Tài liệu              | Đường dẫn                                                          | Mô tả                               | Trạng thái |
+| :-------------------- | :----------------------------------------------------------------- | :---------------------------------- | :--------- |
+| Architecture Overview | `refactor_plan/01_architecture_overview.md`                        | Kiến trúc tổng quan Before/After    | Reference  |
+| API Contract          | `refactor_plan/02_api_contract.md`                                 | Input/Output interface specs        | Reference  |
+| Migration Steps       | `refactor_plan/03_migration_steps.md`                              | Execution plan gốc                  | Reference  |
+| Data Mapping          | `refactor_plan/04_data_mapping.md`                                 | Field-by-field mapping UAP → Output | Reference  |
+| Business Logic        | `refactor_plan/05_business_logic.md`                               | Formulas & algorithms               | Reference  |
+| Indexing Schema       | `refactor_plan/indexing_input_schema.md`                           | Target DB schema chi tiết           | Reference  |
+| UAP Input Schema      | `refactor_plan/input-output/input/UAP_INPUT_SCHEMA.md`             | UAP v1.0 spec                       | Reference  |
+| Output Explain        | `refactor_plan/input-output/ouput/OUTPUT_EXPLAIN.md`               | Enriched Output business usage      | Reference  |
+| Metric History        | `refactor_plan/input-output/METRIC_HISTORY_STRATEGY/brainstorm.md` | Time-series storage strategy        | Future     |
+| Implementation Status | `documents/analysis.md`                                            | Phân tích implementation hiện tại   | **CURRENT**|
+| Phase Plans           | `documents/phase[1-6]_code_plan.md`                                | Chi tiết implementation từng phase  | Reference  |
+| DDD Convention        | `documents/convention/domain_convention/convention.md`             | Coding standards                    | Active     |
+
+**Lưu ý:** 
+- Documents trong `refactor_plan/` là tài liệu tham khảo ban đầu
+- Documents trong `documents/` phản ánh trạng thái thực tế của repo
+- `documents/analysis.md` là nguồn chính xác nhất về implementation status

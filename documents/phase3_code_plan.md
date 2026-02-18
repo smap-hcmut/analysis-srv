@@ -1,5 +1,14 @@
 # Phase 3: Code Plan — Database Schema Migration (Full Replace)
 
+**⚠️ IMPORTANT NOTE - ACTUAL IMPLEMENTATION:**
+- **Actual Schema**: `schema_analysis` (NOT `analytics` as in this plan)
+- **Actual Table**: `post_insight` (NOT `post_analytics` as in this plan)
+- **Reason**: Naming convention changed during implementation
+- **Structure**: Fields and logic remain the same, only names differ
+- **Reference**: See `internal/model/post_insight.py` for actual implementation
+
+---
+
 **Ref:** `documents/master-proposal.md` (Phase 3)
 **Convention:** `documents/convention/`
 **Target Schema:** `refactor_plan/indexing_input_schema.md`

@@ -13,14 +13,14 @@ Sau khi xử lý qua pipeline 5 giai đoạn, Analysis Service tạo ra 2 loại
 
 ### 1.1 Database Target
 
-- **Schema**: `analytics`
-- **Table**: `post_analytics`
+- **Schema**: `schema_analysis`
+- **Table**: `post_insight`
 - **Primary Key**: `id` (UUID)
 - **ORM**: SQLAlchemy 2.x async
 
 ### 1.2 Table Structure
 
-Table `analytics.post_analytics` chứa kết quả phân tích đầy đủ với 50+ columns được nhóm theo các categories:
+Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ với 50+ columns được nhóm theo các categories:
 
 #### Core Identity
 - `id` (UUID) - Primary key, định danh duy nhất của record analytics
@@ -171,24 +171,24 @@ Table `analytics.post_analytics` chứa kết quả phân tích đầy đủ v�
 
 ```sql
 -- Primary key
-CREATE UNIQUE INDEX idx_post_analytics_pkey ON analytics.post_analytics(id);
+CREATE UNIQUE INDEX idx_post_insight_pkey ON schema_analysis.post_insight(id);
 
 -- Query optimization
-CREATE INDEX idx_post_analytics_project ON analytics.post_analytics(project_id);
-CREATE INDEX idx_post_analytics_platform ON analytics.post_analytics(platform);
-CREATE INDEX idx_post_analytics_created ON analytics.post_analytics(content_created_at DESC);
-CREATE INDEX idx_post_analytics_analyzed ON analytics.post_analytics(analyzed_at DESC);
-CREATE INDEX idx_post_analytics_sentiment ON analytics.post_analytics(overall_sentiment);
-CREATE INDEX idx_post_analytics_risk ON analytics.post_analytics(risk_level);
+CREATE INDEX idx_post_insight_project ON schema_analysis.post_insight(project_id);
+CREATE INDEX idx_post_insight_platform ON schema_analysis.post_insight(platform);
+CREATE INDEX idx_post_insight_created ON schema_analysis.post_insight(content_created_at DESC);
+CREATE INDEX idx_post_insight_analyzed ON schema_analysis.post_insight(analyzed_at DESC);
+CREATE INDEX idx_post_insight_sentiment ON schema_analysis.post_insight(overall_sentiment);
+CREATE INDEX idx_post_insight_risk ON schema_analysis.post_insight(risk_level);
 
 -- JSONB indexes
-CREATE INDEX idx_post_analytics_aspects_gin ON analytics.post_analytics USING GIN(aspects);
-CREATE INDEX idx_post_analytics_uap_gin ON analytics.post_analytics USING GIN(uap_metadata);
-CREATE INDEX idx_post_analytics_risk_factors_gin ON analytics.post_analytics USING GIN(risk_factors);
+CREATE INDEX idx_post_insight_aspects_gin ON schema_analysis.post_insight USING GIN(aspects);
+CREATE INDEX idx_post_insight_uap_gin ON schema_analysis.post_insight USING GIN(uap_metadata);
+CREATE INDEX idx_post_insight_risk_factors_gin ON schema_analysis.post_insight USING GIN(risk_factors);
 
 -- Composite indexes
-CREATE INDEX idx_post_analytics_project_created ON analytics.post_analytics(project_id, content_created_at DESC);
-CREATE INDEX idx_post_analytics_project_sentiment ON analytics.post_analytics(project_id, overall_sentiment);
+CREATE INDEX idx_post_insight_project_created ON schema_analysis.post_insight(project_id, content_created_at DESC);
+CREATE INDEX idx_post_insight_project_sentiment ON schema_analysis.post_insight(project_id, overall_sentiment);
 ```
 
 ---
@@ -421,7 +421,7 @@ kafka:
 │     ↓                                                       │
 │  ┌──────────────────────────────────────────────┐          │
 │  │  8a. Database Persistence                    │          │
-│  │      → INSERT INTO analytics.post_analytics  │          │
+│  │      → INSERT INTO schema_analysis.post_insight │       │
 │  └──────────────────────────────────────────────┘          │
 │     ↓                                                       │
 │  ┌──────────────────────────────────────────────┐          │
@@ -438,7 +438,7 @@ kafka:
                     ↓                    ↓
          ┌──────────────────┐  ┌──────────────────┐
          │   PostgreSQL     │  │  Kafka Topic     │
-         │  post_analytics  │  │ analytics.output │
+         │   post_insight   │  │ analytics.output │
          └──────────────────┘  └──────────────────┘
                                         ↓
                               ┌──────────────────┐
@@ -456,7 +456,7 @@ kafka:
 ```sql
 -- Get all negative posts about VF8
 SELECT id, content, overall_sentiment_score, aspects
-FROM analytics.post_analytics
+FROM schema_analysis.post_insight
 WHERE project_id = 'proj_vf8_monitor_01'
   AND overall_sentiment = 'NEGATIVE'
   AND content_created_at >= NOW() - INTERVAL '7 days'
@@ -465,14 +465,14 @@ LIMIT 10;
 
 -- Find posts with battery complaints
 SELECT id, content, aspects
-FROM analytics.post_analytics
+FROM schema_analysis.post_insight
 WHERE project_id = 'proj_vf8_monitor_01'
   AND aspects @> '[{"aspect": "BATTERY", "polarity": "NEGATIVE"}]'::jsonb
 ORDER BY content_created_at DESC;
 
 -- Get high-risk posts requiring attention
 SELECT id, content, risk_level, risk_factors
-FROM analytics.post_analytics
+FROM schema_analysis.post_insight
 WHERE requires_attention = true
   AND risk_level IN ('HIGH', 'CRITICAL')
 ORDER BY risk_score DESC;
@@ -526,18 +526,18 @@ async for message in consumer:
 
 ### From Legacy Schema
 
-**Old**: `schema_analyst.analyzed_posts` (flat structure)
-**New**: `analytics.post_analytics` (enriched structure)
+**Old**: `schema_analyst.analyzed_posts` (flat structure)  
+**New**: `schema_analysis.post_insight` (enriched structure)
 
 **Key Changes:**
-- Schema name: `schema_analyst` → `analytics`
-- Table name: `analyzed_posts` → `post_analytics`
+- Schema name: `schema_analyst` → `schema_analysis`
+- Table name: `analyzed_posts` → `post_insight`
 - ID type: VARCHAR(255) → UUID
 - Added 30+ new columns for enriched analytics
 - Added JSONB columns with GIN indexes
 - Added Kafka output publishing
 
-**Migration Script**: `migration/003_create_post_analytics.sql`
+**Migration Script**: `migration/003_create_post_insight.sql`
 
 ---
 
