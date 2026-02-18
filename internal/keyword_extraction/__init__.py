@@ -1,19 +1,14 @@
-from .interface import IKeywordExtraction
-from .type import Config, Aspect, KeywordItem, Metadata, Output, Input
-from .errors import ErrInvalidInput, ErrExtractionFailed, ErrDictionaryLoadFailed
-from .usecase import New, KeywordExtraction
+from .interface import IKeywordExtractionUseCase
+from .type import Input, Output, Config, KeywordItem, Metadata, Aspect
+from .usecase.new import New as NewKeywordExtractionUseCase
 
 __all__ = [
-    "IKeywordExtraction",
+    "IKeywordExtractionUseCase",
+    "Input",
+    "Output",
     "Config",
-    "Aspect",
     "KeywordItem",
     "Metadata",
-    "Output",
-    "Input",
-    "ErrInvalidInput",
-    "ErrExtractionFailed",
-    "ErrDictionaryLoadFailed",
-    "New",
-    "KeywordExtraction",
+    "Aspect",
+    "NewKeywordExtractionUseCase",
 ]

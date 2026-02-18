@@ -1,13 +1,10 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 from .constant import *
 
 
 @dataclass
 class Config:
-    """Configuration for keyword extraction."""
-
     aspect_dictionary_path: str | None = DEFAULT_ASPECT_DICTIONARY_PATH
     enable_ai: bool = DEFAULT_ENABLE_AI
     ai_threshold: int = DEFAULT_AI_THRESHOLD
@@ -21,12 +18,6 @@ class Config:
 
 
 class Aspect(Enum):
-    """Business aspects for automotive analytics.
-
-    Each aspect represents a category of customer feedback that's
-    actionable for business decisions.
-    """
-
     DESIGN = ASPECT_DESIGN
     PERFORMANCE = ASPECT_PERFORMANCE
     PRICE = ASPECT_PRICE
@@ -34,14 +25,11 @@ class Aspect(Enum):
     GENERAL = ASPECT_GENERAL
 
     def __str__(self) -> str:
-        """String representation."""
         return self.value
 
 
 @dataclass
 class KeywordItem:
-    """Single keyword with aspect mapping."""
-
     keyword: str
     aspect: str
     score: float
@@ -50,8 +38,6 @@ class KeywordItem:
 
 @dataclass
 class Metadata:
-    """Extraction metadata."""
-
     dict_matches: int
     ai_matches: int
     total_keywords: int
@@ -60,21 +46,12 @@ class Metadata:
 
 @dataclass
 class Output:
-    """Output of keyword extraction.
-
-    Attributes:
-        keywords: List of extracted keywords with aspect labels
-        metadata: Extraction statistics and timing info
-    """
-
     keywords: list[KeywordItem]
     metadata: Metadata
 
 
 @dataclass
 class Input:
-    """Input structure for keyword extraction."""
-
     text: str
 
 

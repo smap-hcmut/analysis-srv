@@ -1,4 +1,4 @@
-from .keyword_extraction import KeywordExtraction
+from .usecase import KeywordExtractionUseCase
 from .new import New
 
-__all__ = ["KeywordExtraction", "New"]
+__all__ = ["KeywordExtractionUseCase", "New"]
