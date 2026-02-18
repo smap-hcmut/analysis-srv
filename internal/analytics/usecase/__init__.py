@@ -1,6 +1,4 @@
-"""Analytics Pipeline Use Cases."""
-
-from .usecase import AnalyticsPipeline
+from .usecase import AnalyticsUseCase
 from .new import New
 
-__all__ = ["AnalyticsPipeline", "New"]
+__all__ = ["AnalyticsUseCase", "New"]

@@ -1,59 +1,43 @@
-"""Factory function for creating analytics pipeline."""
-
 from typing import Optional
 
 from pkg.logger.logger import Logger
-from internal.text_preprocessing.interface import ITextProcessing
-from internal.intent_classification.interface import IIntentClassification
-from internal.keyword_extraction.interface import IKeywordExtraction
-from internal.sentiment_analysis.interface import ISentimentAnalysis
-from internal.impact_calculation.interface import IImpactCalculation
-from internal.analyzed_post.interface import IAnalyzedPostUseCase
+from internal.text_preprocessing.interface import ITextPreprocessingUseCase
+from internal.intent_classification.interface import IIntentClassificationUseCase
+from internal.keyword_extraction.interface import IKeywordExtractionUseCase
+from internal.sentiment_analysis.interface import ISentimentAnalysisUseCase
+from internal.impact_calculation.interface import IImpactCalculationUseCase
+from internal.post_insight.interface import IPostInsightUseCase
+from internal.builder.interface import IResultBuilderUseCase
+from internal.analytics.interface import IAnalyticsPublisher
 
+from ..interface import IAnalyticsUseCase, IAnalyticsPublisher
 from ..type import Config
-from .usecase import AnalyticsPipeline
+from .usecase import AnalyticsUseCase
 
 
 def New(
     config: Config,
-    analyzed_post_usecase: IAnalyzedPostUseCase,
+    post_insight_usecase: IPostInsightUseCase,
     logger: Optional[Logger] = None,
-    preprocessor: Optional[ITextProcessing] = None,
-    intent_classifier: Optional[IIntentClassification] = None,
-    keyword_extractor: Optional[IKeywordExtraction] = None,
-    sentiment_analyzer: Optional[ISentimentAnalysis] = None,
-    impact_calculator: Optional[IImpactCalculation] = None,
-) -> AnalyticsPipeline:
-    """Create a new analytics pipeline instance.
-    
-    Args:
-        config: Pipeline configuration
-        analyzed_post_usecase: Use case for persisting analyzed posts
-        logger: Logger instance (optional)
-        preprocessor: Text preprocessor (optional)
-        intent_classifier: Intent classifier (optional)
-        keyword_extractor: Keyword extractor (optional)
-        sentiment_analyzer: Sentiment analyzer (optional)
-        impact_calculator: Impact calculator (optional)
-        
-    Returns:
-        AnalyticsPipeline instance
-        
-    Raises:
-        ValueError: If config is invalid
-    """
-    if not isinstance(config, Config):
-        raise ValueError("config must be an instance of Config")
-    
-    return AnalyticsPipeline(
+    preprocessor: Optional[ITextPreprocessingUseCase] = None,
+    intent_classifier: Optional[IIntentClassificationUseCase] = None,
+    keyword_extractor: Optional[IKeywordExtractionUseCase] = None,
+    sentiment_analyzer: Optional[ISentimentAnalysisUseCase] = None,
+    impact_calculator: Optional[IImpactCalculationUseCase] = None,
+    result_builder: Optional[IResultBuilderUseCase] = None,
+    analytics_publisher: Optional[IAnalyticsPublisher] = None,
+) -> IAnalyticsUseCase: 
+    return AnalyticsUseCase(
         config=config,
-        analyzed_post_usecase=analyzed_post_usecase,
+        post_insight_usecase=post_insight_usecase,
         logger=logger,
         preprocessor=preprocessor,
         intent_classifier=intent_classifier,
         keyword_extractor=keyword_extractor,
         sentiment_analyzer=sentiment_analyzer,
         impact_calculator=impact_calculator,
+        result_builder=result_builder,
+        analytics_publisher=analytics_publisher,
     )
 
 

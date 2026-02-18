@@ -1,20 +1,9 @@
-"""Delivery layer DTOs for analytics domain.
-
-Convention: Delivery DTOs are DECOUPLED from domain types.
-These structs represent the wire format (message queue payloads).
-"""
-
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
 @dataclass
 class DataCollectedMessage:
-    """DTO for incoming data.collected event from RabbitMQ.
-
-    This is the wire format — decoupled from domain Input type.
-    """
-
     event_id: str = ""
     event_type: str = ""
     timestamp: str = ""
@@ -23,8 +12,6 @@ class DataCollectedMessage:
 
 @dataclass
 class PostPayload:
-    """DTO for post data within the message payload."""
-
     meta: dict[str, Any] = field(default_factory=dict)
     content: dict[str, Any] = field(default_factory=dict)
     interaction: dict[str, Any] = field(default_factory=dict)
@@ -34,8 +21,6 @@ class PostPayload:
 
 @dataclass
 class EventPayloadMetadata:
-    """DTO for event-level metadata within the payload."""
-
     project_id: Optional[str] = None
     job_id: Optional[str] = None
     batch_index: Optional[int] = None
@@ -47,8 +32,16 @@ class EventPayloadMetadata:
     minio_path: Optional[str] = None
 
 
+@dataclass
+class UAPMessage:
+    uap_version: str = ""
+    event_id: str = ""
+    raw_body: dict[str, Any] = field(default_factory=dict)
+
+
 __all__ = [
     "DataCollectedMessage",
     "PostPayload",
     "EventPayloadMetadata",
+    "UAPMessage",
 ]

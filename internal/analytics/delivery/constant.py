@@ -1,5 +1,3 @@
-"""Constants for analytics delivery layer."""
-
 # Message fields
 FIELD_EVENT_ID = "event_id"
 FIELD_EVENT_TYPE = "event_type"
@@ -23,3 +21,16 @@ FIELD_KEYWORD = "keyword"
 
 # Event types
 EVENT_DATA_COLLECTED = "data.collected"
+
+# UAP message fields
+FIELD_UAP_VERSION = "uap_version"
+FIELD_INGEST = "ingest"
+FIELD_SIGNALS = "signals"
+FIELD_CONTEXT = "context"
+FIELD_RAW = "raw"
+FIELD_DOC_ID = "doc_id"
+
+FIELD_ENTITY = "entity"
+FIELD_SOURCE = "source"
+FIELD_BATCH = "batch"
+FIELD_TRACE = "trace"

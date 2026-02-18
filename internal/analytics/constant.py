@@ -1,8 +1,5 @@
-"""Constants for Analytics Pipeline."""
-
 # Model version
 MODEL_VERSION = "1.0.0"
-UAP_VERSION_1_0 = "1.0"
 
 # Default values for unknown/missing data
 DEFAULT_EVENT_ID = "unknown"
@@ -40,7 +37,6 @@ STATUS_SKIPPED = "skipped"
 
 __all__ = [
     "MODEL_VERSION",
-    "UAP_VERSION_1_0",
     "DEFAULT_EVENT_ID",
     "DEFAULT_POST_ID",
     "DEFAULT_PLATFORM",

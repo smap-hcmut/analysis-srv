@@ -1,16 +1,13 @@
-"""Data types for Analytics Pipeline."""
-
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
 from .constant import *
+from internal.model.uap import UAPRecord
 
 
 @dataclass
 class Config:
-    """Configuration for analytics pipeline."""
-
     model_version: str = MODEL_VERSION
     enable_preprocessing: bool = True
     enable_intent_classification: bool = True
@@ -24,67 +21,28 @@ class Config:
 
 
 @dataclass
-class PostData:
-    """Raw post data from crawler (Atomic JSON format)."""
-
-    meta: dict[str, Any] = field(default_factory=dict)
-    content: dict[str, Any] = field(default_factory=dict)
-    interaction: dict[str, Any] = field(default_factory=dict)
-    author: dict[str, Any] = field(default_factory=dict)
-    comments: list[dict[str, Any]] = field(default_factory=list)
-
-
-@dataclass
-class EventMetadata:
-    """Event metadata from RabbitMQ message."""
-
-    event_id: Optional[str] = None
-    event_type: Optional[str] = None
-    timestamp: Optional[str] = None
-    minio_path: Optional[str] = None
-    project_id: Optional[str] = None
-    job_id: Optional[str] = None
-    batch_index: Optional[int] = None
-    content_count: Optional[int] = None
-    platform: Optional[str] = None
-    task_type: Optional[str] = None
-    brand_name: Optional[str] = None
-    keyword: Optional[str] = None
-
-
-@dataclass
-class EnrichedPostData:
-    """Post data enriched with event metadata."""
-
-    meta: dict[str, Any]
-    content: dict[str, Any]
-    interaction: dict[str, Any]
-    author: dict[str, Any]
-    comments: list[dict[str, Any]]
-
-
-@dataclass
 class Input:
-    """Input structure for analytics pipeline."""
-
-    post_data: PostData
-    event_metadata: Optional[EventMetadata] = None
-    project_id: Optional[str] = None
+    uap_record: UAPRecord  # Required: UAP record (Phase 1)
+    project_id: str  # Required: from uap_record.ingest.project_id
 
     def __post_init__(self):
-        if not self.post_data:
-            raise ValueError("post_data is required")
-        if not self.post_data.meta.get("id"):
-            raise ValueError("post_data.meta.id is required")
+        if not self.uap_record:
+            raise ValueError("uap_record is required")
+        if not self.project_id:
+            raise ValueError("project_id is required")
+        
+        if not self.uap_record.ingest:
+            raise ValueError("uap_record.ingest is required")
+        if not self.uap_record.content:
+            raise ValueError("uap_record.content is required")
 
 
 @dataclass
 class AnalyticsResult:
-    """Analytics result for a single post."""
-
     # Identifiers
     id: str
     project_id: Optional[str] = None
+    source_id: Optional[str] = None
     platform: str = PLATFORM_UNKNOWN
 
     # Timestamps
@@ -106,7 +64,14 @@ class AnalyticsResult:
     is_viral: bool = DEFAULT_IS_VIRAL
     is_kol: bool = DEFAULT_IS_KOL
 
-    # Breakdowns (JSONB)
+    is_spam: bool = False
+    engagement_score: float = 0.0
+    virality_score: float = 0.0
+    influence_score: float = 0.0
+    risk_factors: list[dict[str, Any]] = field(default_factory=list)
+    spam_reasons: list[str] = field(default_factory=list)
+
+    # Breakdowns
     aspects_breakdown: dict[str, Any] = field(default_factory=dict)
     keywords: list[str] = field(default_factory=list)
     sentiment_probabilities: dict[str, float] = field(default_factory=dict)
@@ -125,18 +90,13 @@ class AnalyticsResult:
     model_version: str = MODEL_VERSION
     processing_status: str = STATUS_SUCCESS
 
-    # Crawler metadata (Contract v2.0)
+    # Crawler metadata
     job_id: Optional[str] = None
-    batch_index: Optional[int] = None
-    task_type: Optional[str] = None
-    keyword_source: Optional[str] = None
     crawled_at: Optional[datetime] = None
     pipeline_version: Optional[str] = None
     brand_name: Optional[str] = None
     keyword: Optional[str] = None
     content_text: Optional[str] = None
-    content_transcription: Optional[str] = None
-    media_duration: Optional[int] = None
     hashtags: Optional[list[str]] = None
     permalink: Optional[str] = None
     author_id: Optional[str] = None
@@ -146,10 +106,10 @@ class AnalyticsResult:
     author_is_verified: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for repository."""
         return {
             "id": self.id,
             "project_id": self.project_id,
+            "source_id": self.source_id,
             "platform": self.platform,
             "published_at": self.published_at,
             "analyzed_at": self.analyzed_at,
@@ -162,6 +122,12 @@ class AnalyticsResult:
             "risk_level": self.risk_level,
             "is_viral": self.is_viral,
             "is_kol": self.is_kol,
+            "is_spam": self.is_spam,
+            "engagement_score": self.engagement_score,
+            "virality_score": self.virality_score,
+            "influence_score": self.influence_score,
+            "risk_factors": self.risk_factors,
+            "spam_reasons": self.spam_reasons,
             "aspects_breakdown": self.aspects_breakdown,
             "keywords": self.keywords,
             "sentiment_probabilities": self.sentiment_probabilities,
@@ -175,16 +141,11 @@ class AnalyticsResult:
             "processing_time_ms": self.processing_time_ms,
             "model_version": self.model_version,
             "job_id": self.job_id,
-            "batch_index": self.batch_index,
-            "task_type": self.task_type,
-            "keyword_source": self.keyword_source,
             "crawled_at": self.crawled_at,
             "pipeline_version": self.pipeline_version,
             "brand_name": self.brand_name,
             "keyword": self.keyword,
             "content_text": self.content_text,
-            "content_transcription": self.content_transcription,
-            "media_duration": self.media_duration,
             "hashtags": self.hashtags,
             "permalink": self.permalink,
             "author_id": self.author_id,
@@ -192,13 +153,12 @@ class AnalyticsResult:
             "author_username": self.author_username,
             "author_avatar_url": self.author_avatar_url,
             "author_is_verified": self.author_is_verified,
+            "processing_status": self.processing_status,
         }
 
 
 @dataclass
 class Output:
-    """Output of analytics pipeline processing."""
-
     result: AnalyticsResult
     processing_status: str = STATUS_SUCCESS
     error_message: Optional[str] = None
@@ -207,9 +167,6 @@ class Output:
 
 __all__ = [
     "Config",
-    "PostData",
-    "EventMetadata",
-    "EnrichedPostData",
     "Input",
     "AnalyticsResult",
     "Output",
