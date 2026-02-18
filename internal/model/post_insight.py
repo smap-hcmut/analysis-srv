@@ -1,4 +1,4 @@
-"""ORM model for analytics.post_insight table.
+"""ORM model for schema_analysis.post_insight table.
 
 Stores AI-derived insights for social media posts including:
 - Sentiment analysis (overall + aspect-based)

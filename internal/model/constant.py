@@ -7,7 +7,7 @@ LOGGER_COLORIZE: Final[bool] = True
 LOGGER_ENABLE_TRACE_ID: Final[bool] = False
 
 # PostgreSQL configuration
-POSTGRES_SCHEMA: Final[str] = "analytics"
+POSTGRES_SCHEMA: Final[str] = "schema_analysis"
 
 # PhoBERT sentiment model
 PHOBERT_MODEL_PATH: Final[str] = "internal/model/phobert"
