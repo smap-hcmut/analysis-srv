@@ -5,7 +5,7 @@ DEFAULT_POOL_RECYCLE = 3600
 DEFAULT_POOL_PRE_PING = True
 DEFAULT_ECHO = False
 DEFAULT_ECHO_POOL = False
-DEFAULT_SCHEMA = "public"
+DEFAULT_SCHEMA = "schema_analysis"
 
 # Error Messages
 ERROR_DATABASE_URL_EMPTY = "database_url is required"

@@ -7,8 +7,8 @@ Stores AI-derived insights for social media posts including:
 - Content quality (spam detection, toxicity)
 - Keywords and entities extraction
 
-Table: analytics.post_insight
-Schema: analytics
+Table: schema_analysis.post_insight
+Schema: schema_analysis
 """
 
 from sqlalchemy import (
@@ -37,7 +37,7 @@ class PostInsight(Base):
         Index("idx_post_insight_risk", "risk_level"),
         Index("idx_post_insight_platform", "platform"),
         Index("idx_post_insight_analyzed", "analyzed_at"),
-        {"schema": "analytics"},
+        {"schema": "schema_analysis"},
     )
 
     # Identity

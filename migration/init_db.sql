@@ -1,8 +1,4 @@
--- Migration: Create schema_analyst schema and post_schema_analyst table
--- Ref: refactor_plan/indexing_input_schema.md
-
--- 2. Create table
-CREATE TABLE schema_analyst.post_schema_analyst (
+CREATE TABLE schema_analysis.post_insight (
     -- Identity
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id VARCHAR(255) NOT NULL,
@@ -64,23 +60,15 @@ CREATE TABLE schema_analyst.post_schema_analyst (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Indexes
-CREATE INDEX idx_post_schema_analyst_project ON schema_analyst.post_schema_analyst(project_id);
-CREATE INDEX idx_post_schema_analyst_source ON schema_analyst.post_schema_analyst(source_id);
-CREATE INDEX idx_post_schema_analyst_created ON schema_analyst.post_schema_analyst(content_created_at);
-CREATE INDEX idx_post_schema_analyst_sentiment ON schema_analyst.post_schema_analyst(overall_sentiment);
-CREATE INDEX idx_post_schema_analyst_risk ON schema_analyst.post_schema_analyst(risk_level);
-CREATE INDEX idx_post_schema_analyst_platform ON schema_analyst.post_schema_analyst(platform);
-CREATE INDEX idx_post_schema_analyst_attention ON schema_analyst.post_schema_analyst(requires_attention)
-    WHERE requires_attention = true;
-CREATE INDEX idx_post_schema_analyst_analyzed ON schema_analyst.post_schema_analyst(analyzed_at);
-
--- Unique Constraint (Business Key)
--- Ensures one schema_analyst record per source post within a project
--- NULL source_id allowed for legacy/error records
-CREATE UNIQUE INDEX idx_post_schema_analyst_unique_source ON schema_analyst.post_schema_analyst(project_id, source_id)
-    WHERE source_id IS NOT NULL;
+-- Indexes
+CREATE INDEX idx_post_insight_project ON schema_analysis.post_insight(project_id);
+CREATE INDEX idx_post_insight_source ON schema_analysis.post_insight(source_id);
+CREATE INDEX idx_post_insight_created ON schema_analysis.post_insight(content_created_at);
+CREATE INDEX idx_post_insight_sentiment ON schema_analysis.post_insight(overall_sentiment);
+CREATE INDEX idx_post_insight_risk ON schema_analysis.post_insight(risk_level);
+CREATE INDEX idx_post_insight_platform ON schema_analysis.post_insight(platform);
+CREATE INDEX idx_post_insight_analyzed ON schema_analysis.post_insight(analyzed_at);
 
 -- GIN indexes for JSONB
-CREATE INDEX idx_post_schema_analyst_aspects ON schema_analyst.post_schema_analyst USING GIN (aspects);
-CREATE INDEX idx_post_schema_analyst_metadata ON schema_analyst.post_schema_analyst USING GIN (uap_metadata);
+CREATE INDEX idx_post_insight_aspects ON schema_analysis.post_insight USING GIN (aspects);
+CREATE INDEX idx_post_insight_uap_metadata ON schema_analysis.post_insight USING GIN (uap_metadata);
