@@ -1,4 +1,4 @@
-from .impact_calculation import ImpactCalculation
+from .usecase import ImpactCalculationUseCase
 from .new import New
 
-__all__ = ["ImpactCalculation", "New"]
+__all__ = ["ImpactCalculationUseCase", "New"]

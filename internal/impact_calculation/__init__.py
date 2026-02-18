@@ -1,27 +1,11 @@
-from .interface import IImpactCalculation
-from .type import (
-    Config,
-    InteractionInput,
-    AuthorInput,
-    SentimentInput,
-    ImpactBreakdown,
-    Output,
-    Input,
-)
-from .errors import ErrInvalidInput, ErrCalculationFailed
-from .usecase import New, ImpactCalculation
+from .interface import IImpactCalculationUseCase
+from .type import Input, Output, Config
+from .usecase.new import New as NewImpactCalculationUseCase
 
 __all__ = [
-    "IImpactCalculation",
-    "Config",
-    "InteractionInput",
-    "AuthorInput",
-    "SentimentInput",
-    "ImpactBreakdown",
-    "Output",
+    "IImpactCalculationUseCase",
     "Input",
-    "ErrInvalidInput",
-    "ErrCalculationFailed",
-    "New",
-    "ImpactCalculation",
+    "Output",
+    "Config",
+    "NewImpactCalculationUseCase",
 ]

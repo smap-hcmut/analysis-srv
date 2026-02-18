@@ -1,11 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 from .constant import *
 
 
 @dataclass
 class Config:
-    """Configuration for impact calculation."""
-
     # Interaction weights
     weight_view: float = DEFAULT_WEIGHT_VIEW
     weight_like: float = DEFAULT_WEIGHT_LIKE
@@ -41,8 +40,6 @@ class Config:
 
 @dataclass
 class InteractionInput:
-    """Interaction metrics input."""
-
     views: int = 0
     likes: int = 0
     comments_count: int = 0
@@ -52,24 +49,18 @@ class InteractionInput:
 
 @dataclass
 class AuthorInput:
-    """Author information input."""
-
     followers: int = 0
     is_verified: bool = False
 
 
 @dataclass
 class SentimentInput:
-    """Sentiment analysis input."""
-
     label: str = SENTIMENT_NEUTRAL
     score: float = 0.0
 
 
 @dataclass
 class ImpactBreakdown:
-    """Detailed breakdown of impact calculation."""
-
     engagement_score: float
     reach_score: float
     platform_multiplier: float
@@ -79,23 +70,25 @@ class ImpactBreakdown:
 
 @dataclass
 class Output:
-    """Output of impact calculation."""
-
     impact_score: float
     risk_level: str
     is_viral: bool
     is_kol: bool
     impact_breakdown: ImpactBreakdown
 
+    engagement_score: float = 0.0
+    virality_score: float = 0.0
+    influence_score: float = 0.0
+    risk_factors: list[dict[str, Any]] = field(default_factory=list)
+
 
 @dataclass
 class Input:
-    """Input structure for impact calculation."""
-
     interaction: InteractionInput
     author: AuthorInput
     sentiment: SentimentInput
     platform: str = PLATFORM_UNKNOWN
+    text: str = ""
 
 
 __all__ = [
