@@ -42,31 +42,61 @@ internal/<module>/
 ## 2. Naming Conventions
 
 ### Interface
+
 - Prefix `I`: `IAnalyticsPipeline`, `IAnalyzedPostRepository`
 - Dùng `Protocol` với `@runtime_checkable`
 
 ### Factory
+
 - Function `New()` trong `new.py`
 - Trả về instance, inject dependencies
 
+#### 2.1.1 Domain UseCase Pattern (Generic for all `internal/<domain>` modules)
+
+- `interface.py`:
+  - Định nghĩa interface `I<Domain>UseCase(Protocol)` với các method public (`create(...)`, `update(...)`, v.v.).
+- `type.py`:
+  - Định nghĩa mọi `Create<Domain>Input`, `Update<Domain>Input`, `Config`, `Output` dataclasses, có `to_dict()` hoặc helper tương ứng để chuẩn hoá dữ liệu cho repository / delivery.
+- `usecase/usecase.py`:
+  - Implement class `<Domain>UseCase(I<Domain>UseCase)`:
+    - Giữ tất cả dependencies đã được inject (repository, logger, các usecase khác, v.v.).
+    - Mỗi public method (`create`, `update`, ...) là thin wrapper, delegating sang hàm cùng tên trong file riêng (e.g. `create.py`, `update.py`) với chữ ký chuẩn, ví dụ:
+      - `async def create(self, input_data: Create<Domain>Input) -> <Domain>Model: ...`
+- `usecase/<method>.py`:
+  - Chứa logic chi tiết cho từng method, luôn nhận `self` là implementation + input DTO.
+  - Gọi repository qua interface (`I<Domain>Repository`) và log bằng `logger` nếu có.
+- `usecase/new.py`:
+  - Factory duy nhất cho toàn domain:
+    - `def New(repository: I<Domain>Repository, logger: Optional[Logger] = None, ...) -> I<Domain>UseCase: ...`
+  - Trả về instance `<Domain>UseCase`, nhưng type hint luôn là interface (`I<Domain>UseCase`), mirror với pattern `New(...) UseCase` trong Go (`term/internal/indexing`).
+- `__init__.py` (module root):
+  - Re-export interface, types, errors, và alias factory:
+    - `from .usecase.new import New as New<Domain>UseCase`
+  - `__all__` bao gồm `I<Domain>UseCase`, các Input/Output types, error types, và `New<Domain>UseCase`.
+
+Pattern này áp dụng cho **mọi domain** trong `internal/` (ví dụ: `post_insight`, `analyzed_post`, `analytics`, v.v.), không gắn với 1 domain cụ thể.
+
 ### Types
+
 - `Config`, `Input`, `Output` — dataclasses trong `type.py`
 - `<Action>Options` — trong `repository/option.py`
 
 ### Errors
+
 - Prefix `Err`: `ErrFailedToCreate`, `ErrInvalidInput`, `ErrPostNotFound`
 - Mỗi layer có errors riêng
 
 ### Repository Methods
-| Verb | Purpose | Example |
-|------|---------|---------|
-| `create` | Insert single | `create(opt: CreateOptions)` |
-| `upsert` | Insert or update | `upsert(opt: UpsertOptions)` |
-| `detail` | Get by PK | `detail(id: str)` |
-| `get_one` | Get by filters | `get_one(opt: GetOneOptions)` |
-| `list` | List no pagination | `list(opt: ListOptions)` |
+
+| Verb            | Purpose               | Example                                   |
+| --------------- | --------------------- | ----------------------------------------- |
+| `create`        | Insert single         | `create(opt: CreateOptions)`              |
+| `upsert`        | Insert or update      | `upsert(opt: UpsertOptions)`              |
+| `detail`        | Get by PK             | `detail(id: str)`                         |
+| `get_one`       | Get by filters        | `get_one(opt: GetOneOptions)`             |
+| `list`          | List no pagination    | `list(opt: ListOptions)`                  |
 | `update_status` | Update specific field | `update_status(opt: UpdateStatusOptions)` |
-| `delete` | Delete | `delete(opt: DeleteOptions)` |
+| `delete`        | Delete                | `delete(opt: DeleteOptions)`              |
 
 ## 3. pkg/ Convention (4 file bắt buộc)
 
