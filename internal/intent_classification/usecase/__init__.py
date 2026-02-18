@@ -1,4 +1,4 @@
-from .intent_classification import IntentClassification
+from .usecase import IntentClassificationUseCase
 from .new import New
 
-__all__ = ["IntentClassification", "New"]
+__all__ = ["IntentClassificationUseCase", "New"]

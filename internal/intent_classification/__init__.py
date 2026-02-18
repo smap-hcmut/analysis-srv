@@ -1,17 +1,12 @@
-from .interface import IIntentClassification
-from .type import Config, Intent, Output, Input
-from .errors import ErrInvalidInput, ErrPatternLoadFailed, ErrClassificationFailed
-from .usecase import New, IntentClassification
+from .interface import IIntentClassificationUseCase
+from .type import Input, Output, Config, Intent
+from .usecase.new import New as NewIntentClassificationUseCase
 
 __all__ = [
-    "IIntentClassification",
+    "IIntentClassificationUseCase",
+    "Input",
+    "Output",
     "Config",
     "Intent",
-    "Output",
-    "Input",
-    "ErrInvalidInput",
-    "ErrPatternLoadFailed",
-    "ErrClassificationFailed",
-    "New",
-    "IntentClassification",
+    "NewIntentClassificationUseCase",
 ]
