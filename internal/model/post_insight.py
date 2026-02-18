@@ -28,19 +28,6 @@ from .base import Base
 
 
 class PostInsight(Base):
-    """Social media post with AI insights.
-    
-    Stores comprehensive AI analysis results for social media posts.
-    Used for:
-    - Analytics dashboards and reporting
-    - Risk monitoring and alerting
-    - Trend analysis and insights
-    - Historical data queries
-    
-    Table: analytics.post_insight
-    Schema: analytics
-    """
-
     __tablename__ = "post_insight"
     __table_args__ = (
         Index("idx_post_insight_project", "project_id"),

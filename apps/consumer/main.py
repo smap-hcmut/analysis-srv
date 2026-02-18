@@ -208,10 +208,7 @@ async def main():
 
         def signal_handler(sig):
             """Handle shutdown signals."""
-            if logger:
-                logger.info(f"Received signal {sig}, shutting down gracefully...")
-            else:
-                print(f"Received signal {sig}, shutting down gracefully...")
+            logger.info(f"Received signal {sig}, shutting down gracefully...")
             # Create task to shutdown server
             if server:
                 asyncio.create_task(server.shutdown())
@@ -223,34 +220,20 @@ async def main():
         await server.start()
 
     except KeyboardInterrupt:
-        if logger:
-            logger.info("Shutdown requested by user")
-        else:
-            print("\nShutdown requested by user")
+        logger.info("Shutdown requested by user")
     except Exception as e:
-        if logger:
-            logger.error(f"Failed to start consumer: {e}")
-            logger.exception("Consumer startup error:")
-        else:
-            print(f"Error starting consumer: {e}")
-            import traceback
-
-            traceback.print_exc()
+        logger.error(f"Failed to start consumer: {e}")
+        logger.exception("Consumer startup error:")
     finally:
         if server:
             await server.shutdown()
         # Cleanup Kafka producer
-        if logger:
-            logger.info("Cleaning up dependencies...")
+        logger.info("Cleaning up dependencies...")
         try:
             if deps and deps.kafka_producer:
                 await deps.kafka_producer.stop()
         except Exception as e:
-            msg = f"Error stopping Kafka producer: {e}"
-            if logger:
-                logger.error(msg)
-            else:
-                print(msg)
+            logger.error(f"Error stopping Kafka producer: {e}")
 
 
 if __name__ == "__main__":
