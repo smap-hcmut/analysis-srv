@@ -23,15 +23,15 @@ Nâng cấp Analysis Service từ một "text-processor" đơn thuần thành m�
 
 ### 2.1 Input Layer
 
-| Khía cạnh       | Hiện tại                                                                            | Mục tiêu                                                                            |
-| :-------------- | :---------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------- |
-| Format          | Event Envelope (flat `payload.meta`, `payload.content`, `payload.interaction`)      | UAP v1.0 (nested `ingest`, `content`, `signals`, `context`, `raw`)                  |
-| Queue           | `analytics.data.collected` (RabbitMQ: exchange `smap.events`, routing key `data.collected`) | `smap.collector.output` (Kafka topic, format UAP)                                                |
-| Parser          | `json.loads` trực tiếp trong `AnalyticsHandler`                                     | `UAPParser` class riêng, validate `uap_version`, extract structured blocks          |
-| Entity context  | Không có — chỉ có `brand_name`, `keyword`                                           | `ingest.entity` (entity_type, entity_name, brand) — dùng cho Dynamic Model Loading  |
-| Source tracking | `platform` (string đơn giản)                                                        | `ingest.source` (source_id, source_type, account_ref) — truy vết chi tiết           |
-| Batch info      | `job_id`, `batch_index`, `minio_path`                                               | `ingest.batch` (batch_id, mode, received_at) + `ingest.trace` (raw_ref, mapping_id) |
-| Attachments     | Không hỗ trợ                                                                        | `content.attachments[]` (image/video OCR/Caption — future)                          |
+| Khía cạnh       | Hiện tại                                                                                    | Mục tiêu                                                                            |
+| :-------------- | :------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------- |
+| Format          | Event Envelope (flat `payload.meta`, `payload.content`, `payload.interaction`)              | UAP v1.0 (nested `ingest`, `content`, `signals`, `context`, `raw`)                  |
+| Queue           | `analytics.data.collected` (RabbitMQ: exchange `smap.events`, routing key `data.collected`) | `smap.collector.output` (Kafka topic, format UAP)                                   |
+| Parser          | `json.loads` trực tiếp trong `AnalyticsHandler`                                             | `UAPParser` class riêng, validate `uap_version`, extract structured blocks          |
+| Entity context  | Không có — chỉ có `brand_name`, `keyword`                                                   | `ingest.entity` (entity_type, entity_name, brand) — dùng cho Dynamic Model Loading  |
+| Source tracking | `platform` (string đơn giản)                                                                | `ingest.source` (source_id, source_type, account_ref) — truy vết chi tiết           |
+| Batch info      | `job_id`, `batch_index`, `minio_path`                                                       | `ingest.batch` (batch_id, mode, received_at) + `ingest.trace` (raw_ref, mapping_id) |
+| Attachments     | Không hỗ trợ                                                                                | `content.attachments[]` (image/video OCR/Caption — future)                          |
 
 ### 2.2 Output Layer
 
@@ -60,12 +60,12 @@ Nâng cấp Analysis Service từ một "text-processor" đơn thuần thành m�
 
 ### 2.4 Architecture
 
-| Khía cạnh       | Hiện tại                                    | Mục tiêu                                                                         |
-| :-------------- | :------------------------------------------ | :------------------------------------------------------------------------------- |
+| Khía cạnh       | Hiện tại                                    | Mục tiêu                                                                      |
+| :-------------- | :------------------------------------------ | :---------------------------------------------------------------------------- |
 | Data flow       | RabbitMQ → Consumer → Pipeline → PostgreSQL | Kafka → Consumer → Pipeline → PostgreSQL + Kafka Producer → Knowledge Service |
-| Output queue    | Không có                                    | Kafka topic `smap.analytics.output` (Enriched Output JSON, payload là array)     |
-| Builder pattern | Không có — pipeline ghi trực tiếp vào DB    | `ResultBuilder` transform AnalyzedPost → EnrichedPayload trước khi publish       |
-| Metric history  | UPSERT (chỉ giữ state cuối)                 | Dual-storage: UPSERT `analytic_records` + APPEND `metric_snapshots`              |
+| Output queue    | Không có                                    | Kafka topic `smap.analytics.output` (Enriched Output JSON, payload là array)  |
+| Builder pattern | Không có — pipeline ghi trực tiếp vào DB    | `ResultBuilder` transform AnalyzedPost → EnrichedPayload trước khi publish    |
+| Metric history  | UPSERT (chỉ giữ state cuối)                 | Dual-storage: UPSERT `analytic_records` + APPEND `metric_snapshots`           |
 
 ---
 
@@ -318,7 +318,8 @@ Remove legacy code:
 | `smap.analytics.output` (MỚI)   | **Kafka** | Output    | **Array** of Enriched Output JSON | Knowledge Service + các service khác |
 | `analytics.data.collected` (CŨ) | RabbitMQ  | Input     | Event Envelope                    | Deprecate dần                        |
 
-**Lý do dùng Kafka cho cả input và output:** 
+**Lý do dùng Kafka cho cả input và output:**
+
 - Collector Service đã migrate sang publish qua Kafka
 - Knowledge Service và các downstream service trong hệ thống SMAP đều sử dụng Kafka
 - Analysis Service align với ecosystem bằng cách sử dụng Kafka cho cả input và output
@@ -348,7 +349,7 @@ Remove legacy code:
 # Kafka configuration (Input + Output)
 kafka:
   bootstrap_servers: "172.16.21.206:9092"
-  
+
   # Consumer configuration (Input - UAP messages from Collector)
   consumer:
     group_id: "analytics-service"
@@ -357,7 +358,7 @@ kafka:
     auto_offset_reset: "earliest"
     enable_auto_commit: false
     max_poll_records: 10
-  
+
   # Producer configuration (Output - Enriched analytics)
   producer:
     topic: "smap.analytics.output"
@@ -687,22 +688,23 @@ Week 4: Phase 6 (Legacy Cleanup) — sau 2 tuần verify schema mới ổn đị
 
 ## 11. TÀI LIỆU THAM CHIẾU
 
-| Tài liệu              | Đường dẫn                                                          | Mô tả                               | Trạng thái |
-| :-------------------- | :----------------------------------------------------------------- | :---------------------------------- | :--------- |
-| Architecture Overview | `refactor_plan/01_architecture_overview.md`                        | Kiến trúc tổng quan Before/After    | Reference  |
-| API Contract          | `refactor_plan/02_api_contract.md`                                 | Input/Output interface specs        | Reference  |
-| Migration Steps       | `refactor_plan/03_migration_steps.md`                              | Execution plan gốc                  | Reference  |
-| Data Mapping          | `refactor_plan/04_data_mapping.md`                                 | Field-by-field mapping UAP → Output | Reference  |
-| Business Logic        | `refactor_plan/05_business_logic.md`                               | Formulas & algorithms               | Reference  |
-| Indexing Schema       | `refactor_plan/indexing_input_schema.md`                           | Target DB schema chi tiết           | Reference  |
-| UAP Input Schema      | `refactor_plan/input-output/input/UAP_INPUT_SCHEMA.md`             | UAP v1.0 spec                       | Reference  |
-| Output Explain        | `refactor_plan/input-output/ouput/OUTPUT_EXPLAIN.md`               | Enriched Output business usage      | Reference  |
-| Metric History        | `refactor_plan/input-output/METRIC_HISTORY_STRATEGY/brainstorm.md` | Time-series storage strategy        | Future     |
-| Implementation Status | `documents/analysis.md`                                            | Phân tích implementation hiện tại   | **CURRENT**|
-| Phase Plans           | `documents/phase[1-6]_code_plan.md`                                | Chi tiết implementation từng phase  | Reference  |
-| DDD Convention        | `documents/convention/domain_convention/convention.md`             | Coding standards                    | Active     |
+| Tài liệu              | Đường dẫn                                                          | Mô tả                               | Trạng thái  |
+| :-------------------- | :----------------------------------------------------------------- | :---------------------------------- | :---------- |
+| Architecture Overview | `refactor_plan/01_architecture_overview.md`                        | Kiến trúc tổng quan Before/After    | Reference   |
+| API Contract          | `refactor_plan/02_api_contract.md`                                 | Input/Output interface specs        | Reference   |
+| Migration Steps       | `refactor_plan/03_migration_steps.md`                              | Execution plan gốc                  | Reference   |
+| Data Mapping          | `refactor_plan/04_data_mapping.md`                                 | Field-by-field mapping UAP → Output | Reference   |
+| Business Logic        | `refactor_plan/05_business_logic.md`                               | Formulas & algorithms               | Reference   |
+| Indexing Schema       | `refactor_plan/indexing_input_schema.md`                           | Target DB schema chi tiết           | Reference   |
+| UAP Input Schema      | `refactor_plan/input-output/input/UAP_INPUT_SCHEMA.md`             | UAP v1.0 spec                       | Reference   |
+| Output Explain        | `refactor_plan/input-output/ouput/OUTPUT_EXPLAIN.md`               | Enriched Output business usage      | Reference   |
+| Metric History        | `refactor_plan/input-output/METRIC_HISTORY_STRATEGY/brainstorm.md` | Time-series storage strategy        | Future      |
+| Implementation Status | `documents/analysis.md`                                            | Phân tích implementation hiện tại   | **CURRENT** |
+| Phase Plans           | `documents/phase[1-6]_code_plan.md`                                | Chi tiết implementation từng phase  | Reference   |
+| DDD Convention        | `documents/convention/domain_convention/convention.md`             | Coding standards                    | Active      |
 
-**Lưu ý:** 
+**Lưu ý:**
+
 - Documents trong `refactor_plan/` là tài liệu tham khảo ban đầu
 - Documents trong `documents/` phản ánh trạng thái thực tế của repo
 - `documents/analysis.md` là nguồn chính xác nhất về implementation status

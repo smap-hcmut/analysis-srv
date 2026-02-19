@@ -411,7 +411,7 @@ Analysis Service sẽ validate UAP message theo các quy tắc sau:
 ```yaml
 kafka:
   bootstrap_servers: "172.16.21.206:9092"
-  
+
   consumer:
     group_id: "analytics-service"
     topics:

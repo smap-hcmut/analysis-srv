@@ -1,6 +1,7 @@
 # Phase 2: Code Plan — Output Layer Refactoring (Enriched Output + Kafka Publisher)
 
 **⚠️ IMPLEMENTATION STATUS:**
+
 - ✅ **COMPLETED** - ResultBuilder and Kafka publisher fully implemented
 - **Actual Schema**: `schema_analysis.post_insight` (NOT `analytics.post_analytics`)
 - **Reference**: See `documents/analysis.md` for current implementation status
@@ -30,37 +31,37 @@ Sau khi pipeline xử lý xong, build Enriched Output JSON từ UAP Input + AI R
 
 ### 2.1 Files tạo mới
 
-| # | File | Vai trò (Convention ref) |
-|---|------|--------------------------|
-| 1 | `internal/model/enriched_output.py` | System-level Enriched Output dataclasses. Output contract chung cross-service, đặt trong `internal/model/` (`convention_python.md` §1). |
-| 2 | `internal/builder/__init__.py` | Builder domain module init + exports. |
-| 3 | `internal/builder/interface.py` | `IResultBuilder` Protocol (`convention_python.md` §2: Protocol + `@runtime_checkable`). |
-| 4 | `internal/builder/type.py` | Builder Input/Output types (`convention_python.md` §1: types trong `type.py`). |
-| 5 | `internal/builder/errors.py` | Builder-specific errors (`convention_python.md` §2: prefix `Err`). |
-| 6 | `internal/builder/constant.py` | Builder constants (enriched_version, snippet length, etc.). |
-| 7 | `internal/builder/usecase/__init__.py` | Usecase re-exports. |
-| 8 | `internal/builder/usecase/new.py` | Factory `New()` (`convention_python.md` §4: factory only). |
-| 9 | `internal/builder/usecase/build.py` | Core build logic: UAP + AnalyticsResult → EnrichedOutput (`convention_usecase.md` §2.1: one file one method). |
-| 10 | `internal/builder/usecase/helpers.py` | Private helpers: snippet builder, timestamp formatter, etc. (`convention_usecase.md` §2.1: ALL helpers in helpers.py). |
-| 11 | `internal/analytics/delivery/kafka/__init__.py` | Kafka delivery module init. |
-| 12 | `internal/analytics/delivery/kafka/producer/__init__.py` | Kafka producer delivery init. |
-| 13 | `internal/analytics/delivery/kafka/producer/new.py` | Factory: tạo analytics Kafka publisher. |
-| 14 | `internal/analytics/delivery/kafka/producer/publisher.py` | `AnalyticsPublisher`: accumulate batch + publish array to Kafka. |
-| 15 | `internal/analytics/delivery/kafka/producer/type.py` | Delivery DTOs cho Kafka publish. |
-| 16 | `internal/analytics/delivery/kafka/producer/constant.py` | Kafka topic name, batch size defaults. |
+| #   | File                                                      | Vai trò (Convention ref)                                                                                                                |
+| --- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `internal/model/enriched_output.py`                       | System-level Enriched Output dataclasses. Output contract chung cross-service, đặt trong `internal/model/` (`convention_python.md` §1). |
+| 2   | `internal/builder/__init__.py`                            | Builder domain module init + exports.                                                                                                   |
+| 3   | `internal/builder/interface.py`                           | `IResultBuilder` Protocol (`convention_python.md` §2: Protocol + `@runtime_checkable`).                                                 |
+| 4   | `internal/builder/type.py`                                | Builder Input/Output types (`convention_python.md` §1: types trong `type.py`).                                                          |
+| 5   | `internal/builder/errors.py`                              | Builder-specific errors (`convention_python.md` §2: prefix `Err`).                                                                      |
+| 6   | `internal/builder/constant.py`                            | Builder constants (enriched_version, snippet length, etc.).                                                                             |
+| 7   | `internal/builder/usecase/__init__.py`                    | Usecase re-exports.                                                                                                                     |
+| 8   | `internal/builder/usecase/new.py`                         | Factory `New()` (`convention_python.md` §4: factory only).                                                                              |
+| 9   | `internal/builder/usecase/build.py`                       | Core build logic: UAP + AnalyticsResult → EnrichedOutput (`convention_usecase.md` §2.1: one file one method).                           |
+| 10  | `internal/builder/usecase/helpers.py`                     | Private helpers: snippet builder, timestamp formatter, etc. (`convention_usecase.md` §2.1: ALL helpers in helpers.py).                  |
+| 11  | `internal/analytics/delivery/kafka/__init__.py`           | Kafka delivery module init.                                                                                                             |
+| 12  | `internal/analytics/delivery/kafka/producer/__init__.py`  | Kafka producer delivery init.                                                                                                           |
+| 13  | `internal/analytics/delivery/kafka/producer/new.py`       | Factory: tạo analytics Kafka publisher.                                                                                                 |
+| 14  | `internal/analytics/delivery/kafka/producer/publisher.py` | `AnalyticsPublisher`: accumulate batch + publish array to Kafka.                                                                        |
+| 15  | `internal/analytics/delivery/kafka/producer/type.py`      | Delivery DTOs cho Kafka publish.                                                                                                        |
+| 16  | `internal/analytics/delivery/kafka/producer/constant.py`  | Kafka topic name, batch size defaults.                                                                                                  |
 
 ### 2.2 Files sửa
 
-| # | File | Thay đổi |
-|---|------|----------|
-| 17 | `internal/analytics/usecase/usecase.py` | Sau DB save → gọi ResultBuilder.build() → gọi Publisher.publish(). Thêm dependencies. |
-| 18 | `internal/analytics/usecase/new.py` | Inject `IResultBuilder` + `IAnalyticsPublisher` vào pipeline factory. |
-| 19 | `internal/analytics/interface.py` | Thêm `IAnalyticsPublisher` Protocol. |
-| 20 | `internal/consumer/registry.py` | Inject `ResultBuilder`, `AnalyticsPublisher`, `KafkaProducer` vào pipeline. |
-| 21 | `internal/consumer/type.py` | Thêm `kafka_producer` vào `Dependencies`. |
-| 22 | `internal/model/__init__.py` | Export EnrichedOutput types. |
-| 23 | `config/config.yaml` | Thêm Kafka producer config section. |
-| 24 | `internal/analytics/__init__.py` | Export builder-related types nếu cần. |
+| #   | File                                    | Thay đổi                                                                              |
+| --- | --------------------------------------- | ------------------------------------------------------------------------------------- |
+| 17  | `internal/analytics/usecase/usecase.py` | Sau DB save → gọi ResultBuilder.build() → gọi Publisher.publish(). Thêm dependencies. |
+| 18  | `internal/analytics/usecase/new.py`     | Inject `IResultBuilder` + `IAnalyticsPublisher` vào pipeline factory.                 |
+| 19  | `internal/analytics/interface.py`       | Thêm `IAnalyticsPublisher` Protocol.                                                  |
+| 20  | `internal/consumer/registry.py`         | Inject `ResultBuilder`, `AnalyticsPublisher`, `KafkaProducer` vào pipeline.           |
+| 21  | `internal/consumer/type.py`             | Thêm `kafka_producer` vào `Dependencies`.                                             |
+| 22  | `internal/model/__init__.py`            | Export EnrichedOutput types.                                                          |
+| 23  | `config/config.yaml`                    | Thêm Kafka producer config section.                                                   |
+| 24  | `internal/analytics/__init__.py`        | Export builder-related types nếu cần.                                                 |
 
 ### 2.3 Files KHÔNG đổi
 
@@ -1324,25 +1325,25 @@ Pipeline.process(Input)
 
 ### 6.1 Unit Tests
 
-| Test | File | Mô tả |
-|------|------|--------|
-| `test_build_from_crawl` | `tests/test_builder.py` | Build từ crawl UAP + result → verify all blocks |
-| `test_build_from_csv` | `tests/test_builder.py` | Build từ csv UAP + result → verify nullable handling |
-| `test_build_project_block` | `tests/test_builder.py` | Verify project mapping: project_id, entity, brand, campaign |
-| `test_build_identity_block` | `tests/test_builder.py` | Verify identity mapping: source, doc, author |
-| `test_build_nlp_block` | `tests/test_builder.py` | Verify NLP mapping: sentiment, aspects |
-| `test_build_rag_block` | `tests/test_builder.py` | Verify RAG: should_index, quality_gate, citation snippet |
-| `test_build_provenance` | `tests/test_builder.py` | Verify provenance steps based on result |
-| `test_build_error_handling` | `tests/test_builder.py` | Build with invalid input → BuildOutput.success=False |
-| `test_publisher_accumulate` | `tests/test_publisher.py` | Publish 5 items (batch_size=10) → no flush |
-| `test_publisher_flush_on_batch` | `tests/test_publisher.py` | Publish 10 items → auto flush, verify JSON array |
-| `test_publisher_flush_on_close` | `tests/test_publisher.py` | Publish 3 items → close() → flush remaining |
-| `test_publisher_disabled` | `tests/test_publisher.py` | enabled=False → no accumulate |
-| `test_publisher_error_retry` | `tests/test_publisher.py` | Kafka send fails → buffer re-added |
-| `test_pipeline_with_builder` | `tests/test_pipeline.py` | Pipeline process with builder + publisher → verify publish called |
-| `test_pipeline_without_builder` | `tests/test_pipeline.py` | Pipeline process without builder → no publish, no error |
-| `test_pipeline_legacy_path` | `tests/test_pipeline.py` | Legacy input (no uap_record) → no publish |
-| `test_enriched_output_to_dict` | `tests/test_enriched_output.py` | Verify to_dict() serialization matches output_example.json structure |
+| Test                            | File                            | Mô tả                                                                |
+| ------------------------------- | ------------------------------- | -------------------------------------------------------------------- |
+| `test_build_from_crawl`         | `tests/test_builder.py`         | Build từ crawl UAP + result → verify all blocks                      |
+| `test_build_from_csv`           | `tests/test_builder.py`         | Build từ csv UAP + result → verify nullable handling                 |
+| `test_build_project_block`      | `tests/test_builder.py`         | Verify project mapping: project_id, entity, brand, campaign          |
+| `test_build_identity_block`     | `tests/test_builder.py`         | Verify identity mapping: source, doc, author                         |
+| `test_build_nlp_block`          | `tests/test_builder.py`         | Verify NLP mapping: sentiment, aspects                               |
+| `test_build_rag_block`          | `tests/test_builder.py`         | Verify RAG: should_index, quality_gate, citation snippet             |
+| `test_build_provenance`         | `tests/test_builder.py`         | Verify provenance steps based on result                              |
+| `test_build_error_handling`     | `tests/test_builder.py`         | Build with invalid input → BuildOutput.success=False                 |
+| `test_publisher_accumulate`     | `tests/test_publisher.py`       | Publish 5 items (batch_size=10) → no flush                           |
+| `test_publisher_flush_on_batch` | `tests/test_publisher.py`       | Publish 10 items → auto flush, verify JSON array                     |
+| `test_publisher_flush_on_close` | `tests/test_publisher.py`       | Publish 3 items → close() → flush remaining                          |
+| `test_publisher_disabled`       | `tests/test_publisher.py`       | enabled=False → no accumulate                                        |
+| `test_publisher_error_retry`    | `tests/test_publisher.py`       | Kafka send fails → buffer re-added                                   |
+| `test_pipeline_with_builder`    | `tests/test_pipeline.py`        | Pipeline process with builder + publisher → verify publish called    |
+| `test_pipeline_without_builder` | `tests/test_pipeline.py`        | Pipeline process without builder → no publish, no error              |
+| `test_pipeline_legacy_path`     | `tests/test_pipeline.py`        | Legacy input (no uap_record) → no publish                            |
+| `test_enriched_output_to_dict`  | `tests/test_enriched_output.py` | Verify to_dict() serialization matches output_example.json structure |
 
 ### 6.2 Integration Test
 

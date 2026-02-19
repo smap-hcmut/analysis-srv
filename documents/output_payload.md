@@ -23,34 +23,41 @@ Sau khi xử lý qua pipeline 5 giai đoạn, Analysis Service tạo ra 2 loại
 Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ với 50+ columns được nhóm theo các categories:
 
 #### Core Identity
+
 - `id` (UUID) - Primary key, định danh duy nhất của record analytics
 - `project_id` (VARCHAR) - ID của project sở hữu data
 - `source_id` (VARCHAR) - ID của data source
 
 #### Content & Timestamps
+
 - `content` (TEXT) - Nội dung text gốc cần phân tích
 - `content_created_at` (TIMESTAMP) - Thời điểm nội dung được tạo bởi tác giả
 - `ingested_at` (TIMESTAMP) - Thời điểm hệ thống nhận dữ liệu
 - `platform` (VARCHAR) - Platform nguồn (facebook, tiktok, youtube, etc.)
 
 #### UAP Metadata
+
 - `uap_metadata` (JSONB) - Metadata từ UAP input (author, engagement, url, etc.)
 
 #### Sentiment Analysis
+
 - `overall_sentiment` (VARCHAR) - POSITIVE, NEGATIVE, NEUTRAL, MIXED
 - `overall_sentiment_score` (FLOAT) - Điểm sentiment (-1 to 1)
 - `sentiment_confidence` (FLOAT) - Độ tin cậy (0-1)
 - `sentiment_explanation` (TEXT) - Giải thích sentiment (future)
 
 #### Aspect-Based Sentiment
+
 - `aspects` (JSONB) - Array of aspects với polarity, confidence, evidence
 
 #### Keywords & Intent
+
 - `keywords` (TEXT[]) - Array of extracted keywords
 - `primary_intent` (VARCHAR) - DISCUSSION, QUESTION, COMPLAINT, PRAISE, SPAM, SEEDING
 - `intent_confidence` (FLOAT) - Độ tin cậy intent classification
 
 #### Risk Assessment
+
 - `risk_level` (VARCHAR) - LOW, MEDIUM, HIGH, CRITICAL
 - `risk_score` (FLOAT) - Điểm risk (0-1)
 - `risk_factors` (JSONB) - Array of risk factors với severity và description
@@ -58,6 +65,7 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
 - `alert_triggered` (BOOLEAN) - Flag đã trigger alert
 
 #### Engagement & Impact
+
 - `engagement_score` (FLOAT) - Điểm engagement (0-100)
 - `virality_score` (FLOAT) - Điểm viral (0+)
 - `influence_score` (FLOAT) - Điểm influence (0+)
@@ -65,6 +73,7 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
 - `impact_score` (FLOAT) - Điểm impact tổng hợp (0-100)
 
 #### Content Quality
+
 - `content_quality_score` (FLOAT) - Điểm chất lượng nội dung (future)
 - `is_spam` (BOOLEAN) - Flag spam detection
 - `is_bot` (BOOLEAN) - Flag bot detection (future)
@@ -74,6 +83,7 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
 - `is_toxic` (BOOLEAN) - Flag toxic content (future)
 
 #### Processing Metadata
+
 - `processing_time_ms` (INT) - Thời gian xử lý (milliseconds)
 - `model_version` (VARCHAR) - Version của AI models
 - `processing_status` (VARCHAR) - success, error, skipped
@@ -89,12 +99,12 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
   "id": "analytics_550e8400-e29b-41d4-a716-446655440000",
   "project_id": "proj_vf8_monitor_01",
   "source_id": "src_fb_01",
-  
+
   "content": "Xe đi êm nhưng pin sụt nhanh, giá hơi cao so với kỳ vọng.",
   "content_created_at": "2026-02-07T09:55:00Z",
   "ingested_at": "2026-02-07T10:00:00Z",
   "platform": "facebook",
-  
+
   "uap_metadata": {
     "author": "fb_user_abc",
     "author_name": "Nguyễn A",
@@ -106,12 +116,12 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
     },
     "url": "https://facebook.com/.../posts/987654321"
   },
-  
+
   "overall_sentiment": "NEGATIVE",
   "overall_sentiment_score": -0.45,
   "sentiment_confidence": 0.78,
   "sentiment_explanation": null,
-  
+
   "aspects": [
     {
       "aspect": "BATTERY",
@@ -126,11 +136,11 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
       "evidence": "giá hơi cao"
     }
   ],
-  
+
   "keywords": ["xe", "pin", "giá", "vf8"],
   "primary_intent": "COMPLAINT",
   "intent_confidence": 0.82,
-  
+
   "risk_level": "MEDIUM",
   "risk_score": 0.55,
   "risk_factors": [
@@ -142,13 +152,13 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
   ],
   "requires_attention": false,
   "alert_triggered": false,
-  
+
   "engagement_score": 45.2,
   "virality_score": 0.08,
   "influence_score": 12.5,
   "reach_estimate": 1111,
   "impact_score": 68.5,
-  
+
   "content_quality_score": 0.0,
   "is_spam": false,
   "is_bot": false,
@@ -156,7 +166,7 @@ Table `schema_analysis.post_insight` chứa kết quả phân tích đầy đủ
   "language_confidence": 0.0,
   "toxicity_score": 0.0,
   "is_toxic": false,
-  
+
   "processing_time_ms": 1250,
   "model_version": "1.0.0",
   "processing_status": "success",
@@ -210,7 +220,7 @@ Enriched Output là format JSON được publish lên Kafka, có cấu trúc nes
 {
   "enriched_version": "1.0",      // Version của enriched format
   "event_id": "uuid",             // ID của event gốc
-  
+
   "project": { ... },             // Project context
   "identity": { ... },            // Document identity
   "content": { ... },             // Content blocks
@@ -391,7 +401,7 @@ Kafka output được publish dưới dạng **array** (batch) để tối ưu t
 kafka:
   producer:
     topic: "smap.analytics.output"
-    batch_publish_size: 10  # Gom 10 records rồi publish
+    batch_publish_size: 10 # Gom 10 records rồi publish
     linger_ms: 100
     compression_type: "gzip"
 ```
@@ -504,21 +514,21 @@ async for message in consumer:
 
 ## 5. Field Mapping: UAP Input → Database + Kafka
 
-| UAP Input Field             | DB Column                | Kafka Enriched Field          |
-| :-------------------------- | :----------------------- | :---------------------------- |
-| `event_id`                  | `id` (generated)         | `event_id`                    |
-| `ingest.project_id`         | `project_id`             | `project.project_id`          |
-| `ingest.source.source_id`   | `source_id`              | `identity.source_id`          |
-| `content.text`              | `content`                | `content.text`                |
-| `content.published_at`      | `content_created_at`     | `identity.published_at`       |
-| `ingest.batch.received_at`  | `ingested_at`            | `identity.ingested_at`        |
-| `ingest.source.source_type` | `platform`               | `identity.source_type`        |
-| `signals.engagement`        | `uap_metadata.engagement`| `business.impact.engagement`  |
-| AI Sentiment Result         | `overall_sentiment`      | `nlp.sentiment`               |
-| AI Aspect Result            | `aspects`                | `nlp.aspects`                 |
-| AI Keyword Result           | `keywords`               | (embedded in content)         |
-| Calculated Engagement Score | `engagement_score`       | `business.impact.engagement_score` |
-| Calculated Risk             | `risk_level`, `risk_score` | `business.alerts`           |
+| UAP Input Field             | DB Column                  | Kafka Enriched Field               |
+| :-------------------------- | :------------------------- | :--------------------------------- |
+| `event_id`                  | `id` (generated)           | `event_id`                         |
+| `ingest.project_id`         | `project_id`               | `project.project_id`               |
+| `ingest.source.source_id`   | `source_id`                | `identity.source_id`               |
+| `content.text`              | `content`                  | `content.text`                     |
+| `content.published_at`      | `content_created_at`       | `identity.published_at`            |
+| `ingest.batch.received_at`  | `ingested_at`              | `identity.ingested_at`             |
+| `ingest.source.source_type` | `platform`                 | `identity.source_type`             |
+| `signals.engagement`        | `uap_metadata.engagement`  | `business.impact.engagement`       |
+| AI Sentiment Result         | `overall_sentiment`        | `nlp.sentiment`                    |
+| AI Aspect Result            | `aspects`                  | `nlp.aspects`                      |
+| AI Keyword Result           | `keywords`                 | (embedded in content)              |
+| Calculated Engagement Score | `engagement_score`         | `business.impact.engagement_score` |
+| Calculated Risk             | `risk_level`, `risk_score` | `business.alerts`                  |
 
 ---
 
@@ -530,6 +540,7 @@ async for message in consumer:
 **New**: `schema_analysis.post_insight` (enriched structure)
 
 **Key Changes:**
+
 - Schema name: `schema_analyst` → `schema_analysis`
 - Table name: `analyzed_posts` → `post_insight`
 - ID type: VARCHAR(255) → UUID

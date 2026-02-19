@@ -1,6 +1,7 @@
 # Phase 4: Code Plan — Business Logic Upgrade
 
 **⚠️ IMPORTANT NOTE - ACTUAL IMPLEMENTATION:**
+
 - **Actual Schema**: `schema_analysis` (NOT `analytics` as in this plan)
 - **Actual Table**: `post_insight` (NOT `post_analytics` as in this plan)
 - **Actual Helper**: `transform_to_post_insight()` (NOT `transform_to_post_analytics()`)

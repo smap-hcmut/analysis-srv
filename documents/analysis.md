@@ -15,9 +15,11 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 ## 2. TRẠNG THÁI IMPLEMENTATION THEO PHASE
 
 ### Phase 1: Input Layer Refactoring (UAP Parser)
+
 **Trạng thái:** ✅ **COMPLETED**
 
 **Đã implement:**
+
 - ✅ `internal/model/uap.py` - UAP dataclass definitions với `UAPRecord.parse()` classmethod
 - ✅ `internal/analytics/delivery/kafka/consumer/handler.py` - Kafka consumer handler
 - ✅ `internal/analytics/delivery/presenters.py` - UAP → domain Input mapper
@@ -25,12 +27,14 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 - ✅ UAP validation: version check, required fields, error handling
 
 **Verification:**
+
 - UAP parser validate `uap_version == "1.0"`
 - Extract và validate từng block (ingest, content, signals)
 - Raise `ErrUAPValidation` / `ErrUAPVersionUnsupported` nếu invalid
 - Handler chỉ accept UAP messages, reject legacy
 
 **Kafka Configuration:**
+
 - Topic: `smap.collector.output`
 - Group ID: `analytics-service`
 - Bootstrap servers: `172.16.21.202:9094`
@@ -38,9 +42,11 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 ---
 
 ### Phase 2: Output Layer Refactoring (Enriched Output + Kafka Publisher)
+
 **Trạng thái:** ✅ **COMPLETED**
 
 **Đã implement:**
+
 - ✅ `internal/model/enriched_output.py` - EnrichedOutput dataclass definitions
 - ✅ `internal/builder/` - ResultBuilder domain module
   - ✅ `interface.py` - IResultBuilder Protocol
@@ -55,6 +61,7 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 - ✅ `internal/analytics/interface.py` - IAnalyticsPublisher Protocol
 
 **Verification:**
+
 - ResultBuilder transform UAP + AI Result → Enriched Output JSON
 - Kafka publisher accumulate batch và publish array to topic `smap.analytics.output`
 - Pipeline gọi builder + publisher sau DB save
@@ -63,9 +70,11 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 ---
 
 ### Phase 3: Database Schema Migration
+
 **Trạng thái:** ✅ **COMPLETED**
 
 **Đã implement:**
+
 - ✅ `internal/model/post_insight.py` - ORM model cho `schema_analysis.post_insight` table
 - ✅ `internal/post_insight/repository/postgre/` - Repository implementation
   - ✅ `post_insight.py` - CRUD operations
@@ -75,11 +84,13 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 - ✅ Migration scripts
 
 **Schema details:**
+
 - **Schema**: `schema_analysis`
 - **Table**: `post_insight` (số ít)
 - **Primary Key**: `id` (UUID)
 
 **Columns (50+ fields):**
+
 - Identity: `id`, `project_id`, `source_id`
 - UAP Core: `content`, `content_created_at`, `ingested_at`, `platform`, `uap_metadata` (JSONB)
 - Sentiment: `overall_sentiment`, `overall_sentiment_score`, `sentiment_confidence`, `sentiment_explanation`
@@ -92,20 +103,24 @@ Repo đã hoàn thành migration từ Event Envelope sang UAP (Unified Analytics
 - Timestamps: `analyzed_at`, `indexed_at`, `created_at`, `updated_at`
 
 **Indexes:**
+
 - B-tree indexes: project_id, source_id, platform, sentiment, risk, timestamps
 - GIN indexes: aspects, uap_metadata, risk_factors (JSONB)
 
 ---
 
 ### Phase 4: Business Logic Upgrade
+
 **Trạng thái:** ✅ **COMPLETED**
 
 **Đã implement:**
 
 #### 4.1 Impact Calculation Module
-✅ **FULLY IMPLEMENTED** - `internal/impact_calculation/usecase/helpers.py`
+
+✅ **FULLY IMPLEMENTED** - `internal/impact_calculatio/usecase/helpers.py`
 
 **Engagement Score:**
+
 ```python
 def calculate_engagement_score(likes, comments, shares, views) -> float:
     weighted_sum = likes*1 + comments*2 + shares*3
@@ -117,12 +132,14 @@ def calculate_engagement_score(likes, comments, shares, views) -> float:
 ```
 
 **Virality Score:**
+
 ```python
 def calculate_virality_score(likes, comments, shares) -> float:
     return shares / (likes + comments + 1)
 ```
 
 **Influence Score:**
+
 ```python
 def calculate_influence_score(followers, engagement_score) -> float:
     normalized_followers = followers / 1_000_000
@@ -130,21 +147,26 @@ def calculate_influence_score(followers, engagement_score) -> float:
 ```
 
 **Multi-factor Risk Assessment:**
+
 - Factor 1: Sentiment Impact (negative < -0.3, extreme < -0.7)
 - Factor 2: Crisis Keywords matching (scam, lừa đảo, cháy, tai nạn, tẩy chay, etc.)
 - Factor 3: Virality Amplifier (risk × (1 + virality) if viral)
 - Classification: CRITICAL (≥0.8), HIGH (≥0.6), MEDIUM (≥0.3), LOW (<0.3)
 
 #### 4.2 Text Preprocessing Module
+
 ✅ **FULLY IMPLEMENTED** - `internal/text_preprocessing/usecase/helpers.py`
 
 **Spam Detection:**
+
 - Rule 1: Text too short (< 5 chars)
 - Rule 2: Low word diversity (< 30%)
 - Rule 3: Ads keywords matching (mua ngay, giảm giá, click link, inbox, etc.)
 
 #### 4.3 Sentiment Analysis Module
+
 ✅ **FULLY IMPLEMENTED** - `internal/sentiment_analysis/usecase/`
+
 - PhoBERT ONNX model inference
 - Overall sentiment analysis
 - Aspect-based sentiment analysis (ABSA)
@@ -152,14 +174,18 @@ def calculate_influence_score(followers, engagement_score) -> float:
 - Confidence scoring và aggregation
 
 #### 4.4 Keyword Extraction Module
+
 ✅ **FULLY IMPLEMENTED** - `internal/keyword_extraction/usecase/`
+
 - Dictionary matching (aspect-based keywords)
 - AI extraction (YAKE + spaCy NER)
 - Fuzzy aspect mapping
 - Hybrid approach (dict + AI)
 
 #### 4.5 Intent Classification Module
+
 ✅ **FULLY IMPLEMENTED** - `internal/intent_classification/usecase/`
+
 - Pattern-based classification
 - Intent types: DISCUSSION, COMPLAINT, QUESTION, PRAISE, SPAM, SEEDING
 - Confidence scoring
@@ -168,9 +194,11 @@ def calculate_influence_score(followers, engagement_score) -> float:
 ---
 
 ### Phase 5: Data Mapping Implementation
+
 **Trạng thái:** ✅ **COMPLETED** - Tất cả AI modules đã được integrate
 
 **Đã implement:**
+
 - ✅ UAP-based Input type (no legacy PostData/EventMetadata)
 - ✅ `_run_pipeline()` extract data từ UAP blocks
 - ✅ `add_uap_metadata()` map UAP metadata vào AnalyticsResult
@@ -181,6 +209,7 @@ def calculate_influence_score(followers, engagement_score) -> float:
 - ✅ **Stage 5: Impact Calculation** - all metrics integrated
 
 **Verification:**
+
 ```python
 # internal/analytics/usecase/process.py - ALL 5 STAGES IMPLEMENTED
 
@@ -221,7 +250,8 @@ if self.config.enable_impact_calculation and self.impact_calculator:
     result.risk_factors = ic_output.risk_factors
 ```
 
-**Lưu ý:** 
+**Lưu ý:**
+
 - ✅ Không còn TODO comments
 - ✅ Tất cả AI modules đã được integrate
 - ✅ Error handling đầy đủ cho từng stage
@@ -230,9 +260,11 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 ---
 
 ### Phase 6: Legacy Cleanup
+
 **Trạng thái:** ❌ **NOT STARTED**
 
 **Chưa cleanup:**
+
 - Legacy Event Envelope parsing code (nếu còn)
 - Deprecated fields trong types (nếu còn)
 - Legacy queue config (nếu còn)
@@ -245,9 +277,11 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 ## 3. DOMAIN LOGIC VERIFICATION
 
 ### 3.1 Analytics Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - UAP parsing và validation (via `UAPRecord.parse()`)
 - Pipeline orchestration (5 stages - ALL INTEGRATED)
 - Error handling và result building
@@ -255,9 +289,11 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - DB persistence
 
 ### 3.2 Impact Calculation Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - Engagement score calculation (weighted formula)
 - Virality score calculation (shares ratio)
 - Influence score calculation (followers × engagement)
@@ -268,18 +304,22 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - Impact normalization
 
 ### 3.3 Text Preprocessing Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - Text normalization (teencode, URL, emoji, hashtag)
 - Spam detection (3 heuristics)
 - Content merging (caption + transcription + comments)
 - Stats calculation
 
 ### 3.4 Sentiment Analysis Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - PhoBERT model inference
 - Overall sentiment analysis
 - Aspect-based sentiment analysis (ABSA)
@@ -288,9 +328,11 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - Confidence labeling
 
 ### 3.5 Keyword Extraction Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - Dictionary matching (aspect-based)
 - AI extraction (YAKE + spaCy NER)
 - Fuzzy aspect mapping
@@ -298,9 +340,11 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - Deduplication và scoring
 
 ### 3.6 Intent Classification Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - Pattern-based classification (regex)
 - Intent types: DISCUSSION, COMPLAINT, QUESTION, PRAISE, SPAM, SEEDING
 - Priority-based selection
@@ -308,16 +352,20 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - Should-skip logic
 
 ### 3.7 Builder Domain
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - UAP + AnalyticsResult → EnrichedOutput transformation
 - All blocks mapping (project, identity, content, nlp, business, rag, provenance)
 
 ### 3.8 Post Insight Domain (Repository)
+
 **Trạng thái:** ✅ **NO PLACEHOLDER** - Logic đầy đủ
 
 **Implemented:**
+
 - CRUD operations
 - Query builders
 - Data transformation (`transform_to_post_insight()`)
@@ -330,27 +378,33 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 ## 4. SO SÁNH VỚI MASTER PROPOSAL
 
 ### 4.1 Input Layer (Phase 1)
+
 **Proposal:** UAP v1.0 parser, validate uap_version, extract structured blocks  
 **Reality:** ✅ **MATCH** - Đã implement đầy đủ theo spec
 
 ### 4.2 Output Layer (Phase 2)
+
 **Proposal:** ResultBuilder + Kafka publisher (batch array)  
 **Reality:** ✅ **MATCH** - Đã implement đầy đủ, publish array to `smap.analytics.output`
 
 ### 4.3 Database Schema (Phase 3)
+
 **Proposal:** `analytics.post_analytics` với enriched fields  
 **Reality:** ✅ **MATCH** - Schema và fields match 100%
 
 **Khác biệt về naming:**
+
 - Schema name: `analytics` (proposal) vs `schema_analysis` (reality)
 - Table name: `post_analytics` (proposal) vs `post_insight` (reality)
 - **Lý do:** Naming convention thay đổi, nhưng structure và fields giống nhau 100%
 
 ### 4.4 Business Logic (Phase 4)
+
 **Proposal:** Engagement, virality, influence, multi-factor risk, spam detection  
 **Reality:** ✅ **MATCH** - Tất cả formulas đã implement đúng spec
 
 **Formulas verification:**
+
 - Engagement: `(likes*1 + comments*2 + shares*3) / views * 100` ✅
 - Virality: `shares / (likes + comments + 1)` ✅
 - Influence: `(followers / 1M) * engagement_score` ✅
@@ -358,10 +412,12 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - Spam: 3 heuristics (length, diversity, ads keywords) ✅
 
 ### 4.5 Data Mapping (Phase 5)
+
 **Proposal:** UAP → Pipeline → Enriched Output, integrate tất cả AI modules  
 **Reality:** ✅ **MATCH** - Tất cả 5 stages đã được integrate đầy đủ
 
 **Đã done:**
+
 - UAP extraction trong `_run_pipeline()` ✅
 - Stage 1: Text preprocessing ✅
 - Stage 2: Intent classification ✅
@@ -371,6 +427,7 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - Enriched output building ✅
 
 ### 4.6 Legacy Cleanup (Phase 6)
+
 **Proposal:** Drop legacy schema, remove Event Envelope code  
 **Reality:** ❌ **NOT STARTED** - Chờ verify 2 tuần production
 
@@ -429,6 +486,7 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 ```
 
 **Legend:**
+
 - ✅ Fully implemented and integrated
 
 ---
@@ -436,9 +494,11 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 ## 6. KẾT LUẬN
 
 ### 6.1 Tổng quan
+
 ✅ **MIGRATION HOÀN TẤT** - Repo đã hoàn thành migration từ Event Envelope sang UAP. Tất cả 5 phases chính (Phase 1-5) đã được implement đầy đủ và production-ready.
 
 ### 6.2 Điểm mạnh
+
 - ✅ Tất cả domains có logic đầy đủ, KHÔNG có placeholder
 - ✅ Business logic match 100% với master proposal
 - ✅ Tất cả 5 AI stages đã được integrate vào pipeline
@@ -448,16 +508,19 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 - ✅ Early exit logic cho SPAM/SEEDING optimization
 
 ### 6.3 Trạng thái production
+
 - ✅ Phase 1-5: COMPLETED
 - ❌ Phase 6: NOT STARTED (chờ verify 2 tuần)
 
 ### 6.4 Next Steps
+
 1. **Deploy to production** - Tất cả code đã sẵn sàng
 2. **Monitor 2 tuần** - Verify stability, performance, data quality
 3. **Phase 6 cleanup** - Remove legacy code sau khi verify ổn định
 4. **Documentation** - Update operational docs, runbooks
 
 ### 6.5 Khuyến nghị
+
 1. **Deploy ngay:** Code đã production-ready
 2. **Monitor kỹ:** Theo dõi Kafka lag, DB performance, error rates
 3. **Verify data:** Sample check enriched output quality
@@ -470,36 +533,40 @@ if self.config.enable_impact_calculation and self.impact_calculator:
 
 ### 7.1 Actual Implementation Names
 
-| Component | Actual Name | Note |
-|:----------|:------------|:-----|
-| Schema | `schema_analysis` | NOT `analytics` |
-| Table | `post_insight` | NOT `post_analytics` or `post_insights` |
-| ORM Model | `PostInsight` | Class name |
-| Transform Function | `transform_to_post_insight()` | In helpers.py |
-| UAP Parser | `UAPRecord.parse()` | Classmethod in uap.py |
-| Consumer | Kafka | NOT RabbitMQ |
-| Input Topic | `smap.collector.output` | Kafka topic |
-| Output Topic | `smap.analytics.output` | Kafka topic |
-| Consumer Group | `analytics-service` | Kafka group ID |
+| Component          | Actual Name                   | Note                                    |
+| :----------------- | :---------------------------- | :-------------------------------------- |
+| Schema             | `schema_analysis`             | NOT `analytics`                         |
+| Table              | `post_insight`                | NOT `post_analytics` or `post_insights` |
+| ORM Model          | `PostInsight`                 | Class name                              |
+| Transform Function | `transform_to_post_insight()` | In helpers.py                           |
+| UAP Parser         | `UAPRecord.parse()`           | Classmethod in uap.py                   |
+| Consumer           | Kafka                         | NOT RabbitMQ                            |
+| Input Topic        | `smap.collector.output`       | Kafka topic                             |
+| Output Topic       | `smap.analytics.output`       | Kafka topic                             |
+| Consumer Group     | `analytics-service`           | Kafka group ID                          |
 
 ### 7.2 Configuration
 
 **Kafka:**
+
 - Bootstrap servers: `172.16.21.202:9094`
 - Input topic: `smap.collector.output`
 - Output topic: `smap.analytics.output`
 - Group ID: `analytics-service`
 
 **Database:**
+
 - URL: `postgresql+asyncpg://analysis_prod:analysis_prod_pwd@172.16.19.10:5432/smap`
 - Schema: `schema_analysis`
 - Table: `post_insight`
 
 **Redis:**
+
 - Host: `172.16.21.200:6379`
 - DB: 0
 
 **MinIO:**
+
 - Endpoint: `172.16.21.10:9000`
 - Bucket: `crawl-results`
 
