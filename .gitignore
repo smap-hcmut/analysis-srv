@@ -46,3 +46,6 @@ Thumbs.db
 
 term/
 refactor_plan/
+# Kubernetes manifests with real credentials (never commit)
+manifests/secret.yaml
+manifests/configmap.yaml
