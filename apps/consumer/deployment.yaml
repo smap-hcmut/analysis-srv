@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-consumer
+  namespace: smap
+  labels:
+    app.kubernetes.io/name: analysis-consumer
+    app.kubernetes.io/part-of: smap
+    app.kubernetes.io/component: consumer
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: analysis-consumer
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: analysis-consumer
+        app.kubernetes.io/name: analysis-consumer
+        app.kubernetes.io/part-of: smap
+    spec:
+      imagePullSecrets:
+        - name: harbor-registry
+      containers:
+        - name: analysis-consumer
+          image: registry.tantai.dev/smap/analysis-consumer:260310-083314
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config/config.yaml
+              subPath: config.yaml
+          env:
+            - name: CONTAINER_NAME
+              value: "analysis-consumer"
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+      volumes:
+        - name: config-volume
+          configMap:
+            name: analysis-config
+      terminationGracePeriodSeconds: 60
+      restartPolicy: Always

@@ -8,6 +8,7 @@ dependencies = [
     # Message Queue & Async
     "aio-pika>=9.5.8",
     "aiokafka>=0.11.0",
+    "python-snappy>=0.7.0",
     # Logging
     "loguru>=0.7.3",
     # Configuration

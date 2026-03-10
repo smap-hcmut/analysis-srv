@@ -40,7 +40,7 @@ class AnalyticsKafkaHandler:
             if FIELD_UAP_VERSION not in envelope:
                 # Reject legacy messages
                 if self.logger:
-                    self.logger.warning(
+                    self.logger.warn(
                         f"internal.analytics.delivery.kafka.consumer.handler: Missing {FIELD_UAP_VERSION}: legacy format not supported, "
                         f"topic={message.topic}, partition={message.partition}, offset={message.offset}"
                     )

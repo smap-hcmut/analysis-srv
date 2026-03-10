@@ -1,0 +1,54 @@
+# ==============================================================================
+# .dockerignore - Exclude unnecessary files from Docker build context
+# ==============================================================================
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.eggs
+
+# IDE & editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Dev tools & caches
+.ruff_cache
+.pytest_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Documentation & scripts (not needed in image)
+documents/
+scripts/
+migration/
+Makefile
+
+# Environment files
+.env
+.env.*
+
+# Unnecessary model files (saves ~515MB)
+# model.safetensors is PyTorch format, not needed for ONNX inference
+# training_args.bin is training metadata, not needed at runtime
+internal/model/phobert/model.safetensors
+internal/model/phobert/training_args.bin
+
+# Build artifacts
+dist/
+build/
+
+# Docker files themselves
+**/Dockerfile
+docker-compose*.yml
