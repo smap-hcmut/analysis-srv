@@ -62,6 +62,7 @@ async def init_dependencies(config: Config) -> Dependencies:
             colorize=LOGGER_COLORIZE,
             service_name=LOGGER_SERVICE_NAME,
             enable_trace_id=LOGGER_ENABLE_TRACE_ID,
+            json_output=config.logging.json_output,
         )
     )
     logger.info("Logger initialized")

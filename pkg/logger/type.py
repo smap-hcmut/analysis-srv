@@ -19,6 +19,7 @@ class LoggerConfig:
     colorize: bool = DEFAULT_COLORIZE
     service_name: str = DEFAULT_SERVICE_NAME
     enable_trace_id: bool = False  # Default: disabled
+    json_output: bool = DEFAULT_JSON_OUTPUT  # JSON output for central logging (production only)
 
     def __post_init__(self):
         """Validate configuration."""

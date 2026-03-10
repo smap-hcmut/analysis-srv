@@ -60,6 +60,15 @@ class Logger(ILogger):
     def _add_console_handler(self) -> None:
         """Add console handler with colors and trace ID."""
 
+        # Production JSON mode: structured output for central log processing
+        if self.config.json_output:
+            self._loguru.add(
+                sys.stdout,
+                serialize=True,
+                level=self.config.level.value,
+            )
+            return
+
         from pathlib import Path
 
         # Capture instance variables in closure

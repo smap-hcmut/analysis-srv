@@ -22,6 +22,7 @@ class LoggingConfig:
 
     level: str = "INFO"
     debug: bool = False
+    json_output: bool = False
 
 
 @dataclass
@@ -293,6 +294,7 @@ class ConfigLoader:
             logging=LoggingConfig(
                 level=self._get_value("logging.level", "INFO"),
                 debug=self._get_value("logging.debug", False),
+                json_output=self._get_value("logging.json_output", False),
             ),
             kafka=KafkaConfig(
                 bootstrap_servers=self._get_value(
