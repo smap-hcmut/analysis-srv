@@ -25,93 +25,100 @@ class AnalyticsKafkaHandler:
         start_time = time.perf_counter()
         event_id = "unknown"
 
-        try:
-            # 1. Parse message value (JSON)
-            if isinstance(message.value, bytes):
-                body = message.value.decode("utf-8")
-            elif isinstance(message.value, str):
-                body = message.value
-            else:
-                body = json.dumps(message.value)
+        # Extract trace_id from headers
+        trace_id_bytes = message.headers.get("X-Trace-Id") or message.headers.get("trace_id")
+        trace_id = trace_id_bytes.decode("utf-8") if trace_id_bytes else None
 
-            envelope = json.loads(body)
+        # Use trace_context to ensure all subsequent logs have this trace_id
+        # Also supports request_id if needed, but we focus on trace_id
+        with self.logger.trace_context(trace_id=trace_id):
+            try:
+                # 1. Parse message value (JSON)
+                if isinstance(message.value, bytes):
+                    body = message.value.decode("utf-8")
+                elif isinstance(message.value, str):
+                    body = message.value
+                else:
+                    body = json.dumps(message.value)
 
-            # 2. Check UAP Version
-            if FIELD_UAP_VERSION not in envelope:
-                # Reject legacy messages
+                envelope = json.loads(body)
+
+                # 2. Check UAP Version
+                if FIELD_UAP_VERSION not in envelope:
+                    # Reject legacy messages
+                    if self.logger:
+                        self.logger.warn(
+                            f"internal.analytics.delivery.kafka.consumer.handler: Missing {FIELD_UAP_VERSION}: legacy format not supported, "
+                            f"topic={message.topic}, partition={message.partition}, offset={message.offset}"
+                        )
+                    # Skip this message (will commit offset)
+                    return
+
+                # 3. Parse UAP and Convert
+                pipeline_input = self._handle_uap(envelope)
+
+                # Extract event_id for logging
+                if pipeline_input.uap_record and pipeline_input.uap_record.event_id:
+                    event_id = pipeline_input.uap_record.event_id
+                else:
+                    event_id = envelope.get("event_id", "unknown")
+
                 if self.logger:
-                    self.logger.warn(
-                        f"internal.analytics.delivery.kafka.consumer.handler: Missing {FIELD_UAP_VERSION}: legacy format not supported, "
+                    self.logger.debug(
+                        f"internal.analytics.delivery.kafka.consumer.handler: Received message: event_id={event_id}, "
                         f"topic={message.topic}, partition={message.partition}, offset={message.offset}"
                     )
-                # Skip this message (will commit offset)
+
+                # 4. Call UseCase (Analytics Pipeline)
+                output = await self.pipeline.process(pipeline_input)
+
+                # 5. Log result
+                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                if self.logger:
+                    self.logger.info(
+                        f"internal.analytics.delivery.kafka.consumer.handler: Message processed: event_id={event_id}, "
+                        f"status={output.processing_status}, elapsed_ms={elapsed_ms}"
+                    )
+
+            except json.JSONDecodeError as exc:
+                # Poison message — log and skip (will commit offset to move forward)
+                if self.logger:
+                    self.logger.error(
+                        f"internal.analytics.delivery.kafka.consumer.handler: Invalid JSON: event_id={event_id}, "
+                        f"topic={message.topic}, offset={message.offset}, error={exc}"
+                    )
+                # Don't raise — we want to commit offset and skip this message
                 return
 
-            # 3. Parse UAP and Convert
-            pipeline_input = self._handle_uap(envelope)
+            except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
+                # UAP structural validation error — log and skip
+                if self.logger:
+                    self.logger.error(
+                        f"internal.analytics.delivery.kafka.consumer.handler: UAP validation error: event_id={event_id}, "
+                        f"topic={message.topic}, offset={message.offset}, error={exc}"
+                    )
+                # Don't raise — skip this message
+                return
 
-            # Extract event_id for logging
-            if pipeline_input.uap_record and pipeline_input.uap_record.event_id:
-                event_id = pipeline_input.uap_record.event_id
-            else:
-                event_id = envelope.get("event_id", "unknown")
+            except ValueError as exc:
+                # Validation error (e.g., missing project_id) — log and skip
+                if self.logger:
+                    self.logger.error(
+                        f"internal.analytics.delivery.kafka.consumer.handler: Validation error: event_id={event_id}, "
+                        f"topic={message.topic}, offset={message.offset}, error={exc}"
+                    )
+                # Don't raise — skip this message
+                return
 
-            if self.logger:
-                self.logger.debug(
-                    f"internal.analytics.delivery.kafka.consumer.handler: Received message: event_id={event_id}, "
-                    f"topic={message.topic}, partition={message.partition}, offset={message.offset}"
-                )
-
-            # 4. Call UseCase (Analytics Pipeline)
-            output = await self.pipeline.process(pipeline_input)
-
-            # 5. Log result
-            elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-            if self.logger:
-                self.logger.info(
-                    f"internal.analytics.delivery.kafka.consumer.handler: Message processed: event_id={event_id}, "
-                    f"status={output.processing_status}, elapsed_ms={elapsed_ms}"
-                )
-
-        except json.JSONDecodeError as exc:
-            # Poison message — log and skip (will commit offset to move forward)
-            if self.logger:
-                self.logger.error(
-                    f"internal.analytics.delivery.kafka.consumer.handler: Invalid JSON: event_id={event_id}, "
-                    f"topic={message.topic}, offset={message.offset}, error={exc}"
-                )
-            # Don't raise — we want to commit offset and skip this message
-            return
-
-        except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
-            # UAP structural validation error — log and skip
-            if self.logger:
-                self.logger.error(
-                    f"internal.analytics.delivery.kafka.consumer.handler: UAP validation error: event_id={event_id}, "
-                    f"topic={message.topic}, offset={message.offset}, error={exc}"
-                )
-            # Don't raise — skip this message
-            return
-
-        except ValueError as exc:
-            # Validation error (e.g., missing project_id) — log and skip
-            if self.logger:
-                self.logger.error(
-                    f"internal.analytics.delivery.kafka.consumer.handler: Validation error: event_id={event_id}, "
-                    f"topic={message.topic}, offset={message.offset}, error={exc}"
-                )
-            # Don't raise — skip this message
-            return
-
-        except Exception as exc:
-            # Business/transient error — log and raise (will NOT commit offset, retry on next poll)
-            if self.logger:
-                self.logger.error(
-                    f"internal.analytics.delivery.kafka.consumer.handler: Processing error: event_id={event_id}, "
-                    f"topic={message.topic}, offset={message.offset}, error={exc}"
-                )
-            # Raise to prevent offset commit — message will be retried
-            raise
+            except Exception as exc:
+                # Business/transient error — log and raise (will NOT commit offset, retry on next poll)
+                if self.logger:
+                    self.logger.error(
+                        f"internal.analytics.delivery.kafka.consumer.handler: Processing error: event_id={event_id}, "
+                        f"topic={message.topic}, offset={message.offset}, error={exc}"
+                    )
+                # Raise to prevent offset commit — message will be retried
+                raise
 
     def _handle_uap(self, envelope: dict):
         # Parse UAP record
