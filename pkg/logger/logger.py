@@ -1,4 +1,7 @@
 import sys
+import json
+import email.utils
+from datetime import timezone, timedelta
 from typing import Optional, Iterator
 from contextvars import ContextVar
 from contextlib import contextmanager
@@ -62,9 +65,32 @@ class Logger(ILogger):
 
         # Production JSON mode: structured output for central log processing
         if self.config.json_output:
+            import os
+            import json
+            service_name = os.getenv("CONTAINER_NAME", "analysis-srv")
+
+            ict_tz = timezone(timedelta(hours=7))
+
+            def custom_json_sink(message):
+                record = message.record
+                dt = record["time"].astimezone(ict_tz)
+                log_dict = {
+                    "timestamp": email.utils.format_datetime(dt),
+                    "trace_id": record["extra"].get("trace_id", ""),
+                    "level": record["level"].name.lower(),
+                    "caller": f"{record['file'].name}:{record['line']}",
+                    "message": record["message"],
+                    "service": service_name,
+                }
+                # Include extra fields
+                for key, value in record["extra"].items():
+                    if key != "trace_id" and key not in log_dict:
+                        log_dict[key] = value
+                
+                print(json.dumps(log_dict), flush=True)
+
             self._loguru.add(
-                sys.stdout,
-                serialize=True,
+                custom_json_sink,
                 level=self.config.level.value,
             )
             return

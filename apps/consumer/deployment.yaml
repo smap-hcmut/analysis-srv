@@ -29,20 +29,22 @@ spec:
         - name: harbor-registry
       containers:
         - name: analysis-consumer
-          image: registry.tantai.dev/smap/analysis-consumer:260310-202612
+          image: registry.tantai.dev/smap/analysis-consumer:260310-221917
           imagePullPolicy: IfNotPresent
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: "1Gi"
+              cpu: "500m"
             limits:
-              memory: "4Gi"
-              cpu: "2000m"
+              memory: "3Gi"
+              cpu: "1500m"
           volumeMounts:
             - name: config-volume
               mountPath: /app/config/config.yaml
               subPath: config.yaml
           env:
+            - name: PYTHONWARNINGS
+              value: "ignore::SyntaxWarning"
             - name: CONTAINER_NAME
               value: "analysis-consumer"
             - name: KUBERNETES_NAMESPACE
