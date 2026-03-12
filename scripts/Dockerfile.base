@@ -1,0 +1,76 @@
+# ==============================================================================
+# analysis-base — Pre-built base image for Analytics Consumer
+#
+# Contains:
+#   - All Python heavy deps (torch-cpu ~1.5GB, transformers, optimum, spacy...)
+#   - SpaCy multilingual model (xx_ent_wiki_sm)
+#   - PhoBERT ONNX model (phobert.onnx ~515MB)
+#
+# Rebuild this image ONLY when:
+#   - pyproject.toml / uv.lock changes (new/updated deps)
+#   - PhoBERT model is updated (internal/model/phobert/)
+#
+# Build (from project root):
+#   ./scripts/build-base.sh
+#
+# Image: registry.tantai.dev/smap/analysis-base:latest
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Stage 1: Builder — Install all heavy deps
+# Build context is project root (.)
+# ------------------------------------------------------------------------------
+FROM ghcr.io/astral-sh/uv:0.6-python3.12-bookworm-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies for native extensions (greenlet, snappy, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libsnappy-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files first (deterministic cache layer)
+COPY pyproject.toml uv.lock README.md ./
+
+# Create minimal package stubs so hatchling can resolve project metadata
+RUN mkdir -p apps pkg config internal && \
+    touch apps/__init__.py pkg/__init__.py config/__init__.py internal/__init__.py
+
+# Install CPU-only PyTorch first (~1.5GB — separate layer for cache efficiency)
+RUN uv pip install --system --no-cache \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install all remaining project dependencies
+RUN uv pip install --system --no-cache .
+
+# Download SpaCy multilingual model
+RUN python -m spacy download xx_ent_wiki_sm
+
+# ------------------------------------------------------------------------------
+# Stage 2: Runtime — Assemble the base image
+# ------------------------------------------------------------------------------
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Create non-root user
+RUN groupadd -g 1000 analytics && \
+    useradd -m -u 1000 -g analytics analytics && \
+    mkdir -p /app/logs && \
+    chown -R analytics:analytics /app
+
+# Copy all Python site-packages from builder
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+
+# Bake PhoBERT ONNX model into base image
+# (model.safetensors excluded via .dockerignore — not needed for ONNX inference)
+COPY --chown=analytics:analytics internal/model/phobert/ internal/model/phobert/
+
+# Label for traceability
+LABEL org.opencontainers.image.title="smap-analysis-base" \
+      org.opencontainers.image.description="Base image: torch-cpu + transformers + optimum + spacy + PhoBERT ONNX" \
+      org.opencontainers.image.source="https://github.com/smap-hcmut/analysis-srv"
