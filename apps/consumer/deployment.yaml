@@ -29,7 +29,7 @@ spec:
         - name: harbor-registry
       containers:
         - name: analysis-consumer
-          image: registry.tantai.dev/smap/analysis-consumer:260310-221917
+          image: registry.tantai.dev/smap/analysis-consumer:260313-005332
           imagePullPolicy: IfNotPresent
           resources:
             requests:
