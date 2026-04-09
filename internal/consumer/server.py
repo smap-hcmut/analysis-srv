@@ -6,10 +6,12 @@ from typing import Optional
 
 from pkg.kafka.consumer import KafkaConsumer
 from pkg.kafka.type import KafkaMessage
-from internal.analytics.delivery.kafka.consumer import new_kafka_handler
-from internal.analytics.delivery.constant import FIELD_UAP_VERSION
 from internal.model.uap import UAPRecord, ErrUAPValidation, ErrUAPVersionUnsupported
 from internal.runtime.type import RunContext
+from internal.analytics.usecase.batch_enricher import NLPBatchEnricher
+
+# UAP version header field (replaces internal.analytics.delivery.constant import)
+FIELD_UAP_VERSION = "uap_version"
 
 from .interface import IConsumerServer
 from .type import Dependencies
@@ -23,30 +25,32 @@ class ConsumerServer(IConsumerServer):
 
         # Consumer management
         self.consumer: Optional[KafkaConsumer] = None
-        self.handler = None
         self.consumer_task: Optional[asyncio.Task] = None
 
         # Domain services registry
         self.registry = None
         self.domain_services = None
 
-        # Phase 3 pipeline (wired after registry.initialize())
+        # Pipeline references (wired after registry.initialize())
         self.pipeline_usecase = None
         self.pipeline_config = None
         self.ingestion_usecase = None
+        self.contract_publisher = None
+        self.post_insight_usecase = None
 
     async def start(self) -> None:
         try:
-            # Initialize domain services via registry
             from .registry import ConsumerRegistry
 
             self.registry = ConsumerRegistry(self.deps)
             self.domain_services = self.registry.initialize()
 
-            # Grab Phase 3 pipeline references from the registry
+            # Grab pipeline references from registry
             self.pipeline_usecase = self.registry.pipeline_usecase
             self.pipeline_config = self.registry.pipeline_config
             self.ingestion_usecase = self.registry.ingestion_usecase
+            self.contract_publisher = self.registry.contract_publisher
+            self.post_insight_usecase = self.registry.post_insight_usecase
 
             # Get Kafka consumer config from dependencies
             kafka_consumer_config = self.deps.kafka_consumer_config
@@ -55,7 +59,6 @@ class ConsumerServer(IConsumerServer):
                     "Kafka consumer configuration not provided in dependencies"
                 )
 
-            # Log subscription intent per topic (config-driven)
             for topic in kafka_consumer_config.topics:
                 self.logger.info(
                     "Subscribing to topic=%s "
@@ -71,25 +74,15 @@ class ConsumerServer(IConsumerServer):
                     )
                 )
 
-            # Create Kafka consumer
             self.consumer = KafkaConsumer(kafka_consumer_config)
             await self.consumer.start()
 
-            # Create analytics handler
-            self.handler = new_kafka_handler(
-                pipeline=self.domain_services.analytics_handler.pipeline,
-                logger=self.logger,
-            )
-
             self.logger.info("Kafka consumer started, waiting for messages...")
 
-            # Start consuming
             self._running = True
             self.consumer_task = asyncio.create_task(
                 self._consume_loop(), name="kafka-consumer"
             )
-
-            # Wait for consumer task
             await self.consumer_task
 
         except asyncio.CancelledError:
@@ -100,11 +93,20 @@ class ConsumerServer(IConsumerServer):
             self.logger.exception("Server start error:")
             raise
 
-    async def _handle_pipeline(self, message: KafkaMessage) -> None:
-        """Run the Phase 3 pipeline (normalization → dedup → spam → threads) for one message.
+    async def _handle_message(self, message: KafkaMessage) -> None:
+        """Process a single Kafka message through the full pipeline.
 
-        Runs in parallel with the legacy analytics handler; errors are logged but
-        never propagate to prevent disrupting offset commits.
+        Flow:
+            Kafka message
+            → parse UAP
+            → ingest → IngestedBatchBundle
+            → asyncio.to_thread(pipeline.run)
+                - normalization → dedup → spam → threads
+                - NLP enrichment (preprocessing, intent, keyword, sentiment, impact)
+            → async: persist each NLPFact to post_insight
+            → async: publish each NLPFact to contract topics via ContractPublisher
+
+        Errors are logged but never propagate to prevent disrupting offset commits.
         """
         if self.pipeline_usecase is None or self.ingestion_usecase is None:
             return
@@ -120,7 +122,7 @@ class ConsumerServer(IConsumerServer):
 
             envelope = json.loads(body)
 
-            # 2. Skip legacy messages without UAP version header
+            # 2. Skip messages without UAP version header
             if FIELD_UAP_VERSION not in envelope:
                 return
 
@@ -147,6 +149,7 @@ class ConsumerServer(IConsumerServer):
             )
 
             # 6. Run pipeline stages (CPU-bound; offload to thread pool)
+            #    Includes: normalization → dedup → spam → threads → NLP enrichment
             result = await asyncio.to_thread(
                 self.pipeline_usecase.run,
                 bundle,
@@ -154,45 +157,63 @@ class ConsumerServer(IConsumerServer):
                 self.pipeline_config,
             )
 
-            if self.logger:
-                self.logger.debug(
-                    f"internal.consumer.server: pipeline run_id={result.run_id}, "
-                    f"records={result.total_valid_records}, "
-                    f"timings={result.stage_timings}"
-                )
+            self.logger.debug(
+                f"internal.consumer.server: pipeline run_id={result.run_id}, "
+                f"records={result.total_valid_records}, "
+                f"nlp_facts={len(result.nlp_facts)}, "
+                f"timings={result.stage_timings}"
+            )
+
+            # 7. Async: persist NLP facts to post_insight + publish to contract topics
+            if result.nlp_facts:
+                await self._persist_and_publish(result.nlp_facts)
 
         except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
-            if self.logger:
-                self.logger.warning(
-                    f"internal.consumer.server: pipeline UAP error (skipped): {exc}"
-                )
+            self.logger.warning(f"internal.consumer.server: UAP error (skipped): {exc}")
         except json.JSONDecodeError as exc:
-            if self.logger:
-                self.logger.warning(
-                    f"internal.consumer.server: pipeline bad JSON (skipped): {exc}"
-                )
+            self.logger.warning(f"internal.consumer.server: bad JSON (skipped): {exc}")
         except ValueError as exc:
-            if self.logger:
-                self.logger.warning(
-                    f"internal.consumer.server: pipeline validation error (skipped): {exc}"
-                )
+            self.logger.warning(
+                f"internal.consumer.server: validation error (skipped): {exc}"
+            )
         except Exception as exc:
-            # Non-fatal — log and continue; offset is still committed by legacy handler
-            if self.logger:
-                self.logger.error(
-                    f"internal.consumer.server: pipeline unexpected error: {exc}"
-                )
+            self.logger.error(f"internal.consumer.server: unexpected error: {exc}")
+
+    async def _persist_and_publish(self, nlp_facts: list) -> None:
+        """Persist each NLPFact to post_insight and publish to contract topics.
+
+        Non-fatal — errors are logged per-record; a single failure does not
+        prevent the remaining facts from being persisted/published.
+        """
+        for nlp_fact in nlp_facts:
+            # Persist to post_insight
+            if self.post_insight_usecase and nlp_fact.analytics_result is not None:
+                try:
+                    pi_input = NLPBatchEnricher.to_post_insight_input(nlp_fact)
+                    await self.post_insight_usecase.create(pi_input)
+                except Exception as exc:
+                    self.logger.error(
+                        f"internal.consumer.server: post_insight persist failed: {exc}"
+                    )
+
+            # Publish to contract topics (auto-flushes at batch_size)
+            if self.contract_publisher and nlp_fact.insight_message is not None:
+                try:
+                    await self.contract_publisher.publish_one(
+                        uap=nlp_fact.uap_record,
+                        msg=nlp_fact.insight_message,
+                    )
+                except Exception as exc:
+                    self.logger.error(
+                        f"internal.consumer.server: contract publish failed: {exc}"
+                    )
 
     async def _consume_loop(self) -> None:
         try:
 
             async def message_handler(message: KafkaMessage) -> None:
-                # 1. Legacy analytics pipeline (NLP enrichment, contract publishing)
-                await self.handler.handle(message)
-                # 2. Phase 3 core-analysis pipeline (normalization, dedup, spam, threads)
-                await self._handle_pipeline(message)
+                await self._handle_message(message)
 
-            # Start consuming (blocks until shutdown)
             await self.consumer.consume(message_handler)
 
         except asyncio.CancelledError:
@@ -208,7 +229,6 @@ class ConsumerServer(IConsumerServer):
             self.logger.info("Shutting down Kafka consumer server...")
             self._running = False
 
-            # Cancel consumer task
             if self.consumer_task and not self.consumer_task.done():
                 self.consumer_task.cancel()
                 try:
@@ -216,11 +236,9 @@ class ConsumerServer(IConsumerServer):
                 except asyncio.CancelledError:
                     pass
 
-            # Stop Kafka consumer
             if self.consumer:
                 await self.consumer.stop()
 
-            # Cleanup domain services
             if self.registry:
                 self.registry.shutdown()
 

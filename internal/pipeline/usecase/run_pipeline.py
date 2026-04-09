@@ -20,6 +20,7 @@ from ..constant import (
     STAGE_DEDUP,
     STAGE_SPAM,
     STAGE_THREADS,
+    STAGE_NLP,
     STAGE_ENRICHMENT,
     STAGE_REVIEW,
     STAGE_REPORTING,
@@ -101,6 +102,24 @@ def _stage_threads(
         return facts
     bundle = svc.build(facts.normalized_records)
     return dataclasses.replace(facts, thread_bundles=[bundle])
+
+
+def _stage_nlp(
+    facts: PipelineFacts,
+    batch: IngestedBatchBundle,
+    ctx: RunContext,
+    config: PipelineConfig,
+) -> PipelineFacts:
+    """NLP enrichment stage — runs preprocessing, intent, keywords, sentiment, impact.
+
+    Calls NLPBatchEnricher.enrich_batch() which mirrors the legacy AnalyticsProcess
+    but is batch-oriented and fully synchronous (no async deps).
+    """
+    svc = config.services.nlp_enricher
+    if svc is None:
+        return facts
+    nlp_facts = svc.enrich_batch(batch.records, batch.project_id)
+    return dataclasses.replace(facts, nlp_facts=nlp_facts)
 
 
 def _stage_enrichment(
@@ -228,6 +247,7 @@ _STAGES = [
     (STAGE_DEDUP, _stage_dedup, "enable_dedup"),
     (STAGE_SPAM, _stage_spam, "enable_spam"),
     (STAGE_THREADS, _stage_threads, "enable_threads"),
+    (STAGE_NLP, _stage_nlp, "enable_nlp"),
     (STAGE_ENRICHMENT, _stage_enrichment, "enable_enrichment"),
     (STAGE_REVIEW, _stage_review, "enable_review"),
     (STAGE_REPORTING, _stage_reporting, "enable_reporting"),

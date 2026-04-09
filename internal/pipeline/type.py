@@ -18,6 +18,7 @@ class PipelineServices:
     dedup: Optional[Any] = None  # IDeduplicationUseCase
     spam: Optional[Any] = None  # ISpamUseCase
     threads: Optional[Any] = None  # IThreadsUseCase
+    nlp_enricher: Optional[Any] = None  # NLPBatchEnricher
     enrichment: Optional[Any] = None  # IEnrichmentUseCase (Phase 4)
     review: Optional[Any] = None  # ReviewUseCase (Phase 4+)
     reporting: Optional[Any] = None  # IReportingUseCase (Phase 5)
@@ -36,11 +37,12 @@ class IngestedBatchBundle:
 
 @dataclass
 class NLPFact:
-    """Per-document NLP enrichment facts from the existing analytics pipeline."""
+    """Per-document NLP enrichment facts produced by the STAGE_NLP stage."""
 
     uap_id: str
     insight_message: InsightMessage
     uap_record: UAPRecord
+    analytics_result: Optional[Any] = None  # AnalyticsResult — for post_insight writes
 
 
 @dataclass
@@ -100,6 +102,7 @@ class PipelineConfig:
     enable_dedup: bool = False  # Phase 3
     enable_spam: bool = False  # Phase 3
     enable_threads: bool = False  # Phase 3
+    enable_nlp: bool = False  # NLP enrichment (replaces legacy analytics pipeline)
     enable_enrichment: bool = False  # Phase 4
     enable_review: bool = False  # Phase 4+: low-confidence fact review queue
     enable_reporting: bool = False  # Phase 5

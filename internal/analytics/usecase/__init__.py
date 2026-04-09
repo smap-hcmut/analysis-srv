@@ -1,4 +1,3 @@
-from .usecase import AnalyticsUseCase
-from .new import New
+from .batch_enricher import NLPBatchEnricher
 
-__all__ = ["AnalyticsUseCase", "New"]
+__all__ = ["NLPBatchEnricher"]

@@ -30,18 +30,9 @@ from internal.post_insight.repository import (
 )
 from internal.builder import (
     NewResultBuilderUseCase as NewResultBuilder,
-    IResultBuilderUseCase,
 )
-from internal.analytics import (
-    NewAnalyticsPipeline,
-    Config as AnalyticsConfig,
-    IAnalyticsUseCase,
-)
-from internal.analytics.delivery.kafka.producer.new import New as NewAnalyticsPublisher
-from internal.analytics.delivery.kafka.producer.type import PublishConfig
-from internal.analytics.delivery.kafka.consumer.new import (
-    new_kafka_handler as NewAnalyticsHandler,
-)
+from internal.analytics.type import Config as AnalyticsConfig
+from internal.analytics.usecase.batch_enricher import NLPBatchEnricher
 from internal.contract_publisher.usecase.new import New as NewContractPublisher
 from internal.contract_publisher.type import ContractPublishConfig
 from internal.normalization.usecase.new import New as NewNormalization
@@ -55,13 +46,10 @@ from internal.pipeline.usecase.new import New as NewPipeline
 
 @dataclass
 class DomainServices:
-    text_processing_usecase: object  # TextProcessing instance
-    intent_classification_usecase: object  # IntentClassification instance
-    keyword_extraction_usecase: object  # KeywordExtraction instance
-    sentiment_analysis_usecase: object  # SentimentAnalysis instance
-    impact_calculation_usecase: object  # ImpactCalculation instance
-    post_insight_usecase: object  # PostInsightUseCase instance
-    analytics_handler: object  # AnalyticsHandler instance
+    """Resolved domain services — kept for registry interface compatibility."""
+
+    post_insight_usecase: object
+    nlp_batch_enricher: object
 
 
 class ConsumerRegistry:
@@ -71,13 +59,22 @@ class ConsumerRegistry:
         self.config = deps.config
         self._services: Optional[DomainServices] = None
 
+        # Pipeline references (set during initialize())
+        self.pipeline_usecase = None
+        self.pipeline_config = None
+        self.ingestion_usecase = None
+        self.contract_publisher = None
+        self.post_insight_usecase = None
+
     def initialize(self) -> DomainServices:
         if self._services is not None:
             self.logger.debug("Returning cached services")
             return self._services
 
         try:
-            # Initialize text preprocessing use case
+            # ------------------------------------------------------------------
+            # NLP services (shared between NLPBatchEnricher and future stages)
+            # ------------------------------------------------------------------
             text_processing_usecase = NewTextPreprocessingUseCase(
                 config=TextProcessingConfig(
                     min_text_length=self.config.preprocessor.min_text_length,
@@ -85,9 +82,8 @@ class ConsumerRegistry:
                 ),
                 logger=self.logger,
             )
-            self.logger.info("Text preprocessing Use case initialized")
+            self.logger.info("Text preprocessing use case initialized")
 
-            # Initialize intent classification use case
             intent_classification_usecase = NewIntentClassification(
                 config=IntentClassificationConfig(
                     patterns_path=self.config.intent_classifier.patterns_path,
@@ -95,9 +91,8 @@ class ConsumerRegistry:
                 ),
                 logger=self.logger,
             )
-            self.logger.info("Intent classification Use case initialized")
+            self.logger.info("Intent classification use case initialized")
 
-            # Initialize keyword extraction use case
             keyword_extraction_usecase = NewKeywordExtractionUseCase(
                 config=KeywordExtractionConfig(
                     aspect_dictionary_path="config/aspects_patterns.yaml",
@@ -105,12 +100,11 @@ class ConsumerRegistry:
                     ai_threshold=5,
                     max_keywords=30,
                 ),
-                ai_extractor=self.deps.keyword_extractor,  # Inject SpacyYake from Dependencies
+                ai_extractor=self.deps.keyword_extractor,
                 logger=self.logger,
             )
-            self.logger.info("Keyword extraction Use case initialized")
+            self.logger.info("Keyword extraction use case initialized")
 
-            # Initialize sentiment analysis use case
             sentiment_analysis_usecase = NewSentimentAnalysisUseCase(
                 config=SentimentAnalysisConfig(
                     context_window_size=100,
@@ -120,9 +114,8 @@ class ConsumerRegistry:
                 phobert_model=self.deps.sentiment,
                 logger=self.logger,
             )
-            self.logger.info("Sentiment analysis Use case initialized")
+            self.logger.info("Sentiment analysis use case initialized")
 
-            # Initialize impact calculation use case
             impact_calculation_usecase = NewImpactCalculation(
                 config=ImpactCalculationConfig(
                     weight_view=self.config.impact.weight.view,
@@ -144,40 +137,33 @@ class ConsumerRegistry:
                 ),
                 logger=self.logger,
             )
-            self.logger.info("Impact calculation Use case initialized")
+            self.logger.info("Impact calculation use case initialized")
 
-            # Initialize post_insight repository
+            # ------------------------------------------------------------------
+            # Persistence — post_insight
+            # ------------------------------------------------------------------
             post_insight_repository = NewPostInsightRepository(
                 db=self.deps.db,
                 logger=self.logger,
             )
             self.logger.info("PostInsightRepository initialized")
 
-            # Initialize post_insight usecase
             post_insight_usecase = NewPostInsightUseCase(
                 repository=post_insight_repository,
                 logger=self.logger,
             )
+            self.post_insight_usecase = post_insight_usecase
             self.logger.info("PostInsightUsecase initialized")
 
-            # Initialize result builder
+            # ------------------------------------------------------------------
+            # Result builder (UAPRecord + AnalyticsResult → InsightMessage)
+            # ------------------------------------------------------------------
             result_builder = NewResultBuilder(logger=self.logger)
-            self.result_builder = result_builder
             self.logger.info("Result Builder initialized")
 
-            # Initialize analytics publisher (Kafka output) — legacy, kept for compat
-            analytics_publisher = NewAnalyticsPublisher(
-                kafka_producer=self.deps.kafka_producer,
-                config=PublishConfig(
-                    topic="smap.analytics.output",
-                    batch_size=10,
-                    enabled=False,  # Deprecated: superseded by contract_publisher
-                ),
-                logger=self.logger,
-            )
-            self.logger.info("Analytics Publisher initialized (legacy, disabled)")
-
-            # Initialize contract publisher (3 knowledge-srv topics)
+            # ------------------------------------------------------------------
+            # Contract publisher (3 knowledge-srv topics)
+            # ------------------------------------------------------------------
             contract_publisher = NewContractPublisher(
                 kafka_producer=self.deps.kafka_producer,
                 config=ContractPublishConfig(
@@ -189,8 +175,10 @@ class ConsumerRegistry:
             self.contract_publisher = contract_publisher
             self.logger.info("Contract Publisher initialized")
 
-            # Initialize analytics pipeline
-            self.analytics_pipeline = NewAnalyticsPipeline(
+            # ------------------------------------------------------------------
+            # NLPBatchEnricher — replaces legacy AnalyticsProcess
+            # ------------------------------------------------------------------
+            nlp_batch_enricher = NLPBatchEnricher(
                 config=AnalyticsConfig(
                     model_version="1.0.0",
                     enable_preprocessing=True,
@@ -198,31 +186,19 @@ class ConsumerRegistry:
                     enable_keyword_extraction=True,
                     enable_sentiment_analysis=True,
                     enable_impact_calculation=True,
-                    contract_batch_size=self.config.contract_publisher.batch_size,
-                    contract_domain_overlay=self.config.contract_publisher.domain_overlay,
                 ),
-                post_insight_usecase=post_insight_usecase,
                 logger=self.logger,
                 preprocessor=text_processing_usecase,
                 intent_classifier=intent_classification_usecase,
                 keyword_extractor=keyword_extraction_usecase,
                 sentiment_analyzer=sentiment_analysis_usecase,
                 impact_calculator=impact_calculation_usecase,
-                result_builder=self.result_builder,
-                analytics_publisher=analytics_publisher,
-                contract_publisher=contract_publisher,
+                result_builder=result_builder,
             )
-            self.logger.info("Analytics Pipeline Use case initialized")
-
-            # Initialize analytics handler
-            analytics_handler = NewAnalyticsHandler(
-                pipeline=self.analytics_pipeline,
-                logger=self.logger,
-            )
-            self.logger.info("Analytics Handler initialized")
+            self.logger.info("NLPBatchEnricher initialized")
 
             # ------------------------------------------------------------------
-            # Phase 3 — core-analysis pipeline (normalization / dedup / spam / threads)
+            # Phase 3 pipeline stages
             # ------------------------------------------------------------------
             normalization_uc = NewNormalization()
             self.logger.info("Normalization usecase initialized")
@@ -241,30 +217,29 @@ class ConsumerRegistry:
                 dedup=dedup_uc,
                 spam=spam_uc,
                 threads=threads_uc,
+                nlp_enricher=nlp_batch_enricher,
             )
             pipeline_config = PipelineConfig(
                 enable_normalization=True,
                 enable_dedup=True,
                 enable_spam=True,
                 enable_threads=True,
+                enable_nlp=True,
                 services=pipeline_services,
             )
             self.pipeline_usecase = NewPipeline(logger=self.logger)
             self.pipeline_config = pipeline_config
-            self.logger.info("Pipeline usecase (Phase 3) initialized")
+            self.logger.info("Pipeline usecase (Phase 3 + NLP) initialized")
 
-            # Initialize ingestion usecase (adapts raw UAPRecords → IngestedBatchBundle)
+            # ------------------------------------------------------------------
+            # Ingestion usecase (raw UAPRecords → IngestedBatchBundle)
+            # ------------------------------------------------------------------
             self.ingestion_usecase = NewIngestion(logger=self.logger)
             self.logger.info("Ingestion usecase initialized")
 
             self._services = DomainServices(
-                text_processing_usecase=text_processing_usecase,
-                intent_classification_usecase=intent_classification_usecase,
-                keyword_extraction_usecase=keyword_extraction_usecase,
-                sentiment_analysis_usecase=sentiment_analysis_usecase,
-                impact_calculation_usecase=impact_calculation_usecase,
                 post_insight_usecase=post_insight_usecase,
-                analytics_handler=analytics_handler,
+                nlp_batch_enricher=nlp_batch_enricher,
             )
 
             return self._services
@@ -287,18 +262,18 @@ class ConsumerRegistry:
         try:
             self.logger.info("Shutting down domain services...")
 
-            # Flush and close contract publisher (ensures in-flight batch is sent)
-            if hasattr(self, "analytics_pipeline") and self.analytics_pipeline:
+            # Flush contract publisher on shutdown
+            if self.contract_publisher:
                 import asyncio
 
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
-                        loop.create_task(self.analytics_pipeline.close())
+                        loop.create_task(self.contract_publisher.close())
                     else:
-                        loop.run_until_complete(self.analytics_pipeline.close())
+                        loop.run_until_complete(self.contract_publisher.close())
                 except Exception as e:
-                    self.logger.error(f"Error closing analytics pipeline: {e}")
+                    self.logger.error(f"Error closing contract publisher: {e}")
 
             self._services = None
             self.logger.info("Domain services shutdown complete")

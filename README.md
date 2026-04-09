@@ -1,6 +1,6 @@
 # analysis-srv — SMAP Analytics Service
 
-Event-driven NLP analytics engine for the SMAP social media monitoring platform. Consumes raw social media crawl events from Kafka (UAP v1.0 format), runs a multi-phase analysis pipeline (text preprocessing → intent → keywords → sentiment → impact → dedup → reporting → crisis detection), persists structured insights to PostgreSQL, and publishes enriched output to Kafka for downstream consumers.
+Event-driven NLP analytics engine for the SMAP social media monitoring platform. Consumes raw social media crawl events from Kafka (UAP v1.0 format), runs a multi-phase analysis pipeline (normalization → dedup → spam → threads → NLP enrichment → enrichment → review → reporting → crisis detection), persists structured insights to PostgreSQL, and publishes enriched output to Kafka for downstream consumers.
 
 > **Graduation project** — HCMUT / SMAP Platform
 
@@ -17,29 +17,30 @@ See [`architecture.excalidraw`](./architecture.excalidraw) for the full interact
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
 │  │  ConsumerServer (apps/consumer)                                            │ │
 │  │  ConsumerRegistry · KafkaConsumer (aiokafka) · SIGTERM graceful shutdown  │ │
-│  └─────────────────────────┬──────────────────────┬─────────────────────────┘ │
-│                             │                      │  both pipelines run        │
-│                             │                      │  in parallel per message   │
-│            ┌────────────────▼──────┐  ┌────────────▼────────────────────────┐ │
-│            │  Legacy NLP Pipeline  │  │  Phase 3–6 Pipeline                 │ │
-│            │  (synchronous/record) │  │  (asyncio.to_thread · batch mode)   │ │
-│            │                       │  │                                     │ │
-│            │  1. Text Preprocessing│  │  1. Normalization (UAP→MentionRecord│ │
-│            │  2. Intent Classif.   │  │  2. Dedup (MinHash LSH)             │ │
-│            │  3. Keyword Extraction│  │  3. Spam Detection                  │ │
-│            │  4. Sentiment Analysis│  │  4. Thread Topology                 │ │
-│            │     (PhoBERT ONNX)    │  │  5. Enrichment (NER + Topics)       │ │
-│            │  5. Impact Calculation│  │  6. Review Queue                    │ │
-│            │                       │  │  7. Reporting (BI bundles)          │ │
-│            │                       │  │  8. Crisis Detection                │ │
-│            └──────────┬────────────┘  └──────────────┬──────────────────────┘ │
-│                        └──────────────────────────────┘                        │
-│                                       │                                         │
-│            ┌──────────────────────────▼──────────────────────────────────────┐ │
-│            │  Contract Publisher                                              │ │
-│            │  analytics.batch.completed · analytics.insights.published       │ │
-│            │  analytics.report.digest                                         │ │
-│            └─────────────────────────────────────────────────────────────────┘ │
+│  └─────────────────────────────────┬──────────────────────────────────────────┘ │
+│                                    │ parse UAP → IngestedBatchBundle             │
+│                                    ▼                                             │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │  Phase 3–6 Pipeline  (asyncio.to_thread · batch mode · PipelineConfig)    │ │
+│  │                                                                            │ │
+│  │  1. Normalization    UAP → MentionRecord, lang detect, quality flags       │ │
+│  │  2. Dedup            MinHash LSH (64 perms, 16 bands, 0.82 threshold)      │ │
+│  │  3. Spam Detection   Inorganic author scoring, quality_weight              │ │
+│  │  4. Thread Topology  Root/parent/child graph, reply depth                  │ │
+│  │  5. NLP Enrichment   NLPBatchEnricher: preprocessing → intent → keywords   │ │
+│  │                      → sentiment (PhoBERT ONNX) → impact → NLPFact[]       │ │
+│  │  6. Enrichment       NER, semantic topics (Phase 4)                        │ │
+│  │  7. Review Queue     Low-confidence facts for human review                 │ │
+│  │  8. Reporting        BI bundles: SOV, Buzz, Emerging (Phase 5)             │ │
+│  │  9. Crisis Detection Rule-based, composite score, CrisisLevel (Phase 6)   │ │
+│  └─────────────────────────────────┬──────────────────────────────────────────┘ │
+│                                    │ list[NLPFact]                               │
+│                                    ▼ _persist_and_publish()                      │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│  │  Contract Publisher  (internal/contract_publisher)                          │ │
+│  │  analytics.batch.completed · analytics.insights.published                  │ │
+│  │  analytics.report.digest                    + post_insight write (PG)      │ │
+│  └─────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │  Storage / pkg/                                                          │   │
@@ -55,17 +56,29 @@ See [`architecture.excalidraw`](./architecture.excalidraw) for the full interact
 
 ---
 
-## Dual-Pipeline Design
+## Pipeline Design
 
-Every Kafka message triggers **both** pipelines simultaneously:
+Every Kafka message flows through a single unified pipeline:
 
-| | Legacy NLP Pipeline | Phase 3–6 Pipeline |
-|---|---|---|
-| Execution | Synchronous, per-record | `asyncio.to_thread`, batch |
-| Input | `UAPRecord` (single) | `IngestedBatchBundle` (list) |
-| Status | Production | Phases 3–4 live; 5–6 stub/skeleton |
-| Output | `PostInsight` row + Kafka publish | `PipelineRunResult` (BI bundle, crisis) |
-| Offset commit | Yes (drives consumer progress) | No (errors are non-fatal) |
+```
+Kafka message
+→ ConsumerServer._handle_message()
+→ parse UAP → IngestedBatchBundle
+→ asyncio.to_thread(pipeline.run)
+    STAGE_NORMALIZATION  → list[MentionRecord]
+    STAGE_DEDUP          → MinHash clusters
+    STAGE_SPAM           → spam scores / quality_weight
+    STAGE_THREADS        → ThreadBundle
+    STAGE_NLP            → NLPBatchEnricher.enrich_batch() → list[NLPFact]
+    STAGE_ENRICHMENT     → EnrichmentBundle  (Phase 4)
+    STAGE_REVIEW         → ReviewQueue       (Phase 4)
+    STAGE_REPORTING      → BIReportBundle    (Phase 5)
+    STAGE_CRISIS         → CrisisAssessment  (Phase 6)
+→ _persist_and_publish(nlp_facts):
+    for each NLPFact:
+        post_insight_usecase.create(...)   ← PostgreSQL
+        contract_publisher.publish_one(...)← Kafka (3 topics)
+```
 
 Pipeline phases are **feature-flag controlled** via `PipelineConfig`:
 
@@ -75,10 +88,11 @@ PipelineConfig(
     enable_dedup=True,
     enable_spam=True,
     enable_threads=True,
-    enable_enrichment=False,   # Phase 4 stub
+    enable_nlp=True,        # STAGE_NLP — NLPBatchEnricher
+    enable_enrichment=False,
     enable_review=False,
-    enable_reporting=False,    # Phase 5 stub
-    enable_crisis=False,       # Phase 6 stub
+    enable_reporting=False,
+    enable_crisis=False,
 )
 ```
 
@@ -86,30 +100,27 @@ PipelineConfig(
 
 ## Pipeline Stages
 
-### Legacy NLP Pipeline
-
-| Stage | Module | Description |
-|---|---|---|
-| 1 | `internal/text_preprocessing` | Spam filter, clean text, language detection |
-| 2 | `internal/intent_classification` | YAML pattern rules, confidence threshold 0.5 |
-| 3 | `internal/keyword_extraction` | YAKE statistical + SpaCy NER (`xx_ent_wiki_sm`) |
-| 4 | `internal/sentiment_analysis` | PhoBERT ONNX, Vietnamese 3-class (PyVi tokenizer) |
-| 5 | `internal/impact_calculation` | Engagement score, risk level, KOL flag |
-
-Results are persisted to `schema_analysis.post_insight` and published via the Contract Publisher.
-
-### Phase 3–6 Pipeline
-
 | Stage | Phase | Module | Description |
 |---|---|---|---|
 | 1. Normalization | 3 | `internal/normalization` | UAP → `MentionRecord` silver layer; lang detect, quality flags, hashtags/URLs |
 | 2. Dedup | 3 | `internal/dedup` | MinHash LSH; 64 perms, 16 bands, 0.82 similarity threshold |
 | 3. Spam Detection | 3 | `internal/spam` | Inorganic author scoring, `quality_weight`, suspicion flags |
 | 4. Thread Topology | 3 | `internal/threads` | Root/parent/child graph, reply depth, sibling IDs |
-| 5. Enrichment | 4 | `internal/enrichment` | NER, semantic topics, entity/topic fact stubs |
-| 6. Review Queue | 4 | `internal/review` | Low-confidence facts enqueued for human review |
-| 7. Reporting | 5 | `internal/reporting` | BI bundles: SOV, Buzz, Emerging, Issues; Polars DataFrames |
-| 8. Crisis Detection | 6 | `internal/crisis` | Rule-based, composite score, `CrisisLevel` enum |
+| 5. NLP Enrichment | 3–6 | `internal/analytics/usecase/batch_enricher` | `NLPBatchEnricher`: preprocessing → intent → keywords → sentiment (PhoBERT ONNX) → impact → `NLPFact[]` |
+| 6. Enrichment | 4 | `internal/enrichment` | NER, semantic topics, entity/topic fact stubs |
+| 7. Review Queue | 4 | `internal/review` | Low-confidence facts enqueued for human review |
+| 8. Reporting | 5 | `internal/reporting` | BI bundles: SOV, Buzz, Emerging, Issues; Polars DataFrames |
+| 9. Crisis Detection | 6 | `internal/crisis` | Rule-based, composite score, `CrisisLevel` enum |
+
+### NLP Enrichment sub-stages (inside STAGE_NLP)
+
+| Sub-stage | Module | Description |
+|---|---|---|
+| Text Preprocessing | `internal/text_preprocessing` | Spam filter, clean text, language detection |
+| Intent Classification | `internal/intent_classification` | YAML pattern rules, confidence threshold 0.5 |
+| Keyword Extraction | `internal/keyword_extraction` | YAKE statistical + SpaCy NER (`xx_ent_wiki_sm`) |
+| Sentiment Analysis | `internal/sentiment_analysis` | PhoBERT ONNX, Vietnamese 3-class (PyVi tokenizer) |
+| Impact Calculation | `internal/impact_calculation` | Engagement score, risk level, KOL flag |
 
 ---
 
@@ -124,13 +135,19 @@ analysis-srv/
 │   ├── config.yaml             # Runtime configuration
 │   └── intent_patterns.yaml    # Intent classification rules
 ├── internal/
-│   ├── analytics/              # Legacy 5-stage NLP orchestrator + KafkaHandler
+│   ├── analytics/              # NLPBatchEnricher (5-stage NLP inside STAGE_NLP)
+│   │   ├── usecase/
+│   │   │   ├── batch_enricher.py   # NLPBatchEnricher + to_post_insight_input()
+│   │   │   └── helpers.py          # normalize_platform, add_uap_metadata
+│   │   ├── type.py                 # AnalyticsResult, Input, Output, Config
+│   │   ├── constant.py             # NLP constants
+│   │   └── interface.py            # IContractPublisher Protocol
 │   ├── builder/                # InsightMessage assembler (UAP + AnalyticsResult → output DTO)
-│   ├── consumer/               # ConsumerServer, ConsumerRegistry (DI wiring), Dependencies
+│   ├── consumer/               # ConsumerServer, ConsumerRegistry (DI wiring)
 │   ├── contract_publisher/     # 3-topic Kafka publisher contract (v1.2)
 │   ├── crisis/                 # Phase 6: rule-based crisis detection
 │   ├── dedup/                  # MinHash LSH near-duplicate detection
-│   ├── enrichment/             # Phase 4: NER, semantic topics (stub)
+│   ├── enrichment/             # Phase 4: NER, semantic topics
 │   ├── impact_calculation/     # Engagement score, risk level, KOL flag
 │   ├── ingestion/              # UAP → IngestedBatchBundle adapter
 │   ├── intent_classification/  # YAML pattern-based intent classifier
@@ -179,7 +196,6 @@ analysis-srv/
 | Topic | Direction | Format | Description |
 |---|---|---|---|
 | `smap.collector.output` | **Consumed** | UAP v1.0 JSON | Raw social media crawl events from Collector Service |
-| `smap.analytics.output` | ~~Published~~ | — | Legacy output topic — **disabled**, superseded |
 | `analytics.batch.completed` | **Published** | InsightMessage | Per-document enriched batch feed to Knowledge Service |
 | `analytics.insights.published` | **Published** | InsightCard | Insight cards from Phase 5 reporting |
 | `analytics.report.digest` | **Published** | BIReportBundle | BI report digests (SOV, Buzz, Emerging, etc.) |
