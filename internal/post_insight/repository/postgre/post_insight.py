@@ -31,7 +31,6 @@ from .helpers import transform_to_post_insight
 
 
 class PostInsightPostgresRepository(IPostInsightRepository):
-
     def __init__(self, db: PostgresDatabase, logger: Optional[Logger] = None):
         self.db = db
         self.logger = logger
@@ -49,9 +48,10 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 return record
 
         except SQLAlchemyError as exc:
-            self.logger.error(
-                f"internal.post_insight.repository.postgre.post_insight.create: {exc}"
-            )
+            if self.logger:
+                self.logger.error(
+                    f"internal.post_insight.repository.postgre.post_insight.create: {exc}"
+                )
             raise ErrFailedToCreate(exc) from exc
 
     async def upsert(self, opt: UpsertOptions) -> PostInsight:
@@ -84,11 +84,12 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                             setattr(existing, key, value)
                     record = existing
                 else:
-                    if not project_id:
+                if not project_id:
+                    if self.logger:
                         self.logger.error(
                             "internal.post_insight.repository.postgre.post_insight.upsert: project_id is required for insertion"
                         )
-                        raise ErrFailedToUpsert("project_id is required for insertion")
+                    raise ErrFailedToUpsert("project_id is required for insertion")
 
                     record = PostInsight(**transformed)
                     session.add(record)
@@ -99,9 +100,10 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 return record
 
         except SQLAlchemyError as exc:
-            self.logger.error(
-                f"internal.post_insight.repository.postgre.post_insight.upsert: {exc}"
-            )
+            if self.logger:
+                self.logger.error(
+                    f"internal.post_insight.repository.postgre.post_insight.upsert: {exc}"
+                )
             raise ErrFailedToUpsert(exc) from exc
 
     async def detail(self, id: str) -> Optional[PostInsight]:
@@ -112,9 +114,10 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 return result.scalar_one_or_none()
 
         except SQLAlchemyError as exc:
-            self.logger.error(
-                f"internal.post_insight.repository.postgre.post_insight.detail: {exc}"
-            )
+            if self.logger:
+                self.logger.error(
+                    f"internal.post_insight.repository.postgre.post_insight.detail: {exc}"
+                )
             raise ErrFailedToGet(exc) from exc
 
     async def get_one(self, opt: GetOneOptions) -> Optional[PostInsight]:
@@ -125,9 +128,10 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 return result.scalar_one_or_none()
 
         except SQLAlchemyError as exc:
-            self.logger.error(
-                f"internal.post_insight.repository.postgre.post_insight.get_one: {exc}"
-            )
+            if self.logger:
+                self.logger.error(
+                    f"internal.post_insight.repository.postgre.post_insight.get_one: {exc}"
+                )
             raise ErrFailedToGet(exc) from exc
 
     async def list(self, opt: ListOptions) -> List[PostInsight]:
@@ -138,9 +142,10 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 return list(result.scalars().all())
 
         except SQLAlchemyError as exc:
-            self.logger.error(
-                f"internal.post_insight.repository.postgre.post_insight.list: {exc}"
-            )
+            if self.logger:
+                self.logger.error(
+                    f"internal.post_insight.repository.postgre.post_insight.list: {exc}"
+                )
             raise ErrFailedToGet(exc) from exc
 
     async def delete(self, opt: DeleteOptions) -> bool:
@@ -152,9 +157,10 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 return result.rowcount > 0
 
         except SQLAlchemyError as exc:
-            self.logger.error(
-                f"internal.post_insight.repository.postgre.post_insight.delete: {exc}"
-            )
+            if self.logger:
+                self.logger.error(
+                    f"internal.post_insight.repository.postgre.post_insight.delete: {exc}"
+                )
             raise ErrFailedToDelete(exc) from exc
 
 

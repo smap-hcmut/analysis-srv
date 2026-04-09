@@ -8,7 +8,20 @@ from contextlib import contextmanager
 from loguru import logger as _loguru_logger  # type: ignore
 
 from .interface import ILogger
-from .constant import *
+from .constant import (
+    DEFAULT_SERVICE_NAME,
+    DEFAULT_LEVEL,
+    DEFAULT_ENABLE_CONSOLE,
+    DEFAULT_COLORIZE,
+    DEFAULT_JSON_OUTPUT,
+    LOG_FORMAT_TIME,
+    LOG_FORMAT_LEVEL,
+    LOG_FORMAT_TRACE,
+    LOG_FORMAT_LOCATION,
+    LOG_FORMAT_MESSAGE,
+    TRACE_ID_KEY,
+    REQUEST_ID_KEY,
+)
 from .type import LoggerConfig
 
 # Trace ID context variable (thread-safe, async-safe)
@@ -67,6 +80,7 @@ class Logger(ILogger):
         if self.config.json_output:
             import os
             import json
+
             service_name = os.getenv("CONTAINER_NAME", "analysis-srv")
 
             ict_tz = timezone(timedelta(hours=7))
@@ -86,7 +100,7 @@ class Logger(ILogger):
                 for key, value in record["extra"].items():
                     if key != "trace_id" and key not in log_dict:
                         log_dict[key] = value
-                
+
                 print(json.dumps(log_dict), flush=True)
 
             self._loguru.add(

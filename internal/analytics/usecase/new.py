@@ -8,7 +8,7 @@ from internal.sentiment_analysis.interface import ISentimentAnalysisUseCase
 from internal.impact_calculation.interface import IImpactCalculationUseCase
 from internal.post_insight.interface import IPostInsightUseCase
 from internal.builder.interface import IResultBuilderUseCase
-from internal.analytics.interface import IAnalyticsPublisher
+from internal.analytics.interface import IAnalyticsPublisher, IContractPublisher
 
 from ..interface import IAnalyticsUseCase, IAnalyticsPublisher
 from ..type import Config
@@ -26,7 +26,8 @@ def New(
     impact_calculator: Optional[IImpactCalculationUseCase] = None,
     result_builder: Optional[IResultBuilderUseCase] = None,
     analytics_publisher: Optional[IAnalyticsPublisher] = None,
-) -> IAnalyticsUseCase: 
+    contract_publisher: Optional[IContractPublisher] = None,
+) -> IAnalyticsUseCase:
     return AnalyticsUseCase(
         config=config,
         post_insight_usecase=post_insight_usecase,
@@ -38,6 +39,7 @@ def New(
         impact_calculator=impact_calculator,
         result_builder=result_builder,
         analytics_publisher=analytics_publisher,
+        contract_publisher=contract_publisher,
     )
 
 

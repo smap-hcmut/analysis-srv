@@ -2,7 +2,20 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-from .constant import *
+from .constant import (
+    MODEL_VERSION,
+    DEFAULT_SENTIMENT_LABEL,
+    DEFAULT_SENTIMENT_SCORE,
+    DEFAULT_CONFIDENCE,
+    DEFAULT_INTENT_LABEL,
+    DEFAULT_IMPACT_SCORE,
+    DEFAULT_RISK_LEVEL,
+    DEFAULT_IS_VIRAL,
+    DEFAULT_IS_KOL,
+    STATUS_SUCCESS,
+    STATUS_ERROR,
+    STATUS_SKIPPED,
+)
 from internal.model.uap import UAPRecord
 
 
@@ -14,6 +27,8 @@ class Config:
     enable_keyword_extraction: bool = True
     enable_sentiment_analysis: bool = True
     enable_impact_calculation: bool = True
+    contract_batch_size: int = 100
+    contract_domain_overlay: str = ""
 
     def __post_init__(self):
         if not self.model_version:
@@ -30,7 +45,7 @@ class Input:
             raise ValueError("uap_record is required")
         if not self.project_id:
             raise ValueError("project_id is required")
-        
+
         if not self.uap_record.ingest:
             raise ValueError("uap_record.ingest is required")
         if not self.uap_record.content:

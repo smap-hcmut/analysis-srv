@@ -4,12 +4,7 @@ from aiokafka import AIOKafkaProducer  # type: ignore
 from loguru import logger
 from .interface import IKafkaProducer
 from .type import KafkaProducerConfig
-
-
-class KafkaProducerError(Exception):
-    """Base exception for Kafka producer operations."""
-
-    pass
+from .errors import KafkaProducerError
 
 
 class KafkaProducer(IKafkaProducer):

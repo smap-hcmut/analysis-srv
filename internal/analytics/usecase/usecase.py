@@ -10,7 +10,7 @@ from internal.sentiment_analysis.interface import ISentimentAnalysisUseCase
 from internal.intent_classification.interface import IIntentClassificationUseCase
 from internal.keyword_extraction.interface import IKeywordExtractionUseCase
 from internal.impact_calculation.interface import IImpactCalculationUseCase
-from ..interface import IAnalyticsUseCase, IAnalyticsPublisher
+from ..interface import IAnalyticsUseCase, IAnalyticsPublisher, IContractPublisher
 from ..type import Config, Input, Output
 from .process import AnalyticsProcess
 
@@ -29,6 +29,7 @@ class AnalyticsUseCase(IAnalyticsUseCase):
         impact_calculator: Optional[IImpactCalculationUseCase] = None,
         result_builder: Optional[IResultBuilderUseCase] = None,
         analytics_publisher: Optional[IAnalyticsPublisher] = None,
+        contract_publisher: Optional[IContractPublisher] = None,
     ):
         self.logger = logger
         self.process_logic = AnalyticsProcess(
@@ -42,7 +43,11 @@ class AnalyticsUseCase(IAnalyticsUseCase):
             impact_calculator=impact_calculator,
             result_builder=result_builder,
             analytics_publisher=analytics_publisher,
+            contract_publisher=contract_publisher,
         )
 
     async def process(self, input_data: Input) -> Output:
         return await self.process_logic.execute(input_data)
+
+    async def close(self) -> None:
+        await self.process_logic.close()

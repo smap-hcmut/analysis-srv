@@ -1,11 +1,10 @@
-from datetime import datetime, timezone
-
 from ..constant import (
     PRIORITY_HIGH_THRESHOLD,
     PRIORITY_MEDIUM_THRESHOLD,
     CONFIDENCE_HIGH_THRESHOLD,
     CONFIDENCE_MEDIUM_THRESHOLD,
 )
+from pkg.time_utils import utc_now_iso
 
 
 def build_snippet(text: str, max_length: int) -> str:
@@ -33,4 +32,4 @@ def determine_priority(impact_score: float) -> str:
 
 
 def safe_iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return utc_now_iso()

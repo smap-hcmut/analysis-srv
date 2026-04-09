@@ -31,7 +31,7 @@ from internal.impact_calculation.type import (
     SentimentInput,
 )
 from internal.model.uap import UAPRecord
-from ..interface import IAnalyticsPublisher
+from ..interface import IAnalyticsPublisher, IContractPublisher
 from ..type import (
     Config,
     Input,
@@ -63,6 +63,7 @@ class AnalyticsProcess:
         impact_calculator: Optional[IImpactCalculationUseCase] = None,
         result_builder: Optional[IResultBuilderUseCase] = None,
         analytics_publisher: Optional[IAnalyticsPublisher] = None,
+        contract_publisher: Optional[IContractPublisher] = None,
     ):
         self.config = config
         self.post_insight_usecase = post_insight_usecase
@@ -74,6 +75,7 @@ class AnalyticsProcess:
         self.impact_calculator = impact_calculator
         self.result_builder = result_builder
         self.analytics_publisher = analytics_publisher
+        self.contract_publisher = contract_publisher
 
     async def execute(self, input_data: Input) -> Output:
         start_time = time.perf_counter()
@@ -168,7 +170,7 @@ class AnalyticsProcess:
         input_data: Input,
         result: AnalyticsResult,
     ) -> None:
-        if not self.result_builder or not self.analytics_publisher:
+        if not self.result_builder:
             return
 
         try:
@@ -178,16 +180,38 @@ class AnalyticsProcess:
             )
             build_output = self.result_builder.build(build_input)
 
-            if build_output.success:
-                await self.analytics_publisher.publish(build_output.enriched)
-            else:
+            if not build_output.success:
                 self.logger.error(
                     f"internal.analytics.usecase.process: Build enriched failed: {build_output.error_message}"
+                )
+                return
+
+            # Legacy publisher (smap.analytics.output) — kept for backward compat
+            if self.analytics_publisher:
+                await self.analytics_publisher.publish(build_output.enriched)
+
+            # Contract publisher — publishes to 3 knowledge-srv topics
+            if self.contract_publisher:
+                await self.contract_publisher.publish_one(
+                    uap=input_data.uap_record,
+                    msg=build_output.enriched,
                 )
 
         except Exception as exc:
             # Non-fatal — log but don't fail the pipeline
-            self.logger.error(f"internal.analytics.usecase.process: Publish enriched failed: {exc}")
+            self.logger.error(
+                f"internal.analytics.usecase.process: Publish enriched failed: {exc}"
+            )
+
+    async def close(self) -> None:
+        """Flush and close contract publisher on graceful shutdown."""
+        if self.contract_publisher:
+            try:
+                await self.contract_publisher.close()
+            except Exception as exc:
+                self.logger.error(
+                    f"internal.analytics.usecase.process: Contract publisher close failed: {exc}"
+                )
 
     def _run_pipeline(
         self,
@@ -208,9 +232,7 @@ class AnalyticsProcess:
         # Author
         author = content.author if content else None
         author_followers = author.followers if author and author.followers else 0
-        author_is_verified = (
-            author.is_verified if author else False
-        )
+        author_is_verified = author.is_verified if author else False
 
         # Signals block
         signals = uap.signals
@@ -273,7 +295,9 @@ class AnalyticsProcess:
                     result.processing_status = "success_spam"
 
             except Exception as e:
-                self.logger.error(f"internal.analytics.usecase.process: Preprocessing failed: {e}")
+                self.logger.error(
+                    f"internal.analytics.usecase.process: Preprocessing failed: {e}"
+                )
 
         # === STAGE 2: INTENT CLASSIFICATION ===
 
@@ -281,20 +305,22 @@ class AnalyticsProcess:
             try:
                 ic_input = IntentClassificationInput(text=full_text)
                 ic_output = self.intent_classifier.process(ic_input)
-                
+
                 # Update result
                 result.primary_intent = ic_output.intent.name
                 result.intent_confidence = ic_output.confidence
-                
+
                 # Skip if spam/seeding
                 if ic_output.should_skip:
                     result.processing_status = "success_skipped"
                     result.risk_level = "LOW"
                     # Early return - skip remaining stages
                     return result
-            
+
             except Exception as e:
-                self.logger.error(f"internal.analytics.usecase.process: Intent classification failed: {e}")
+                self.logger.error(
+                    f"internal.analytics.usecase.process: Intent classification failed: {e}"
+                )
                 # Continue pipeline even if intent classification fails
 
         # === STAGE 3: KEYWORD EXTRACTION ===
@@ -305,15 +331,17 @@ class AnalyticsProcess:
             try:
                 ke_input = KeywordExtractionInput(text=full_text)
                 ke_output = self.keyword_extractor.process(ke_input)
-                
+
                 # Update result - extract keyword strings
                 result.keywords = [kw.keyword for kw in ke_output.keywords]
-                
+
                 # Store keywords with aspect info for sentiment analysis
                 keywords_for_sentiment = ke_output.keywords
-            
+
             except Exception as e:
-                self.logger.error(f"internal.analytics.usecase.process: Keyword extraction failed: {e}")
+                self.logger.error(
+                    f"internal.analytics.usecase.process: Keyword extraction failed: {e}"
+                )
                 # Continue pipeline even if keyword extraction fails
 
         # === STAGE 4: SENTIMENT ANALYSIS ===
@@ -331,37 +359,43 @@ class AnalyticsProcess:
                     )
                     for kw in keywords_for_sentiment
                 ]
-                
+
                 sa_input = SAInput(text=full_text, keywords=keyword_inputs)
                 sa_output = self.sentiment_analyzer.process(sa_input)
-                
+
                 # Update result - Overall sentiment
                 result.overall_sentiment = sa_output.overall.label
                 result.overall_sentiment_score = sa_output.overall.score
                 result.overall_confidence = sa_output.overall.confidence
-                
+
                 # Store probabilities if available
                 if sa_output.overall.probabilities:
                     result.sentiment_probabilities = sa_output.overall.probabilities
-                
+
                 # Update result - Aspects breakdown
                 aspects_list = []
                 for aspect_name, aspect_sentiment in sa_output.aspects.items():
-                    aspects_list.append({
-                        "aspect": aspect_name,
-                        "polarity": aspect_sentiment.label,
-                        "confidence": aspect_sentiment.confidence,
-                        "score": aspect_sentiment.score,
-                        "evidence": ", ".join(aspect_sentiment.keywords[:3]) if aspect_sentiment.keywords else "",
-                        "mentions": aspect_sentiment.mentions,
-                        "rating": aspect_sentiment.rating,
-                    })
-                
+                    aspects_list.append(
+                        {
+                            "aspect": aspect_name,
+                            "polarity": aspect_sentiment.label,
+                            "confidence": aspect_sentiment.confidence,
+                            "score": aspect_sentiment.score,
+                            "evidence": ", ".join(aspect_sentiment.keywords[:3])
+                            if aspect_sentiment.keywords
+                            else "",
+                            "mentions": aspect_sentiment.mentions,
+                            "rating": aspect_sentiment.rating,
+                        }
+                    )
+
                 if aspects_list:
                     result.aspects_breakdown = {"aspects": aspects_list}
-            
+
             except Exception as e:
-                self.logger.error(f"internal.analytics.usecase.process: Sentiment analysis failed: {e}")
+                self.logger.error(
+                    f"internal.analytics.usecase.process: Sentiment analysis failed: {e}"
+                )
                 # Continue pipeline even if sentiment analysis fails
 
         # === STAGE 5: IMPACT CALCULATION ===
@@ -413,6 +447,8 @@ class AnalyticsProcess:
                     }
 
             except Exception as e:
-                self.logger.error(f"internal.analytics.usecase.process: Impact calculation failed: {e}")
+                self.logger.error(
+                    f"internal.analytics.usecase.process: Impact calculation failed: {e}"
+                )
 
         return result

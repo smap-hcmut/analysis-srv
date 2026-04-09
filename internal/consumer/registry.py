@@ -42,6 +42,15 @@ from internal.analytics.delivery.kafka.producer.type import PublishConfig
 from internal.analytics.delivery.kafka.consumer.new import (
     new_kafka_handler as NewAnalyticsHandler,
 )
+from internal.contract_publisher.usecase.new import New as NewContractPublisher
+from internal.contract_publisher.type import ContractPublishConfig
+from internal.normalization.usecase.new import New as NewNormalization
+from internal.dedup.usecase.new import New as NewDedup
+from internal.spam.usecase.new import New as NewSpam
+from internal.threads.usecase.new import New as NewThreads
+from internal.ingestion.usecase.new import New as NewIngestion
+from internal.pipeline.type import PipelineConfig, PipelineServices
+from internal.pipeline.usecase.new import New as NewPipeline
 
 
 @dataclass
@@ -156,17 +165,29 @@ class ConsumerRegistry:
             self.result_builder = result_builder
             self.logger.info("Result Builder initialized")
 
-            # Initialize analytics publisher (Kafka output)
+            # Initialize analytics publisher (Kafka output) — legacy, kept for compat
             analytics_publisher = NewAnalyticsPublisher(
                 kafka_producer=self.deps.kafka_producer,
                 config=PublishConfig(
                     topic="smap.analytics.output",
                     batch_size=10,
-                    enabled=True,
+                    enabled=False,  # Deprecated: superseded by contract_publisher
                 ),
                 logger=self.logger,
             )
-            self.logger.info("Analytics Publisher initialized")
+            self.logger.info("Analytics Publisher initialized (legacy, disabled)")
+
+            # Initialize contract publisher (3 knowledge-srv topics)
+            contract_publisher = NewContractPublisher(
+                kafka_producer=self.deps.kafka_producer,
+                config=ContractPublishConfig(
+                    batch_size=self.config.contract_publisher.batch_size,
+                    domain_overlay=self.config.contract_publisher.domain_overlay,
+                ),
+                logger=self.logger,
+            )
+            self.contract_publisher = contract_publisher
+            self.logger.info("Contract Publisher initialized")
 
             # Initialize analytics pipeline
             self.analytics_pipeline = NewAnalyticsPipeline(
@@ -177,6 +198,8 @@ class ConsumerRegistry:
                     enable_keyword_extraction=True,
                     enable_sentiment_analysis=True,
                     enable_impact_calculation=True,
+                    contract_batch_size=self.config.contract_publisher.batch_size,
+                    contract_domain_overlay=self.config.contract_publisher.domain_overlay,
                 ),
                 post_insight_usecase=post_insight_usecase,
                 logger=self.logger,
@@ -187,6 +210,7 @@ class ConsumerRegistry:
                 impact_calculator=impact_calculation_usecase,
                 result_builder=self.result_builder,
                 analytics_publisher=analytics_publisher,
+                contract_publisher=contract_publisher,
             )
             self.logger.info("Analytics Pipeline Use case initialized")
 
@@ -196,6 +220,42 @@ class ConsumerRegistry:
                 logger=self.logger,
             )
             self.logger.info("Analytics Handler initialized")
+
+            # ------------------------------------------------------------------
+            # Phase 3 — core-analysis pipeline (normalization / dedup / spam / threads)
+            # ------------------------------------------------------------------
+            normalization_uc = NewNormalization()
+            self.logger.info("Normalization usecase initialized")
+
+            dedup_uc = NewDedup()
+            self.logger.info("Dedup usecase initialized")
+
+            spam_uc = NewSpam()
+            self.logger.info("Spam usecase initialized")
+
+            threads_uc = NewThreads()
+            self.logger.info("Threads usecase initialized")
+
+            pipeline_services = PipelineServices(
+                normalization=normalization_uc,
+                dedup=dedup_uc,
+                spam=spam_uc,
+                threads=threads_uc,
+            )
+            pipeline_config = PipelineConfig(
+                enable_normalization=True,
+                enable_dedup=True,
+                enable_spam=True,
+                enable_threads=True,
+                services=pipeline_services,
+            )
+            self.pipeline_usecase = NewPipeline(logger=self.logger)
+            self.pipeline_config = pipeline_config
+            self.logger.info("Pipeline usecase (Phase 3) initialized")
+
+            # Initialize ingestion usecase (adapts raw UAPRecords → IngestedBatchBundle)
+            self.ingestion_usecase = NewIngestion(logger=self.logger)
+            self.logger.info("Ingestion usecase initialized")
 
             self._services = DomainServices(
                 text_processing_usecase=text_processing_usecase,
@@ -227,10 +287,18 @@ class ConsumerRegistry:
         try:
             self.logger.info("Shutting down domain services...")
 
-            # TODO: Cleanup services if needed
-            # if self._services:
-            #     if hasattr(self._services.some_service, 'close'):
-            #         self._services.some_service.close()
+            # Flush and close contract publisher (ensures in-flight batch is sent)
+            if hasattr(self, "analytics_pipeline") and self.analytics_pipeline:
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(self.analytics_pipeline.close())
+                    else:
+                        loop.run_until_complete(self.analytics_pipeline.close())
+                except Exception as e:
+                    self.logger.error(f"Error closing analytics pipeline: {e}")
 
             self._services = None
             self.logger.info("Domain services shutdown complete")

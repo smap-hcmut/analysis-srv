@@ -49,9 +49,9 @@ class RedisConfig:
 class MinIOConfig:
     """MinIO configuration."""
 
-    endpoint: str = "172.16.21.10:9000"
-    access_key: str = "tantai"
-    secret_key: str = "21042004"
+    endpoint: str = ""
+    access_key: str = ""
+    secret_key: str = ""
     secure: bool = False
     crawl_results_bucket: str = "crawl-results"
 
@@ -132,6 +132,15 @@ class ImpactConfig:
 
 
 @dataclass
+class ContractPublisherConfig:
+    """Contract publisher configuration (knowledge-srv topics)."""
+
+    batch_size: int = 100
+    domain_overlay: str = ""
+    enabled: bool = True
+
+
+@dataclass
 class Config:
     """Main configuration container.
 
@@ -150,6 +159,9 @@ class Config:
         default_factory=IntentClassifierConfig
     )
     impact: ImpactConfig = field(default_factory=ImpactConfig)
+    contract_publisher: ContractPublisherConfig = field(
+        default_factory=ContractPublisherConfig
+    )
 
 
 class ConfigLoader:
@@ -311,9 +323,9 @@ class ConfigLoader:
                 max_connections=self._get_value("redis.max_connections", 50),
             ),
             minio=MinIOConfig(
-                endpoint=self._get_value("minio.endpoint", "172.16.21.10:9000"),
-                access_key=self._get_value("minio.access_key", "tantai"),
-                secret_key=self._get_value("minio.secret_key", "21042004"),
+                endpoint=self._get_value("minio.endpoint", ""),
+                access_key=self._get_value("minio.access_key", ""),
+                secret_key=self._get_value("minio.secret_key", ""),
                 secure=self._get_value("minio.secure", False),
                 crawl_results_bucket=self._get_value(
                     "minio.crawl_results_bucket", "crawl-results"
@@ -366,6 +378,11 @@ class ConfigLoader:
                     ),
                 ),
             ),
+            contract_publisher=ContractPublisherConfig(
+                batch_size=self._get_value("contract_publisher.batch_size", 100),
+                domain_overlay=self._get_value("contract_publisher.domain_overlay", ""),
+                enabled=self._get_value("contract_publisher.enabled", True),
+            ),
         )
 
     def _validate(self, config: Config) -> None:
@@ -383,6 +400,10 @@ class ConfigLoader:
         # Validate MinIO
         if not config.minio.endpoint:
             errors.append("minio.endpoint is required")
+        if not config.minio.access_key:
+            errors.append("minio.access_key is required")
+        if not config.minio.secret_key:
+            errors.append("minio.secret_key is required")
 
         if errors:
             raise ValueError(

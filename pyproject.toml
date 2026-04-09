@@ -32,6 +32,12 @@ dependencies = [
     "yake>=0.4.8",
     "numpy>=1.24.0",
     "greenlet>=3.3.1",
+    # Phase 3 — Ingestion / Normalization / Dedup / Spam / Threads
+    "datasketch>=1.6",
+    "fasttext-wheel>=0.9",
+    "polars>=0.20",
+    # Observability
+    "prometheus-client>=0.20",
 ]
 
 [project.scripts]
@@ -43,3 +49,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["apps", "pkg", "config", "internal"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

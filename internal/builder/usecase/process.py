@@ -126,8 +126,10 @@ def _build_nlp(result: AnalyticsResult) -> NLP:
                     )
                 )
 
-    # Entities
-    entities = []
+    # Entities: intentionally empty — legacy pipeline does not produce EntityFacts.
+    # The core-analysis pipeline (run_pipeline.py) populates enrichment.entity_facts
+    # separately; this builder is for the legacy InsightMessage contract only.
+    entities: list = []
 
     return NLP(
         sentiment=sentiment,
