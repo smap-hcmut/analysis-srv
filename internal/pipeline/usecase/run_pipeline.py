@@ -30,9 +30,62 @@ from .helpers import _run_stage, _collect_timings
 from internal.runtime.type import RunContext
 from internal.runtime.usecase.run_manifest import build_run_manifest
 from internal.enrichment.type import EnrichmentInput, EnrichmentBundle
-from internal.reporting.type import ReportingInput
+from internal.reporting.type import (
+    ReportingInput,
+    DedupClusterRecord as ReportingDedupClusterRecord,
+    AuthorQualityRecord as ReportingAuthorQualityRecord,
+)
 from internal.threads.type import ThreadBundle
 from internal.crisis.type import CrisisInput
+
+
+# ---------------------------------------------------------------------------
+# Conversion helpers — translate pipeline dataclasses to reporting Pydantic models
+# ---------------------------------------------------------------------------
+
+
+def _convert_dedup_clusters(raw: list) -> list[ReportingDedupClusterRecord]:
+    """Convert dedup.type.DedupClusterRecord dataclasses → reporting Pydantic models.
+
+    Field mapping:
+      dedup_cluster_id → cluster_id
+      dedup_kind       → cluster_kind
+      representative_mention_id → representative_mention_id (unchanged)
+      mention_ids               → mention_ids (unchanged)
+    """
+    result = []
+    for rec in raw:
+        result.append(
+            ReportingDedupClusterRecord(
+                cluster_id=rec.dedup_cluster_id,
+                cluster_kind=rec.dedup_kind,
+                representative_mention_id=rec.representative_mention_id,
+                mention_ids=list(rec.mention_ids),
+            )
+        )
+    return result
+
+
+def _convert_author_quality(raw: list) -> list[ReportingAuthorQualityRecord]:
+    """Convert spam.type.AuthorQualityRecord dataclasses → reporting Pydantic models.
+
+    Field mapping:
+      author_id              → author_id (unchanged)
+      author_inorganic_score → inorganic_score
+      author_suspicious      → quality_tier ("suspicious" | "normal")
+      1 - author_inorganic_score → quality_score
+    """
+    result = []
+    for rec in raw:
+        result.append(
+            ReportingAuthorQualityRecord(
+                author_id=rec.author_id,
+                inorganic_score=rec.author_inorganic_score,
+                quality_tier="suspicious" if rec.author_suspicious else "normal",
+                quality_score=max(0.0, 1.0 - rec.author_inorganic_score),
+            )
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +218,9 @@ def _stage_reporting(
         mentions=facts.normalized_records,
         thread_bundle=thread_bundle,
         enrichment_bundle=enrichment,
+        ontology=config.services.ontology_registry,
+        dedup_clusters=_convert_dedup_clusters(facts.dedup_clusters or []),
+        author_quality=_convert_author_quality(facts.spam_scores or []),
     )
     output = svc.report(inp)
     return dataclasses.replace(

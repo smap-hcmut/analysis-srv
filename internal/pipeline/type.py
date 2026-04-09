@@ -23,6 +23,7 @@ class PipelineServices:
     review: Optional[Any] = None  # ReviewUseCase (Phase 4+)
     reporting: Optional[Any] = None  # IReportingUseCase (Phase 5)
     crisis: Optional[Any] = None  # ICrisisUseCase (Phase 6)
+    ontology_registry: Optional[Any] = None  # FileOntologyRegistry
 
 
 @dataclass

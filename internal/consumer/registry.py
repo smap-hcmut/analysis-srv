@@ -42,6 +42,7 @@ from internal.threads.usecase.new import New as NewThreads
 from internal.ingestion.usecase.new import New as NewIngestion
 from internal.pipeline.type import PipelineConfig, PipelineServices
 from internal.pipeline.usecase.new import New as NewPipeline
+from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
 
 @dataclass
@@ -95,10 +96,10 @@ class ConsumerRegistry:
 
             keyword_extraction_usecase = NewKeywordExtractionUseCase(
                 config=KeywordExtractionConfig(
-                    aspect_dictionary_path="config/aspects_patterns.yaml",
-                    enable_ai=True,
-                    ai_threshold=5,
-                    max_keywords=30,
+                    aspect_dictionary_path=self.config.keyword_extraction.aspect_dictionary_path,
+                    enable_ai=self.config.keyword_extraction.enable_ai,
+                    ai_threshold=self.config.keyword_extraction.ai_threshold,
+                    max_keywords=self.config.keyword_extraction.max_keywords,
                 ),
                 ai_extractor=self.deps.keyword_extractor,
                 logger=self.logger,
@@ -107,9 +108,9 @@ class ConsumerRegistry:
 
             sentiment_analysis_usecase = NewSentimentAnalysisUseCase(
                 config=SentimentAnalysisConfig(
-                    context_window_size=100,
-                    threshold_positive=0.25,
-                    threshold_negative=-0.25,
+                    context_window_size=self.config.sentiment_analysis.context_window_size,
+                    threshold_positive=self.config.sentiment_analysis.threshold_positive,
+                    threshold_negative=self.config.sentiment_analysis.threshold_negative,
                 ),
                 phobert_model=self.deps.sentiment,
                 logger=self.logger,
@@ -180,12 +181,12 @@ class ConsumerRegistry:
             # ------------------------------------------------------------------
             nlp_batch_enricher = NLPBatchEnricher(
                 config=AnalyticsConfig(
-                    model_version="1.0.0",
-                    enable_preprocessing=True,
-                    enable_intent_classification=True,
-                    enable_keyword_extraction=True,
-                    enable_sentiment_analysis=True,
-                    enable_impact_calculation=True,
+                    model_version=self.config.nlp.model_version,
+                    enable_preprocessing=self.config.nlp.enable_preprocessing,
+                    enable_intent_classification=self.config.nlp.enable_intent_classification,
+                    enable_keyword_extraction=self.config.nlp.enable_keyword_extraction,
+                    enable_sentiment_analysis=self.config.nlp.enable_sentiment_analysis,
+                    enable_impact_calculation=self.config.nlp.enable_impact_calculation,
                 ),
                 logger=self.logger,
                 preprocessor=text_processing_usecase,
@@ -196,6 +197,19 @@ class ConsumerRegistry:
                 result_builder=result_builder,
             )
             self.logger.info("NLPBatchEnricher initialized")
+
+            # ------------------------------------------------------------------
+            # Ontology registry (YAML-backed, VinFast domain)
+            # ------------------------------------------------------------------
+            ontology_registry = FileOntologyRegistry.from_config(self.config.ontology)
+            self.logger.info(
+                "Ontology registry initialized",
+                extra={
+                    "entities": len(ontology_registry.entities),
+                    "taxonomy_nodes": len(ontology_registry.taxonomy_nodes),
+                    "source_channels": len(ontology_registry.source_channels),
+                },
+            )
 
             # ------------------------------------------------------------------
             # Phase 3 pipeline stages
@@ -218,13 +232,18 @@ class ConsumerRegistry:
                 spam=spam_uc,
                 threads=threads_uc,
                 nlp_enricher=nlp_batch_enricher,
+                ontology_registry=ontology_registry,
             )
             pipeline_config = PipelineConfig(
-                enable_normalization=True,
-                enable_dedup=True,
-                enable_spam=True,
-                enable_threads=True,
-                enable_nlp=True,
+                enable_normalization=self.config.pipeline.enable_normalization,
+                enable_dedup=self.config.pipeline.enable_dedup,
+                enable_spam=self.config.pipeline.enable_spam,
+                enable_threads=self.config.pipeline.enable_threads,
+                enable_nlp=self.config.pipeline.enable_nlp,
+                enable_enrichment=self.config.pipeline.enable_enrichment,
+                enable_review=self.config.pipeline.enable_review,
+                enable_reporting=self.config.pipeline.enable_reporting,
+                enable_crisis=self.config.pipeline.enable_crisis,
                 services=pipeline_services,
             )
             self.pipeline_usecase = NewPipeline(logger=self.logger)

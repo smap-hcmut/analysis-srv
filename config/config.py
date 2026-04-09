@@ -141,6 +141,61 @@ class ContractPublisherConfig:
 
 
 @dataclass
+class KeywordExtractionConfig:
+    """Keyword extraction configuration."""
+
+    aspect_dictionary_path: str = "config/aspects_patterns.yaml"
+    enable_ai: bool = True
+    ai_threshold: int = 5
+    max_keywords: int = 30
+
+
+@dataclass
+class SentimentAnalysisConfig:
+    """Sentiment analysis configuration."""
+
+    context_window_size: int = 100
+    threshold_positive: float = 0.25
+    threshold_negative: float = -0.25
+
+
+@dataclass
+class NLPConfig:
+    """NLP batch enricher feature flags."""
+
+    model_version: str = "1.0.0"
+    enable_preprocessing: bool = True
+    enable_intent_classification: bool = True
+    enable_keyword_extraction: bool = True
+    enable_sentiment_analysis: bool = True
+    enable_impact_calculation: bool = True
+
+
+@dataclass
+class PipelineStagesConfig:
+    """Pipeline stage feature flags."""
+
+    enable_normalization: bool = True
+    enable_dedup: bool = True
+    enable_spam: bool = True
+    enable_threads: bool = True
+    enable_nlp: bool = True
+    enable_enrichment: bool = False
+    enable_review: bool = False
+    enable_reporting: bool = False
+    enable_crisis: bool = False
+
+
+@dataclass
+class OntologyConfig:
+    """Ontology file paths configuration."""
+
+    entities_path: str = "config/ontology/entities.yaml"
+    taxonomy_path: str = "config/ontology/taxonomy.yaml"
+    source_channels_path: str = "config/ontology/source_channels.yaml"
+
+
+@dataclass
 class Config:
     """Main configuration container.
 
@@ -162,6 +217,15 @@ class Config:
     contract_publisher: ContractPublisherConfig = field(
         default_factory=ContractPublisherConfig
     )
+    keyword_extraction: KeywordExtractionConfig = field(
+        default_factory=KeywordExtractionConfig
+    )
+    sentiment_analysis: SentimentAnalysisConfig = field(
+        default_factory=SentimentAnalysisConfig
+    )
+    nlp: NLPConfig = field(default_factory=NLPConfig)
+    pipeline: PipelineStagesConfig = field(default_factory=PipelineStagesConfig)
+    ontology: OntologyConfig = field(default_factory=OntologyConfig)
 
 
 class ConfigLoader:
@@ -382,6 +446,67 @@ class ConfigLoader:
                 batch_size=self._get_value("contract_publisher.batch_size", 100),
                 domain_overlay=self._get_value("contract_publisher.domain_overlay", ""),
                 enabled=self._get_value("contract_publisher.enabled", True),
+            ),
+            keyword_extraction=KeywordExtractionConfig(
+                aspect_dictionary_path=self._get_value(
+                    "keyword_extraction.aspect_dictionary_path",
+                    "config/aspects_patterns.yaml",
+                ),
+                enable_ai=self._get_value("keyword_extraction.enable_ai", True),
+                ai_threshold=self._get_value("keyword_extraction.ai_threshold", 5),
+                max_keywords=self._get_value("keyword_extraction.max_keywords", 30),
+            ),
+            sentiment_analysis=SentimentAnalysisConfig(
+                context_window_size=self._get_value(
+                    "sentiment_analysis.context_window_size", 100
+                ),
+                threshold_positive=self._get_value(
+                    "sentiment_analysis.threshold_positive", 0.25
+                ),
+                threshold_negative=self._get_value(
+                    "sentiment_analysis.threshold_negative", -0.25
+                ),
+            ),
+            nlp=NLPConfig(
+                model_version=self._get_value("nlp.model_version", "1.0.0"),
+                enable_preprocessing=self._get_value("nlp.enable_preprocessing", True),
+                enable_intent_classification=self._get_value(
+                    "nlp.enable_intent_classification", True
+                ),
+                enable_keyword_extraction=self._get_value(
+                    "nlp.enable_keyword_extraction", True
+                ),
+                enable_sentiment_analysis=self._get_value(
+                    "nlp.enable_sentiment_analysis", True
+                ),
+                enable_impact_calculation=self._get_value(
+                    "nlp.enable_impact_calculation", True
+                ),
+            ),
+            pipeline=PipelineStagesConfig(
+                enable_normalization=self._get_value(
+                    "pipeline.enable_normalization", True
+                ),
+                enable_dedup=self._get_value("pipeline.enable_dedup", True),
+                enable_spam=self._get_value("pipeline.enable_spam", True),
+                enable_threads=self._get_value("pipeline.enable_threads", True),
+                enable_nlp=self._get_value("pipeline.enable_nlp", True),
+                enable_enrichment=self._get_value("pipeline.enable_enrichment", False),
+                enable_review=self._get_value("pipeline.enable_review", False),
+                enable_reporting=self._get_value("pipeline.enable_reporting", False),
+                enable_crisis=self._get_value("pipeline.enable_crisis", False),
+            ),
+            ontology=OntologyConfig(
+                entities_path=self._get_value(
+                    "ontology.entities_path", "config/ontology/entities.yaml"
+                ),
+                taxonomy_path=self._get_value(
+                    "ontology.taxonomy_path", "config/ontology/taxonomy.yaml"
+                ),
+                source_channels_path=self._get_value(
+                    "ontology.source_channels_path",
+                    "config/ontology/source_channels.yaml",
+                ),
             ),
         )
 

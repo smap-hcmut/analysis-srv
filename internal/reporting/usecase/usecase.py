@@ -32,6 +32,7 @@ class ReportingUseCase(IReportingUseCase):
             threads=inp.thread_bundle,
             enrichment=inp.enrichment_bundle,
             ontology=ontology,
+            dedup_clusters=inp.dedup_clusters or [],
             author_quality=inp.author_quality or [],
         )
 

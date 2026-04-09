@@ -359,7 +359,8 @@ class ReportingInput:
     mentions: list[Any]  # list[MentionRecord]
     thread_bundle: Any  # ThreadBundle
     enrichment_bundle: Any  # EnrichmentBundle
-    ontology: Optional[OntologyRegistryStub] = None
+    ontology: Optional[Any] = None  # FileOntologyRegistry | OntologyRegistryStub
+    dedup_clusters: Optional[list[DedupClusterRecord]] = None
     author_quality: Optional[list[AuthorQualityRecord]] = None
 
 

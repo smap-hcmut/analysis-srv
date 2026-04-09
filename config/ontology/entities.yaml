@@ -1,0 +1,203 @@
+# Ontology — Entity definitions
+# Fields:
+#   id              : unique slug (snake_case)
+#   name            : canonical display name
+#   entity_type     : brand | product | person | organization | location | event | other
+#   entity_kind     : organization | vehicle | feature | service | person | generic
+#   knowledge_layer : L1 (brand) | L2 (product line) | L3 (variant/model)
+#   active_linking  : whether entity_enricher should match & link mentions to this entity
+#   taxonomy_ids    : list of taxonomy node IDs this entity belongs to
+#   aliases         : alternative spellings / hashtags / abbreviations to match against
+
+entities:
+  # ── L1 Brand ──────────────────────────────────────────────────────────────
+  - id: "vinfast"
+    name: "VinFast"
+    entity_type: "brand"
+    entity_kind: "organization"
+    knowledge_layer: "L1"
+    active_linking: true
+    taxonomy_ids:
+      - "automotive"
+      - "electric_vehicle"
+      - "vietnam_brand"
+    aliases:
+      - "VinFast"
+      - "vinfast"
+      - "Vin Fast"
+      - "VINFAST"
+      - "vinfas"            # common typo
+      - "#VinFast"
+      - "#vinfast"
+
+  # ── L2 Product lines ──────────────────────────────────────────────────────
+  - id: "vinfast_vf_series"
+    name: "VinFast VF Series"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L2"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "sedan_suv"
+    aliases:
+      - "VF Series"
+      - "dòng VF"
+      - "xe VF"
+
+  # ── L3 Models ─────────────────────────────────────────────────────────────
+  - id: "vinfast_vf3"
+    name: "VinFast VF3"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "mini_car"
+    aliases:
+      - "VF3"
+      - "VF 3"
+      - "vf3"
+      - "#VF3"
+      - "xe VF3"
+      - "VinFast VF3"
+
+  - id: "vinfast_vf5"
+    name: "VinFast VF5"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "mini_suv"
+    aliases:
+      - "VF5"
+      - "VF 5"
+      - "vf5"
+      - "#VF5"
+      - "xe VF5"
+      - "VinFast VF5"
+
+  - id: "vinfast_vf6"
+    name: "VinFast VF6"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "compact_suv"
+    aliases:
+      - "VF6"
+      - "VF 6"
+      - "vf6"
+      - "#VF6"
+      - "xe VF6"
+      - "VinFast VF6"
+
+  - id: "vinfast_vf7"
+    name: "VinFast VF7"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "mid_suv"
+    aliases:
+      - "VF7"
+      - "VF 7"
+      - "vf7"
+      - "#VF7"
+      - "xe VF7"
+      - "VinFast VF7"
+
+  - id: "vinfast_vf8"
+    name: "VinFast VF8"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "full_suv"
+    aliases:
+      - "VF8"
+      - "VF 8"
+      - "vf8"
+      - "#VF8"
+      - "xe VF8"
+      - "VinFast VF8"
+      - "VF8 Plus"
+      - "VF8 Eco"
+
+  - id: "vinfast_vf9"
+    name: "VinFast VF9"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "large_suv"
+    aliases:
+      - "VF9"
+      - "VF 9"
+      - "vf9"
+      - "#VF9"
+      - "xe VF9"
+      - "VinFast VF9"
+      - "VF9 Plus"
+      - "VF9 Eco"
+
+  - id: "vinfast_vfe34"
+    name: "VinFast VFe34"
+    entity_type: "product"
+    entity_kind: "vehicle"
+    knowledge_layer: "L3"
+    active_linking: true
+    taxonomy_ids:
+      - "electric_vehicle"
+      - "compact_suv"
+    aliases:
+      - "VFe34"
+      - "VF e34"
+      - "vfe34"
+      - "#VFe34"
+      - "VinFast e34"
+
+  # ── Services / Programs ───────────────────────────────────────────────────
+  - id: "vinfast_gsm"
+    name: "VinFast GSM"
+    entity_type: "product"
+    entity_kind: "service"
+    knowledge_layer: "L2"
+    active_linking: true
+    taxonomy_ids:
+      - "ride_hailing"
+      - "electric_vehicle"
+    aliases:
+      - "GSM"
+      - "Xanh SM"
+      - "xanh sm"
+      - "Green SM"
+      - "#XanhSM"
+
+  # ── Key People ────────────────────────────────────────────────────────────
+  - id: "pham_nhat_vuong"
+    name: "Phạm Nhật Vượng"
+    entity_type: "person"
+    entity_kind: "person"
+    knowledge_layer: "L1"
+    active_linking: true
+    taxonomy_ids:
+      - "vietnam_brand"
+      - "business_leader"
+    aliases:
+      - "Phạm Nhật Vượng"
+      - "Pham Nhat Vuong"
+      - "ông Vượng"
+      - "tỉ phú Vượng"
+      - "billionaire Vuong"
