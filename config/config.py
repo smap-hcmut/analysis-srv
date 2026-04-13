@@ -180,7 +180,7 @@ class PipelineStagesConfig:
     enable_spam: bool = True
     enable_threads: bool = True
     enable_nlp: bool = True
-    enable_enrichment: bool = False
+    enable_enrichment: bool = True
     enable_review: bool = False
     enable_reporting: bool = False
     enable_crisis: bool = False
@@ -188,11 +188,30 @@ class PipelineStagesConfig:
 
 @dataclass
 class OntologyConfig:
-    """Ontology file paths configuration."""
+    """Ontology configuration — points to domain ontology YAML.
 
+    Uses self-contained domain ontology files (OntologyRegistry format).
+    The old 3-file split (entities/taxonomy/source_channels) is deprecated.
+    """
+
+    # Primary: self-contained domain ontology path
+    domain_ontology_path: str = "config/ontology/vinfast_vn.yaml"
+
+    # Legacy: kept for backwards compatibility, not used by new code
     entities_path: str = "config/ontology/entities.yaml"
     taxonomy_path: str = "config/ontology/taxonomy.yaml"
     source_channels_path: str = "config/ontology/source_channels.yaml"
+
+
+@dataclass
+class EnrichmentConfig:
+    """Enrichment pipeline configuration."""
+
+    entity_enabled: bool = True
+    semantic_enabled: bool = True
+    topic_enabled: bool = True
+    source_influence_enabled: bool = True
+    semantic_full_enabled: bool = True
 
 
 @dataclass
@@ -239,6 +258,7 @@ class Config:
     nlp: NLPConfig = field(default_factory=NLPConfig)
     pipeline: PipelineStagesConfig = field(default_factory=PipelineStagesConfig)
     ontology: OntologyConfig = field(default_factory=OntologyConfig)
+    enrichment: EnrichmentConfig = field(default_factory=EnrichmentConfig)
     domain_registry: DomainRegistryConfig = field(default_factory=DomainRegistryConfig)
 
 
@@ -505,12 +525,16 @@ class ConfigLoader:
                 enable_spam=self._get_value("pipeline.enable_spam", True),
                 enable_threads=self._get_value("pipeline.enable_threads", True),
                 enable_nlp=self._get_value("pipeline.enable_nlp", True),
-                enable_enrichment=self._get_value("pipeline.enable_enrichment", False),
+                enable_enrichment=self._get_value("pipeline.enable_enrichment", True),
                 enable_review=self._get_value("pipeline.enable_review", False),
                 enable_reporting=self._get_value("pipeline.enable_reporting", False),
                 enable_crisis=self._get_value("pipeline.enable_crisis", False),
             ),
             ontology=OntologyConfig(
+                domain_ontology_path=self._get_value(
+                    "ontology.domain_ontology_path",
+                    "config/ontology/vinfast_vn.yaml",
+                ),
                 entities_path=self._get_value(
                     "ontology.entities_path", "config/ontology/entities.yaml"
                 ),
@@ -520,6 +544,17 @@ class ConfigLoader:
                 source_channels_path=self._get_value(
                     "ontology.source_channels_path",
                     "config/ontology/source_channels.yaml",
+                ),
+            ),
+            enrichment=EnrichmentConfig(
+                entity_enabled=self._get_value("enrichment.entity_enabled", True),
+                semantic_enabled=self._get_value("enrichment.semantic_enabled", True),
+                topic_enabled=self._get_value("enrichment.topic_enabled", True),
+                source_influence_enabled=self._get_value(
+                    "enrichment.source_influence_enabled", True
+                ),
+                semantic_full_enabled=self._get_value(
+                    "enrichment.semantic_full_enabled", True
                 ),
             ),
             domain_registry=DomainRegistryConfig(

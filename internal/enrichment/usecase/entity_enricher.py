@@ -1,9 +1,9 @@
-"""Simplified entity enricher — regex-based candidate extraction.
+"""Simplified entity enricher — regex-based + ontology-driven candidate extraction.
 
-Ported from core-analysis smap/enrichers/entity.py but simplified:
-- No CanonicalizationEngine, OntologyRegistry, NERProvider
-- Extract @mentions, #hashtags, CAPITALIZED noun phrases via regex
-- All results are unresolved_candidate (Phase 4 limitation)
+Ported from core-analysis smap/enrichers/entity.py:
+- When ontology_registry is provided: uses alias_map() for entity matching
+  (matches name, aliases, compact_aliases against text) → resolved entities
+- Falls back to regex extraction for unresolved candidates
 - annotate_batch_local_candidates clusters by normalize_alias()
 
 Self-contained: no external smap.* imports.
@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-import uuid
 from collections import defaultdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from internal.enrichment.type import (
     EntityCandidateClusterFact,
@@ -23,6 +22,9 @@ from internal.enrichment.type import (
     FactProvenance,
 )
 from internal.enrichment.usecase._anchors import normalize_alias
+
+if TYPE_CHECKING:
+    from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
 # ---------------------------------------------------------------------------
 # Regex patterns for candidate extraction
@@ -124,13 +126,26 @@ def _extract_raw_candidates(text: str) -> list[str]:
 
 
 class SimplifiedEntityEnricher:
-    """Simplified entity extractor — all outputs are unresolved_candidate."""
+    """Entity extractor — ontology-driven matching + regex fallback.
+
+    When ontology_registry is provided, checks text against alias_map()
+    to produce resolved entity facts (canonical_entity_id, entity_type,
+    knowledge_layer from the ontology seed). Unmatched surface forms
+    fall back to regex extraction as unresolved_candidate.
+    """
 
     provider_version = "entity-simplified-v1"
     name = "entity"
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        ontology_registry: "FileOntologyRegistry | None" = None,
+    ) -> None:
         self._candidates_by_mention: dict[str, list[str]] = {}
+        self._ontology_registry = ontology_registry
+        self._alias_map: dict[str, Any] | None = None
+        if ontology_registry is not None:
+            self._alias_map = ontology_registry.alias_map()
 
     def prepare(
         self,
@@ -157,49 +172,167 @@ class SimplifiedEntityEnricher:
         mention: Any,  # MentionRecord
         context: Any,  # MentionContext | None
     ) -> list[EntityFact]:
-        """Return EntityFacts for all extracted candidates (all unresolved)."""
+        """Return EntityFacts for all extracted candidates.
+
+        When ontology alias_map is available, matched entities are resolved
+        (canonical_entity_id set, resolution_kind='ontology_alias_match').
+        Unmatched candidates remain as unresolved_candidate.
+        """
         candidates = self._candidates_by_mention.get(
             mention.mention_id,
             _extract_raw_candidates(mention.raw_text)[:8],
         )
         if not candidates:
+            # Even if regex finds nothing, try ontology scan on raw text
+            if self._alias_map:
+                return self._ontology_scan(mention, context)
             return []
 
         facts: list[EntityFact] = []
         evidence_text = (
             context.context_text if context is not None else mention.raw_text
         )
+        seen_entity_ids: set[str] = set()
+
         for candidate_text in candidates:
-            entity_type = _infer_entity_type(candidate_text)
-            facts.append(
-                EntityFact(
-                    mention_id=mention.mention_id,
-                    source_uap_id=mention.source_uap_id,
-                    candidate_text=candidate_text,
-                    canonical_entity_id=None,
-                    concept_entity_id=None,
-                    entity_type=entity_type,
-                    confidence=0.4,
-                    matched_by="regex_extraction",
-                    resolution_kind="unresolved_candidate",
-                    resolved_entity_kind=None,
-                    knowledge_layer=None,
-                    target_eligible=False,
-                    unresolved_cluster_id=None,
-                    unresolved_cluster_size=0,
-                    surface_specificity=_surface_specificity(candidate_text),
-                    unresolved_reason="no_candidate_found",
-                    canonical_candidate_ids=[],
-                    discovered_by=["regex_extraction"],
-                    provenance=FactProvenance(
-                        source_uap_id=mention.source_uap_id,
+            # Try ontology alias matching first
+            normalized = normalize_alias(candidate_text)
+            entity_seed = self._alias_map.get(normalized) if self._alias_map else None
+
+            if entity_seed is not None and entity_seed.id not in seen_entity_ids:
+                seen_entity_ids.add(entity_seed.id)
+                facts.append(
+                    EntityFact(
                         mention_id=mention.mention_id,
-                        provider_version=self.provider_version,
-                        rule_version="entity-simplified-v1",
-                        evidence_text=evidence_text,
-                    ),
+                        source_uap_id=mention.source_uap_id,
+                        candidate_text=candidate_text,
+                        canonical_entity_id=entity_seed.id,
+                        concept_entity_id=entity_seed.id
+                        if entity_seed.entity_kind == "concept"
+                        else None,
+                        entity_type=entity_seed.entity_type,
+                        confidence=0.78,
+                        matched_by="ontology_alias_match",
+                        resolution_kind="ontology_alias_match",
+                        resolved_entity_kind=entity_seed.entity_kind,
+                        knowledge_layer=entity_seed.knowledge_layer,
+                        target_eligible=entity_seed.target_eligible,
+                        unresolved_cluster_id=None,
+                        unresolved_cluster_size=0,
+                        surface_specificity=_surface_specificity(candidate_text),
+                        unresolved_reason=None,
+                        canonical_candidate_ids=[entity_seed.id],
+                        discovered_by=["ontology_alias_match"],
+                        provenance=FactProvenance(
+                            source_uap_id=mention.source_uap_id,
+                            mention_id=mention.mention_id,
+                            provider_version=self.provider_version,
+                            rule_version="entity-ontology-v1",
+                            evidence_text=evidence_text,
+                        ),
+                    )
                 )
+            else:
+                # Unresolved candidate (regex fallback)
+                entity_type = _infer_entity_type(candidate_text)
+                facts.append(
+                    EntityFact(
+                        mention_id=mention.mention_id,
+                        source_uap_id=mention.source_uap_id,
+                        candidate_text=candidate_text,
+                        canonical_entity_id=None,
+                        concept_entity_id=None,
+                        entity_type=entity_type,
+                        confidence=0.4,
+                        matched_by="regex_extraction",
+                        resolution_kind="unresolved_candidate",
+                        resolved_entity_kind=None,
+                        knowledge_layer=None,
+                        target_eligible=False,
+                        unresolved_cluster_id=None,
+                        unresolved_cluster_size=0,
+                        surface_specificity=_surface_specificity(candidate_text),
+                        unresolved_reason="no_candidate_found",
+                        canonical_candidate_ids=[],
+                        discovered_by=["regex_extraction"],
+                        provenance=FactProvenance(
+                            source_uap_id=mention.source_uap_id,
+                            mention_id=mention.mention_id,
+                            provider_version=self.provider_version,
+                            rule_version="entity-simplified-v1",
+                            evidence_text=evidence_text,
+                        ),
+                    )
+                )
+
+        # Also scan raw text for ontology entities not caught by regex
+        if self._alias_map:
+            facts.extend(
+                self._ontology_scan(mention, context, exclude_ids=seen_entity_ids)
             )
+
+        return facts
+
+    def _ontology_scan(
+        self,
+        mention: Any,
+        context: Any,
+        exclude_ids: set[str] | None = None,
+    ) -> list[EntityFact]:
+        """Scan raw text for ontology entity aliases not found by regex."""
+        if not self._alias_map:
+            return []
+
+        exclude = exclude_ids or set()
+        text_lower = mention.raw_text.lower()
+        evidence_text = (
+            context.context_text if context is not None else mention.raw_text
+        )
+        facts: list[EntityFact] = []
+        seen: set[str] = set()
+
+        for alias_key, entity_seed in self._alias_map.items():
+            if entity_seed.id in exclude or entity_seed.id in seen:
+                continue
+            if not entity_seed.active_linking:
+                continue
+            # Check if alias appears in text (word boundary aware)
+            if len(alias_key) < 2:
+                continue
+            if alias_key in text_lower:
+                seen.add(entity_seed.id)
+                facts.append(
+                    EntityFact(
+                        mention_id=mention.mention_id,
+                        source_uap_id=mention.source_uap_id,
+                        candidate_text=entity_seed.name,
+                        canonical_entity_id=entity_seed.id,
+                        concept_entity_id=entity_seed.id
+                        if entity_seed.entity_kind == "concept"
+                        else None,
+                        entity_type=entity_seed.entity_type,
+                        confidence=0.72,
+                        matched_by="ontology_text_scan",
+                        resolution_kind="ontology_alias_match",
+                        resolved_entity_kind=entity_seed.entity_kind,
+                        knowledge_layer=entity_seed.knowledge_layer,
+                        target_eligible=entity_seed.target_eligible,
+                        unresolved_cluster_id=None,
+                        unresolved_cluster_size=0,
+                        surface_specificity=_surface_specificity(entity_seed.name),
+                        unresolved_reason=None,
+                        canonical_candidate_ids=[entity_seed.id],
+                        discovered_by=["ontology_text_scan"],
+                        provenance=FactProvenance(
+                            source_uap_id=mention.source_uap_id,
+                            mention_id=mention.mention_id,
+                            provider_version=self.provider_version,
+                            rule_version="entity-ontology-scan-v1",
+                            evidence_text=evidence_text,
+                        ),
+                    )
+                )
+
         return facts
 
     def annotate_batch_local_candidates(

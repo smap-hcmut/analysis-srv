@@ -36,6 +36,8 @@ dependencies = [
     "datasketch>=1.6",
     "fasttext-wheel>=0.9",
     "polars>=0.20",
+    # Ontology models (OntologyRegistry uses Pydantic v2 BaseModel + model_validator)
+    "pydantic>=2.0",
     # Observability
     "prometheus-client>=0.20",
 ]

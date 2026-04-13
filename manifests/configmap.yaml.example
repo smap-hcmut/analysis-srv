@@ -19,6 +19,7 @@ data:
     logging:
       level: "INFO"
       debug: false
+      json_output: true
 
     kafka:
       bootstrap_servers: "kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"
@@ -74,3 +75,39 @@ data:
         viral: 70.0
         kol_followers: 50000
         max_raw_score: 100000.0
+
+    # ─── Pipeline stage toggles ────────────────────────────────────
+    pipeline:
+      enable_normalization: true
+      enable_dedup: true
+      enable_spam: true
+      enable_threads: true
+      enable_nlp: true
+      # Enrichment stage (entity + semantic + topic analysis via ontology)
+      enable_enrichment: true
+      enable_review: false
+      enable_reporting: false
+      enable_crisis: false
+
+    # ─── Ontology configuration ────────────────────────────────────
+    # Points to the self-contained domain ontology YAML file.
+    # Each domain has ONE file containing all entities, taxonomy,
+    # aspects, issues, intents, topics, and source channels.
+    # Format follows OntologyRegistry Pydantic model from core-analysis.
+    ontology:
+      domain_ontology_path: "config/ontology/vinfast_vn.yaml"
+
+    # ─── Enrichment sub-stage toggles ──────────────────────────────
+    # Fine-grained control over which enrichment sub-stages run.
+    # All default to true when enrichment is enabled.
+    enrichment:
+      entity_enabled: true        # Entity resolution via ontology alias matching
+      semantic_enabled: true      # Aspect/issue analysis via ontology seed phrases
+      topic_enabled: true         # Topic classification via ontology topic seeds
+      source_influence_enabled: true
+      semantic_full_enabled: true  # Full semantic inference (aspect + issue + target)
+
+    # ─── Domain registry ───────────────────────────────────────────
+    domain_registry:
+      domains_dir: "config/domains"
+      fallback_domain: "_default"

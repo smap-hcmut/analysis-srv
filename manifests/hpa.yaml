@@ -1,0 +1,51 @@
+# HPA for analysis-consumer Kafka consumer.
+#
+# Scaling strategy:
+#   - Scale on CPU utilization (enrichment pipeline is CPU-bound for
+#     PhoBERT inference, entity matching, semantic analysis).
+#   - Memory-based scaling is less useful here because memory is mostly
+#     static (model weights + ontology data).
+#   - Kafka partition count is the hard upper bound for consumer parallelism:
+#     set maxReplicas <= partition count of smap.collector.output topic.
+#
+# Kafka consumer group rebalancing: when replicas change, Kafka triggers
+# a rebalance. terminationGracePeriodSeconds=60 in the Deployment gives
+# in-flight batches time to commit offsets before pod shutdown.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: analysis-consumer
+  namespace: smap
+  labels:
+    app.kubernetes.io/name: analysis-consumer
+    app.kubernetes.io/part-of: smap
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: analysis-consumer
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    # Scale up quickly when load spikes (e.g. batch crawl results arriving).
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    # Scale down slowly — avoid flapping during bursty workloads and
+    # minimize unnecessary Kafka rebalances.
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

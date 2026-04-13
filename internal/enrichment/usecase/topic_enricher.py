@@ -1,14 +1,11 @@
-"""Simplified topic enricher — TF-IDF fallback provider.
+"""Topic enricher — ontology-guided + TF-IDF fallback.
 
-Ported from core-analysis smap/enrichers/topic.py but simplified:
-- No TopicProvider, PrototypeRegistry, EmbeddingProvider, topic_quality, topic_artifacts
-- No HIL feedback, lineage, artifact history
-- FallbackTopicProvider: TF-IDF token overlap clustering
-- SimplifiedTopicCandidateEnricher: prepare/enrich/artifacts interface matching service.py expectations
-
-Phase 4 behaviour:
-- Every mention gets at least one TopicFact (either a real cluster or a singleton)
-- TopicArtifactFact produced per cluster
+Ported from core-analysis smap/enrichers/topic.py:
+- When ontology_registry is provided: first matches mentions against
+  ontology TopicDefinition.seed_phrases for known topics, producing
+  high-confidence topic facts.
+- Falls back to FallbackTopicProvider (TF-IDF union-find clustering)
+  for mentions that don't match any ontology topic.
 
 Self-contained: no external smap.* imports.
 """
@@ -17,16 +14,18 @@ from __future__ import annotations
 
 import hashlib
 import re
-import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from internal.enrichment.type import (
     FactProvenance,
     TopicArtifactFact,
     TopicFact,
 )
+
+if TYPE_CHECKING:
+    from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
 # ---------------------------------------------------------------------------
 # Stopwords for TF-IDF
@@ -274,7 +273,11 @@ PROVIDER_VERSION = "topic-simplified-v1"
 
 
 class SimplifiedTopicCandidateEnricher:
-    """Simplified topic enricher using FallbackTopicProvider.
+    """Topic enricher with ontology-guided matching + TF-IDF fallback.
+
+    When ontology_registry is provided, first matches mentions against
+    ontology TopicDefinition.seed_phrases for known topics, then falls
+    back to TF-IDF clustering for unmatched mentions.
 
     Matches the interface expected by EnricherService.enrich_mentions():
       prepare(mentions, contexts, *, entity_facts, aspect_facts, issue_facts)
@@ -288,10 +291,15 @@ class SimplifiedTopicCandidateEnricher:
     def __init__(
         self,
         topic_provider: FallbackTopicProvider | None = None,
+        ontology_registry: "FileOntologyRegistry | None" = None,
     ) -> None:
         self._provider = topic_provider or FallbackTopicProvider()
         self._topic_facts_by_mention: dict[str, list[TopicFact]] = defaultdict(list)
         self._topic_artifacts: list[TopicArtifactFact] = []
+        self._ontology_registry = ontology_registry
+        self._topic_seeds: dict[str, list[str]] = {}
+        if ontology_registry is not None:
+            self._topic_seeds = ontology_registry.topic_seed_phrases()
 
     def prepare(
         self,
@@ -302,7 +310,11 @@ class SimplifiedTopicCandidateEnricher:
         aspect_facts: list[Any] | None = None,
         issue_facts: list[Any] | None = None,
     ) -> None:
-        """Build topic assignments for all mentions via TF-IDF clustering."""
+        """Build topic assignments for all mentions.
+
+        When ontology topic seeds are available, first match mentions against
+        known topic seed_phrases. Remaining mentions go through TF-IDF clustering.
+        """
         del contexts, entity_facts, aspect_facts, issue_facts
 
         self._topic_facts_by_mention = defaultdict(list)
@@ -311,9 +323,89 @@ class SimplifiedTopicCandidateEnricher:
         if not mentions:
             return
 
+        # Step 1: Ontology-guided topic matching
+        unmatched_mentions: list[Any] = []
+        ontology_topic_counts: dict[str, int] = defaultdict(int)
+
+        if self._topic_seeds:
+            for mention in mentions:
+                text_lower = mention.raw_text.lower()
+                matched = False
+                for topic_key, seed_phrases in self._topic_seeds.items():
+                    for phrase in seed_phrases:
+                        if phrase.lower() in text_lower:
+                            # Get topic label from ontology
+                            topic_label = topic_key
+                            if self._ontology_registry:
+                                for t in self._ontology_registry.topics:
+                                    if t.topic_key == topic_key:
+                                        topic_label = t.label
+                                        break
+
+                            self._topic_facts_by_mention[mention.mention_id].append(
+                                TopicFact(
+                                    mention_id=mention.mention_id,
+                                    source_uap_id=mention.source_uap_id,
+                                    topic_key=topic_key,
+                                    topic_label=topic_label,
+                                    reporting_status="reportable",
+                                    confidence=0.75,
+                                    segment_id=None,
+                                    provenance=FactProvenance(
+                                        source_uap_id=mention.source_uap_id,
+                                        mention_id=mention.mention_id,
+                                        provider_version=self.provider_version,
+                                        rule_version="topic-ontology-seed-v1",
+                                        evidence_text=phrase,
+                                    ),
+                                )
+                            )
+                            ontology_topic_counts[topic_key] += 1
+                            matched = True
+                            break  # one topic match per seed set is enough
+                    if matched:
+                        break
+                if not matched:
+                    unmatched_mentions.append(mention)
+        else:
+            unmatched_mentions = list(mentions)
+
+        # Build artifacts for ontology-matched topics
+        for topic_key, count in ontology_topic_counts.items():
+            topic_label = topic_key
+            if self._ontology_registry:
+                for t in self._ontology_registry.topics:
+                    if t.topic_key == topic_key:
+                        topic_label = t.label
+                        break
+            seed_phrases = self._topic_seeds.get(topic_key, [])
+            self._topic_artifacts.append(
+                TopicArtifactFact(
+                    topic_key=topic_key,
+                    topic_label=topic_label,
+                    topic_size=count,
+                    top_terms=seed_phrases[:6],
+                    representative_document_ids=[],
+                    artifact_version=self.provider_version,
+                    provider_name="ontology-seed",
+                    reporting_status="reportable",
+                    provenance=FactProvenance(
+                        source_uap_id="batch",
+                        mention_id="ontology",
+                        provider_version=self.provider_version,
+                        rule_version="topic-ontology-seed-v1",
+                        evidence_text=topic_label,
+                    ),
+                )
+            )
+
+        # Step 2: TF-IDF fallback for unmatched mentions
+        if not unmatched_mentions:
+            return
+
         # Build document records
         documents: list[_DocumentRecord] = []
-        for mention in mentions:
+        for mention in unmatched_mentions:
             doc = _DocumentRecord(
                 document_id=f"{mention.mention_id}:whole",
                 mention_id=mention.mention_id,

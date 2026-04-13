@@ -19,7 +19,7 @@ Self-contained: no external smap.* imports.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from internal.enrichment.type import (
     EnrichmentBundle,
@@ -34,6 +34,9 @@ from internal.enrichment.usecase.semantic_enricher import (
     SimplifiedSemanticInferenceEnricher,
 )
 from internal.enrichment.usecase.topic_enricher import SimplifiedTopicCandidateEnricher
+
+if TYPE_CHECKING:
+    from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
 # ---------------------------------------------------------------------------
 # KeywordEnricher (ported from core-analysis keyword.py)
@@ -253,6 +256,8 @@ class EnricherService:
     """Orchestrates all enrichers for a batch of mentions.
 
     Mirrors core-analysis EnricherService.enrich_mentions() logic.
+    When ontology_registry is provided, enrichers use ontology-driven
+    entity/aspect/issue/topic matching instead of hardcoded patterns.
     """
 
     def __init__(
@@ -261,12 +266,18 @@ class EnricherService:
         *,
         topic_enricher: SimplifiedTopicCandidateEnricher | None = None,
         semantic_enricher: SimplifiedSemanticInferenceEnricher | None = None,
+        ontology_registry: "FileOntologyRegistry | None" = None,
     ) -> None:
-        self.entity_enricher = entity_enricher or SimplifiedEntityEnricher()
+        self.entity_enricher = entity_enricher or SimplifiedEntityEnricher(
+            ontology_registry=ontology_registry
+        )
         self.keyword_enricher = KeywordEnricher()
-        self.topic_enricher = topic_enricher or SimplifiedTopicCandidateEnricher()
+        self.topic_enricher = topic_enricher or SimplifiedTopicCandidateEnricher(
+            ontology_registry=ontology_registry
+        )
         self.semantic_enricher = (
-            semantic_enricher or SimplifiedSemanticInferenceEnricher()
+            semantic_enricher
+            or SimplifiedSemanticInferenceEnricher(ontology_registry=ontology_registry)
         )
         self.stance_enricher = StanceEnricher()
         self.intent_enricher = IntentEnricher()

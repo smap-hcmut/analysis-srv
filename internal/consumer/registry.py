@@ -45,6 +45,8 @@ from internal.ingestion.usecase.new import New as NewIngestion
 from internal.pipeline.type import PipelineConfig, PipelineServices
 from internal.pipeline.usecase.new import New as NewPipeline
 from internal.ontology.usecase.file_registry import FileOntologyRegistry
+from internal.enrichment.usecase.usecase import EnrichmentUseCase
+from internal.enrichment.type import EnricherConfig
 
 
 @dataclass
@@ -242,6 +244,22 @@ class ConsumerRegistry:
             threads_uc = NewThreads()
             self.logger.info("Threads usecase initialized")
 
+            # ------------------------------------------------------------------
+            # Phase 4: Enrichment usecase (entity + semantic + topic)
+            # ------------------------------------------------------------------
+            enricher_config = EnricherConfig(
+                entity_enabled=self.config.enrichment.entity_enabled,
+                semantic_enabled=self.config.enrichment.semantic_enabled,
+                topic_enabled=self.config.enrichment.topic_enabled,
+                source_influence_enabled=self.config.enrichment.source_influence_enabled,
+                semantic_full_enabled=self.config.enrichment.semantic_full_enabled,
+            )
+            enrichment_uc = EnrichmentUseCase(
+                config=enricher_config,
+                ontology_registry=ontology_registry,
+            )
+            self.logger.info("Enrichment usecase initialized")
+
             pipeline_services = PipelineServices(
                 normalization=normalization_uc,
                 dedup=dedup_uc,
@@ -249,6 +267,7 @@ class ConsumerRegistry:
                 threads=threads_uc,
                 nlp_enricher=nlp_batch_enricher,
                 ontology_registry=ontology_registry,
+                enrichment=enrichment_uc,
             )
             pipeline_config = PipelineConfig(
                 enable_normalization=self.config.pipeline.enable_normalization,

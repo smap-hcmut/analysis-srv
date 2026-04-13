@@ -1,11 +1,10 @@
 domain_code: "vinfast"
 display_name: "VinFast Automotive"
 
-# Ontology files to load for this domain.
-ontology_files:
-  entities_path: "config/ontology/entities.yaml"
-  taxonomy_path: "config/ontology/taxonomy.yaml"
-  source_channels_path: "config/ontology/source_channels.yaml"
+# Self-contained domain ontology file.
+ontology:
+  path: "config/ontology/vinfast_vn.yaml"
+  overlays: []
 
 # Runtime overlay values injected into OntologyConfig for the NLP pipeline.
 runtime:

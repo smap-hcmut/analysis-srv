@@ -1,9 +1,21 @@
-from internal.ontology.type import OntologyEntity, TaxonomyNode, SourceChannel
+from internal.ontology.type import (
+    EntitySeed,
+    TaxonomyNode,
+    SourceChannel,
+    CategoryDefinition,
+    TopicDefinition,
+    OntologyRegistry,
+    OntologyOverlay,
+)
 from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
 __all__ = [
-    "OntologyEntity",
+    "EntitySeed",
     "TaxonomyNode",
     "SourceChannel",
+    "CategoryDefinition",
+    "TopicDefinition",
+    "OntologyRegistry",
+    "OntologyOverlay",
     "FileOntologyRegistry",
 ]

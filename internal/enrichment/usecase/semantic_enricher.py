@@ -5,7 +5,6 @@ Simplifications vs core-analysis SemanticInferenceEnricher:
 - No semantic_assist (requires TaxonomyMappingProvider)
 - No reranker, no embedding_provider, no prototype_registry
 - No promoted_semantic_knowledge
-- No OntologyRegistry
 
 Key behaviour preserved:
 - Segmentation via SemanticSegmenter
@@ -15,10 +14,12 @@ Key behaviour preserved:
 - _apply_thread_corroboration, _apply_aspect_corroboration (numpy)
 - _build_mention_sentiment_fact produces real SentimentFact
 
-Phase 4 known limitations (empty because all entity facts are unresolved_candidate):
-- target_sentiments → []
-- aspect_opinions → []
-- issue_signals → []
+Ontology integration:
+- When ontology_registry is provided, aspect_seeds and issue_seeds are
+  populated from ontology CategoryDefinition.seed_phrases instead of
+  hardcoded patterns in _anchors.py.
+- Grounded targets from resolved entity facts enable target_sentiment
+  and aspect_opinion fact production.
 
 Self-contained: no external smap.* imports.
 """
@@ -28,7 +29,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -43,6 +44,7 @@ from internal.enrichment.type import (
 from internal.enrichment.usecase._anchors import (
     ASPECT_SEEDS,
     ISSUE_SEEDS,
+    build_target_anchors,
     contains_first_person,
     extract_lexical_anchors,
     normalize_alias,
@@ -69,7 +71,13 @@ from internal.enrichment.usecase._semantic_models import (
     TargetSentimentHypothesis,
 )
 
+if TYPE_CHECKING:
+    from internal.ontology.usecase.file_registry import FileOntologyRegistry
+
 SentimentValue = Literal["positive", "negative", "neutral", "mixed"]
+
+# Type alias for anchor seed sets
+SeedSet = dict[str, tuple[str, ...]]
 
 _SCOPE_MATCH_CHARS = 48
 _CORROBORATION_SIMILARITY_THRESHOLD = 0.52
@@ -85,17 +93,48 @@ class SemanticInferenceResult:
 
 
 class SimplifiedSemanticInferenceEnricher:
-    """Simplified port of SemanticInferenceEnricher.
+    """Semantic inference enricher with ontology-driven aspect/issue matching.
 
-    Produces SentimentFact per mention via lexical polarity analysis.
-    TargetSentimentFact, AspectOpinionFact, IssueSignalFact are all empty
-    in Phase 4 because all entity facts are unresolved_candidate (no grounded targets).
+    When ontology_registry is provided:
+    - aspect_seeds and issue_seeds are populated from ontology seed_phrases
+    - Resolved entity facts enable target_sentiment and aspect_opinion
+      fact production (grounded targets)
+
+    Without ontology, falls back to hardcoded ASPECT_SEEDS / ISSUE_SEEDS
+    from _anchors.py.
     """
 
     provider_version = "semantic-local-simplified-v1"
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        ontology_registry: "FileOntologyRegistry | None" = None,
+    ) -> None:
         self.segmenter = SemanticSegmenter()
+        self._ontology_registry = ontology_registry
+
+        # Build ontology-driven seeds, or fall back to hardcoded
+        if ontology_registry is not None:
+            self._aspect_seeds = self._build_seeds_from_ontology(
+                ontology_registry.aspect_seed_phrases()
+            )
+            self._issue_seeds = self._build_seeds_from_ontology(
+                ontology_registry.issue_seed_phrases()
+            )
+        else:
+            self._aspect_seeds = ASPECT_SEEDS
+            self._issue_seeds = ISSUE_SEEDS
+
+    @staticmethod
+    def _build_seeds_from_ontology(
+        seed_phrases: dict[str, list[str]],
+    ) -> SeedSet:
+        """Convert ontology seed_phrases (id→list[str]) to SeedSet (id→tuple[str,...])."""
+        return {
+            category_id: tuple(phrases)
+            for category_id, phrases in seed_phrases.items()
+            if phrases
+        }
 
     def enrich(
         self,
@@ -104,10 +143,32 @@ class SimplifiedSemanticInferenceEnricher:
         entity_facts: list[EntityFact],
     ) -> SemanticInferenceResult:
         mention_map = {mention.mention_id: mention for mention in mentions}
-        # In Phase 4 all entity facts are unresolved → no grounded targets
+
+        # Build grounded targets from resolved entity facts
         explicit_targets_by_mention: dict[str, list[TargetReference]] = {
             mention.mention_id: [] for mention in mentions
         }
+        for fact in entity_facts:
+            if (
+                fact.resolution_kind == "ontology_alias_match"
+                and fact.canonical_entity_id
+            ):
+                target = TargetReference(
+                    target_key=fact.canonical_entity_id,
+                    target_text=fact.candidate_text,
+                    canonical_entity_id=fact.canonical_entity_id,
+                    concept_entity_id=fact.concept_entity_id,
+                    unresolved_cluster_id=None,
+                    target_kind="canonical"
+                    if fact.resolved_entity_kind == "entity"
+                    else "concept",
+                    entity_type=fact.entity_type,
+                    inherited=False,
+                    inherited_from_mention_id=None,
+                )
+                if fact.mention_id in explicit_targets_by_mention:
+                    explicit_targets_by_mention[fact.mention_id].append(target)
+
         hypotheses = self._collect_hypotheses_serial(
             mentions=mentions,
             contexts=contexts,
@@ -198,8 +259,8 @@ class SimplifiedSemanticInferenceEnricher:
         for segment in segments:
             anchors = extract_lexical_anchors(
                 segment,
-                aspect_seeds=ASPECT_SEEDS,
-                issue_seeds=ISSUE_SEEDS,
+                aspect_seeds=self._aspect_seeds,
+                issue_seeds=self._issue_seeds,
             )
             anchors.sort(
                 key=lambda item: (item.start, item.end, item.anchor_type.value)
@@ -225,6 +286,81 @@ class SimplifiedSemanticInferenceEnricher:
                         negated=negated,
                         uncertainty_flags=uncertainty_flags,
                         routing_mode=routing_mode,
+                    )
+                )
+
+            # Generate aspect_opinion hypotheses when aspect anchors are found
+            aspect_anchors = [
+                anchor for anchor in anchors if anchor.anchor_type == AnchorType.ASPECT
+            ]
+            for anchor in aspect_anchors:
+                # Pick best target for this aspect (or None)
+                best_target = None
+                if explicit_targets:
+                    best_target = explicit_targets[0]  # closest target
+                aspect_segment_hypotheses.append(
+                    AspectOpinionHypothesis(
+                        mention_id=mention.mention_id,
+                        aspect=anchor.label,
+                        target=best_target,
+                        sentiment=self._sentiment_label(polarity_score),
+                        confidence=round(anchor.confidence * 0.85, 3),
+                        semantic_routing=routing_mode,
+                        target_grounding_confidence=0.78 if best_target else None,
+                        corroboration_confidence=0.65,
+                        evidence_scope=EvidenceScope.LOCAL,
+                        evidence_spans=[anchor.to_evidence_span()],
+                        score_components=[
+                            ScoreComponent(
+                                name="aspect_lexical_match",
+                                value=round(anchor.confidence, 4),
+                                reason=f"lexical match for aspect '{anchor.label}'",
+                            )
+                        ],
+                        uncertainty_flags=uncertainty_flags,
+                        segment_id=segment.segment_id,
+                    )
+                )
+
+            # Generate issue_signal hypotheses when issue anchors are found
+            issue_anchors_found = [
+                anchor for anchor in anchors if anchor.anchor_type == AnchorType.ISSUE
+            ]
+            for anchor in issue_anchors_found:
+                best_target = None
+                if explicit_targets:
+                    best_target = explicit_targets[0]
+
+                # Determine evidence mode
+                evidence_mode = EvidenceMode.DIRECT_OBSERVATION
+                if contains_first_person(segment):
+                    evidence_mode = EvidenceMode.DIRECT_COMPLAINT
+                if any(a.anchor_type == AnchorType.ESCALATION for a in anchors):
+                    evidence_mode = EvidenceMode.ESCALATION_SIGNAL
+                if any(a.anchor_type == AnchorType.HEARSAY for a in anchors):
+                    evidence_mode = EvidenceMode.HEARSAY_OR_RUMOR
+                if any(a.anchor_type == AnchorType.UNCERTAINTY for a in anchors):
+                    evidence_mode = EvidenceMode.QUESTION_OR_UNCERTAINTY
+
+                issue_segment_hypotheses.append(
+                    IssueSignalHypothesis(
+                        mention_id=mention.mention_id,
+                        issue_category=anchor.label,
+                        target=best_target,
+                        severity="low",
+                        evidence_mode=evidence_mode,
+                        confidence=round(anchor.confidence * 0.8, 3),
+                        evidence_scope=EvidenceScope.LOCAL,
+                        evidence_spans=[anchor.to_evidence_span()],
+                        score_components=[
+                            ScoreComponent(
+                                name="issue_lexical_match",
+                                value=round(anchor.confidence, 4),
+                                reason=f"lexical match for issue '{anchor.label}'",
+                            )
+                        ],
+                        uncertainty_flags=uncertainty_flags,
+                        segment_id=segment.segment_id,
                     )
                 )
 
@@ -368,8 +504,72 @@ class SimplifiedSemanticInferenceEnricher:
         uncertainty_flags: list[str],
         routing_mode: str,
     ) -> list[TargetSentimentHypothesis]:
-        # In Phase 4, all entity facts are unresolved_candidate → no grounded targets
-        return []
+        """Produce target sentiment hypotheses for explicit targets in this segment."""
+        if not explicit_targets:
+            return []
+
+        results: list[TargetSentimentHypothesis] = []
+        sentiment = self._sentiment_label(polarity_score)
+        evidence_spans = [
+            anchor.to_evidence_span()
+            for anchor in anchors
+            if anchor.anchor_type == AnchorType.POLARITY
+        ]
+
+        for target in explicit_targets:
+            # Check if target appears in or near this segment
+            target_in_segment = (
+                target.target_text.lower() in segment.text.lower()
+                if target.target_text
+                else False
+            )
+            # For short texts, always associate targets with the segment
+            is_short_text = len(mention.raw_text) < 200
+
+            if not target_in_segment and not is_short_text:
+                continue
+
+            scope = (
+                EvidenceScope.LOCAL if target_in_segment else EvidenceScope.INHERITED
+            )
+            components = sentiment_confidence_components(
+                explicit_target=True,
+                inherited_target=target.inherited,
+                support_count=len(polarity_supports),
+                mixed_evidence=sentiment == "mixed",
+                contrastive=segment.contrastive,
+                negated=negated,
+                uncertain=bool(uncertainty_flags),
+            )
+            confidence = clamp_confidence(0.5, components)
+
+            results.append(
+                TargetSentimentHypothesis(
+                    mention_id=mention.mention_id,
+                    target=target,
+                    sentiment=sentiment,
+                    confidence=confidence,
+                    score=round(abs(polarity_score), 3),
+                    semantic_routing=routing_mode,
+                    target_grounding_confidence=0.78 if not target.inherited else 0.55,
+                    corroboration_confidence=0.65,
+                    evidence_scope=scope,
+                    evidence_spans=evidence_spans,
+                    score_components=components,
+                    uncertainty_flags=uncertainty_flags,
+                    segment_ids=[segment.segment_id],
+                )
+            )
+
+        # Also check for aspect + target combinations
+        aspect_anchors = [
+            anchor for anchor in anchors if anchor.anchor_type == AnchorType.ASPECT
+        ]
+        issue_anchors = [
+            anchor for anchor in anchors if anchor.anchor_type == AnchorType.ISSUE
+        ]
+
+        return results
 
     def _merge_target_hypotheses(
         self,

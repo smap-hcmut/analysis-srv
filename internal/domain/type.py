@@ -1,12 +1,9 @@
-"""Domain registry types.
-
-A "domain" in this context maps to a business vertical tracked by a project,
-e.g. "vinfast" (automotive), "facial_cleanser" (FMCG), etc.
+"""Domain registry types — self-contained domain ontology model.
 
 Each domain has:
-  - ontology_files  : paths to YAML ontology data (entities, taxonomy, channels)
-  - runtime overlay : brand_names, topic_seeds, stop_entities used during NLP
-  - contract        : domain_overlay slug written into Layer-1 Kafka messages
+  - ontology_path : path to a single self-contained YAML (OntologyRegistry format)
+  - overlay_paths : optional overlay YAML files applied on top
+  - contract      : domain_overlay slug for downstream consumers
 
 DomainRegistry is built once at startup by DomainLoader and is then immutable.
 """
@@ -17,37 +14,33 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
-
-
-@dataclass
-class DomainOntologyFilesConfig:
-    """Paths to YAML ontology files for this domain."""
-
-    entities_path: str = "config/ontology/entities.yaml"
-    taxonomy_path: str = "config/ontology/taxonomy.yaml"
-    source_channels_path: str = "config/ontology/source_channels.yaml"
+    from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
 
 @dataclass
 class DomainRuntimeConfig:
     """Full runtime configuration for one domain.
 
-    Holds everything the pipeline needs to handle a record tagged with
-    a specific domain_type_code.
+    Each domain points to a self-contained ontology YAML that includes
+    entities, taxonomy, aspects, issues, intents, topics, etc.
     """
 
     domain_code: str
     display_name: str = ""
     contract_domain_overlay: str = ""
-    ontology_files: DomainOntologyFilesConfig = field(
-        default_factory=DomainOntologyFilesConfig
-    )
+
+    # Path to the self-contained domain ontology YAML
+    ontology_path: str = "config/ontology/vinfast_vn.yaml"
+
+    # Optional overlay YAML files applied on top of the base ontology
+    overlay_paths: list[str] = field(default_factory=list)
+
+    # Runtime hints (used by NLP pipeline for quick matching)
     brand_names: list[str] = field(default_factory=list)
     topic_seeds: list[str] = field(default_factory=list)
     stop_entities: list[str] = field(default_factory=list)
 
-    def to_runtime_ontology(self):  # -> internal.runtime.type.OntologyConfig
+    def to_runtime_ontology(self):
         """Build a pipeline OntologyConfig from this domain's runtime overlay."""
         from internal.runtime.type import OntologyConfig
 
@@ -58,15 +51,16 @@ class DomainRuntimeConfig:
             stop_entities=list(self.stop_entities),
         )
 
-    def to_ontology_files_config(self):  # -> config.config.OntologyConfig
-        """Build a config-layer OntologyConfig (file paths) for FileOntologyRegistry."""
-        from config.config import OntologyConfig as FilesConfig
+    def load_ontology_registry(self) -> "FileOntologyRegistry":
+        """Load and return the FileOntologyRegistry for this domain."""
+        from internal.ontology.usecase.file_registry import FileOntologyRegistry
 
-        return FilesConfig(
-            entities_path=self.ontology_files.entities_path,
-            taxonomy_path=self.ontology_files.taxonomy_path,
-            source_channels_path=self.ontology_files.source_channels_path,
-        )
+        if self.overlay_paths:
+            return FileOntologyRegistry.from_yaml_with_overlays(
+                self.ontology_path,
+                overlay_paths=self.overlay_paths,
+            )
+        return FileOntologyRegistry.from_yaml(self.ontology_path)
 
 
 @dataclass
@@ -103,4 +97,4 @@ class DomainRegistry:
         return len(self._domains)
 
 
-__all__ = ["DomainOntologyFilesConfig", "DomainRuntimeConfig", "DomainRegistry"]
+__all__ = ["DomainRuntimeConfig", "DomainRegistry"]

@@ -7,6 +7,7 @@ metadata:
     app.kubernetes.io/name: analysis-consumer
     app.kubernetes.io/part-of: smap
     app.kubernetes.io/component: consumer
+    app.kubernetes.io/managed-by: kubectl
 spec:
   replicas: 1
   revisionHistoryLimit: 5
@@ -24,20 +25,46 @@ spec:
         app: analysis-consumer
         app.kubernetes.io/name: analysis-consumer
         app.kubernetes.io/part-of: smap
+        app.kubernetes.io/component: consumer
     spec:
       imagePullSecrets:
         - name: harbor-registry
       containers:
         - name: analysis-consumer
-          image: registry.tantai.dev/smap/analysis-consumer:260316-235115
+          image: registry.tantai.dev/smap/analysis-consumer:latest
           imagePullPolicy: IfNotPresent
           resources:
+            # Enrichment pipeline (entity/semantic/topic) + PhoBERT ONNX inference
+            # requires more memory than the old NLP-only pipeline.
+            # PhoBERT model ~515MB + torch runtime ~800MB + ontology + working set.
             requests:
-              memory: "1Gi"
+              memory: "1.5Gi"
               cpu: "500m"
             limits:
-              memory: "3Gi"
-              cpu: "1500m"
+              memory: "4Gi"
+              cpu: "2000m"
+          # Liveness: detect deadlocked consumer (process alive but stuck).
+          # Exec probe — no HTTP server in this consumer.
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os, signal; os.kill(1, signal.SIG_DFL) or True"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Startup: PhoBERT + SpaCy model loading takes ~30-60s on cold start.
+          startupProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os, signal; os.kill(1, signal.SIG_DFL) or True"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
           volumeMounts:
             - name: config-volume
               mountPath: /app/config/config.yaml
@@ -45,6 +72,8 @@ spec:
           env:
             - name: PYTHONWARNINGS
               value: "ignore::SyntaxWarning"
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: CONTAINER_NAME
               value: "analysis-consumer"
             - name: KUBERNETES_NAMESPACE
