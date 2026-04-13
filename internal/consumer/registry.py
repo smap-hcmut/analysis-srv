@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from internal.consumer.type import Dependencies
+from internal.domain.loader import DomainLoader
+from internal.domain.type import DomainRegistry
 from internal.text_preprocessing import (
     NewTextPreprocessingUseCase,
     Config as TextProcessingConfig,
@@ -66,6 +68,7 @@ class ConsumerRegistry:
         self.ingestion_usecase = None
         self.contract_publisher = None
         self.post_insight_usecase = None
+        self.domain_registry: Optional[DomainRegistry] = None
 
     def initialize(self) -> DomainServices:
         if self._services is not None:
@@ -209,6 +212,19 @@ class ConsumerRegistry:
                     "taxonomy_nodes": len(ontology_registry.taxonomy_nodes),
                     "source_channels": len(ontology_registry.source_channels),
                 },
+            )
+
+            # ------------------------------------------------------------------
+            # Domain registry (per-domain YAML configs for routing + ontology)
+            # ------------------------------------------------------------------
+            domain_registry = DomainLoader.load_from_dir(
+                domains_dir=self.config.domain_registry.domains_dir,
+                fallback_code=self.config.domain_registry.fallback_domain,
+            )
+            self.domain_registry = domain_registry
+            self.logger.info(
+                "Domain registry initialized",
+                extra={"domains": domain_registry.domain_codes()},
             )
 
             # ------------------------------------------------------------------

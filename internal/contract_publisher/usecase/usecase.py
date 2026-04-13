@@ -205,12 +205,23 @@ class ContractPublisherUseCase:
         window_start = min_iso_utc(timestamps) if timestamps else now_iso_utc()
         window_end = max_iso_utc(timestamps) if timestamps else now_iso_utc()
 
+        # Prefer the per-record domain overlay injected by server.py (domain routing),
+        # fall back to the static config value for legacy/non-routed records.
+        domain_overlay = (
+            (
+                first_uap.raw.get("_resolved_domain_overlay")
+                or self._config.domain_overlay
+            )
+            if first_uap
+            else self._config.domain_overlay
+        )
+
         return RunContext(
             run_id=default_run_id(),
             project_id=project_id,
             campaign_id=campaign_id,
             platform=normalize_platform_lower(source_type),
-            domain_overlay=self._config.domain_overlay,
+            domain_overlay=domain_overlay,
             analysis_window_start=window_start,
             analysis_window_end=window_end,
         )

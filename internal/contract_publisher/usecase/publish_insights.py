@@ -43,7 +43,11 @@ def _map_card(card: Any, ctx: RunContext) -> dict:
     time_window = getattr(card, "time_window", None) or ""
     window_start, window_end = _parse_time_window(time_window)
     supporting_metrics = getattr(card, "supporting_metrics", {}) or {}
-    evidence_refs = getattr(card, "evidence_references", []) or []
+    evidence_refs = [
+        str(r)
+        for r in (getattr(card, "evidence_references", []) or [])
+        if r is not None
+    ]
     confidence = float(getattr(card, "confidence", 0.0) or 0.0)
 
     result: dict = {

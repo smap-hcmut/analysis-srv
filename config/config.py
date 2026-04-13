@@ -196,6 +196,19 @@ class OntologyConfig:
 
 
 @dataclass
+class DomainRegistryConfig:
+    """Domain registry configuration.
+
+    Points to the directory containing per-domain YAML files
+    (e.g. config/domains/vinfast.yaml, config/domains/_default.yaml).
+    Each file is loaded at startup into the DomainRegistry for domain routing.
+    """
+
+    domains_dir: str = "config/domains"
+    fallback_domain: str = "_default"
+
+
+@dataclass
 class Config:
     """Main configuration container.
 
@@ -226,6 +239,7 @@ class Config:
     nlp: NLPConfig = field(default_factory=NLPConfig)
     pipeline: PipelineStagesConfig = field(default_factory=PipelineStagesConfig)
     ontology: OntologyConfig = field(default_factory=OntologyConfig)
+    domain_registry: DomainRegistryConfig = field(default_factory=DomainRegistryConfig)
 
 
 class ConfigLoader:
@@ -506,6 +520,14 @@ class ConfigLoader:
                 source_channels_path=self._get_value(
                     "ontology.source_channels_path",
                     "config/ontology/source_channels.yaml",
+                ),
+            ),
+            domain_registry=DomainRegistryConfig(
+                domains_dir=self._get_value(
+                    "domain_registry.domains_dir", "config/domains"
+                ),
+                fallback_domain=self._get_value(
+                    "domain_registry.fallback_domain", "_default"
                 ),
             ),
         )

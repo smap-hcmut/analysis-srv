@@ -1,0 +1,21 @@
+domain_code: "_default"
+display_name: "Default Domain (fallback)"
+
+# Ontology files to load for this domain.
+# Paths are relative to the analysis-srv working directory.
+ontology_files:
+  entities_path: "config/ontology/entities.yaml"
+  taxonomy_path: "config/ontology/taxonomy.yaml"
+  source_channels_path: "config/ontology/source_channels.yaml"
+
+# Runtime overlay values injected into OntologyConfig for the NLP pipeline.
+runtime:
+  brand_names: []
+  topic_seeds: []
+  stop_entities: []
+
+# Contract layer — domain_overlay slug written into analytics.report.digest.
+contract:
+  # knowledge-srv workers.go requires DomainOverlay != "" to accept the digest.
+  # Use "domain-default" as the canonical fallback slug.
+  domain_overlay: "domain-default"

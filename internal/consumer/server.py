@@ -122,15 +122,27 @@ class ConsumerServer(IConsumerServer):
 
             envelope = json.loads(body)
 
-            # 2. Skip messages without UAP version header
-            if FIELD_UAP_VERSION not in envelope:
-                return
+            # 2. Format auto-detection: ingest-srv flat vs legacy UAP hierarchical
+            if FIELD_UAP_VERSION in envelope:
+                uap_record = UAPRecord.parse(envelope)  # legacy UAP format
+            elif "identity" in envelope:
+                uap_record = UAPRecord.from_ingest_record(
+                    envelope
+                )  # ingest-srv flat format
+            else:
+                return  # unknown format — skip silently
 
-            # 3. Parse UAP
-            uap_record = UAPRecord.parse(envelope)
             project_id = uap_record.ingest.project_id if uap_record.ingest else None
             if not project_id:
                 return
+
+            # 3. Domain routing — resolve ontology overlay from domain_type_code
+            domain_config = self.registry.domain_registry.lookup(
+                uap_record.domain_type_code
+            )
+            uap_record.raw["_resolved_domain_overlay"] = (
+                domain_config.contract_domain_overlay
+            )
 
             # 4. Adapt to pipeline-ready bundle
             bundle, stats = self.ingestion_usecase.from_kafka(
@@ -141,11 +153,12 @@ class ConsumerServer(IConsumerServer):
             if not bundle.records:
                 return
 
-            # 5. Build run context
+            # 5. Build run context with per-domain ontology overlay
             ctx = RunContext(
                 run_id=str(uuid.uuid4()),
                 project_id=project_id,
                 analysis_window_end=datetime.now(tz=timezone.utc),
+                ontology=domain_config.to_runtime_ontology(),
             )
 
             # 6. Run pipeline stages (CPU-bound; offload to thread pool)
