@@ -84,12 +84,12 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                             setattr(existing, key, value)
                     record = existing
                 else:
-                if not project_id:
-                    if self.logger:
-                        self.logger.error(
-                            "internal.post_insight.repository.postgre.post_insight.upsert: project_id is required for insertion"
-                        )
-                    raise ErrFailedToUpsert("project_id is required for insertion")
+                    if not project_id:
+                        if self.logger:
+                            self.logger.error(
+                                "internal.post_insight.repository.postgre.post_insight.upsert: project_id is required for insertion"
+                            )
+                        raise ErrFailedToUpsert("project_id is required for insertion")
 
                     record = PostInsight(**transformed)
                     session.add(record)
