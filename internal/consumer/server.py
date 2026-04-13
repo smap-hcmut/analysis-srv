@@ -45,6 +45,9 @@ class ConsumerServer(IConsumerServer):
             self.registry = ConsumerRegistry(self.deps)
             self.domain_services = self.registry.initialize()
 
+            # Publish domain registry to Redis for cross-service discovery
+            await self._publish_domain_registry()
+
             # Grab pipeline references from registry
             self.pipeline_usecase = self.registry.pipeline_usecase
             self.pipeline_config = self.registry.pipeline_config
@@ -92,6 +95,52 @@ class ConsumerServer(IConsumerServer):
             self.logger.error(f"Failed to start Kafka consumer server: {e}")
             self.logger.exception("Server start error:")
             raise
+
+    # ------------------------------------------------------------------
+    # Redis domain registry publication
+    # ------------------------------------------------------------------
+
+    REDIS_KEY_DOMAINS = "smap:domains"
+
+    async def _publish_domain_registry(self) -> None:
+        """Publish the loaded domain list to Redis for cross-service discovery.
+
+        Called once at startup after DomainLoader builds the DomainRegistry.
+        Other services (e.g. project-srv) read this key to validate
+        domain_type_code and to list available domains.
+
+        Key: ``smap:domains`` (no TTL — overwritten on every restart).
+        """
+        domain_registry = self.registry.domain_registry
+        if domain_registry is None:
+            self.logger.warning("Domain registry is None, skipping Redis publish")
+            return
+
+        domains = []
+        for code in domain_registry.domain_codes():
+            cfg = domain_registry.lookup(code)
+            domains.append(
+                {
+                    "domain_code": cfg.domain_code,
+                    "display_name": cfg.display_name,
+                }
+            )
+
+        ok = await self.deps.redis.set(self.REDIS_KEY_DOMAINS, domains)
+        if ok:
+            self.logger.info(
+                "Published domain registry to Redis",
+                extra={
+                    "key": self.REDIS_KEY_DOMAINS,
+                    "domain_count": len(domains),
+                    "domains": [d["domain_code"] for d in domains],
+                },
+            )
+        else:
+            self.logger.error(
+                "Failed to publish domain registry to Redis",
+                extra={"key": self.REDIS_KEY_DOMAINS},
+            )
 
     async def _handle_message(self, message: KafkaMessage) -> None:
         """Process a single Kafka message through the full pipeline.
