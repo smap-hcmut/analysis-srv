@@ -1,7 +1,7 @@
 -- 001_create_analytics_outbox.sql
 -- Transactional outbox table for reliable Kafka delivery (Phase 6).
 
-CREATE TABLE IF NOT EXISTS schema_analysis.analytics_outbox (
+CREATE TABLE IF NOT EXISTS analysis.analytics_outbox (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id      TEXT        NOT NULL,
     topic       TEXT        NOT NULL,
@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS schema_analysis.analytics_outbox (
 
 -- Fast poll of pending records ordered by insertion time
 CREATE INDEX IF NOT EXISTS idx_outbox_pending
-    ON schema_analysis.analytics_outbox (status, created_at)
+    ON analysis.analytics_outbox (status, created_at)
     WHERE status = 'pending';

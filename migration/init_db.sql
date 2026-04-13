@@ -1,4 +1,4 @@
-CREATE TABLE schema_analysis.post_insight (
+CREATE TABLE analysis.post_insight (
     -- Identity
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id VARCHAR(255) NOT NULL,
@@ -61,14 +61,14 @@ CREATE TABLE schema_analysis.post_insight (
 );
 
 -- Indexes
-CREATE INDEX idx_post_insight_project ON schema_analysis.post_insight(project_id);
-CREATE INDEX idx_post_insight_source ON schema_analysis.post_insight(source_id);
-CREATE INDEX idx_post_insight_created ON schema_analysis.post_insight(content_created_at);
-CREATE INDEX idx_post_insight_sentiment ON schema_analysis.post_insight(overall_sentiment);
-CREATE INDEX idx_post_insight_risk ON schema_analysis.post_insight(risk_level);
-CREATE INDEX idx_post_insight_platform ON schema_analysis.post_insight(platform);
-CREATE INDEX idx_post_insight_analyzed ON schema_analysis.post_insight(analyzed_at);
+CREATE INDEX idx_post_insight_project ON analysis.post_insight(project_id);
+CREATE INDEX idx_post_insight_source ON analysis.post_insight(source_id);
+CREATE INDEX idx_post_insight_created ON analysis.post_insight(content_created_at);
+CREATE INDEX idx_post_insight_sentiment ON analysis.post_insight(overall_sentiment);
+CREATE INDEX idx_post_insight_risk ON analysis.post_insight(risk_level);
+CREATE INDEX idx_post_insight_platform ON analysis.post_insight(platform);
+CREATE INDEX idx_post_insight_analyzed ON analysis.post_insight(analyzed_at);
 
 -- GIN indexes for JSONB
-CREATE INDEX idx_post_insight_aspects ON schema_analysis.post_insight USING GIN (aspects);
-CREATE INDEX idx_post_insight_uap_metadata ON schema_analysis.post_insight USING GIN (uap_metadata);
+CREATE INDEX idx_post_insight_aspects ON analysis.post_insight USING GIN (aspects);
+CREATE INDEX idx_post_insight_uap_metadata ON analysis.post_insight USING GIN (uap_metadata);

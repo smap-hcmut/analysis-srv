@@ -1,4 +1,4 @@
-"""ORM model for schema_analysis.post_insight table.
+"""ORM model for analysis.post_insight table.
 
 Stores AI-derived insights for social media posts including:
 - Sentiment analysis (overall + aspect-based)
@@ -7,8 +7,8 @@ Stores AI-derived insights for social media posts including:
 - Content quality (spam detection, toxicity)
 - Keywords and entities extraction
 
-Table: schema_analysis.post_insight
-Schema: schema_analysis
+Table: analysis.post_insight
+Schema: analysis
 """
 
 from sqlalchemy import (
@@ -37,7 +37,7 @@ class PostInsight(Base):
         Index("idx_post_insight_risk", "risk_level"),
         Index("idx_post_insight_platform", "platform"),
         Index("idx_post_insight_analyzed", "analyzed_at"),
-        {"schema": "schema_analysis"},
+        {"schema": "analysis"},
     )
 
     # Identity

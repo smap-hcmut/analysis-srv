@@ -20,7 +20,7 @@ async def verify():
         print("❌ Failed to load config:", e)
         return
 
-    # 2. Build PostgresConfig (schema: schema_analysis, same as app)
+    # 2. Build PostgresConfig (schema: analysis, same as app)
     schema = getattr(cfg.database, "schema", None) or POSTGRES_SCHEMA
     pg_config = PostgresConfig(
         database_url=cfg.database.url,
