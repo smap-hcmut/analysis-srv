@@ -1,0 +1,152 @@
+# Ontology — Taxonomy hierarchy
+# Fields:
+#   id        : unique slug (snake_case)
+#   name      : display name
+#   parent_id : parent node id, null for root nodes
+#   level     : depth level (0 = root, 1 = category, 2 = subcategory, ...)
+#   path      : full path from root, slash-separated
+
+taxonomy:
+  # ── Level 0 — Root domains ────────────────────────────────────────────────
+  - id: "automotive"
+    name: "Automotive"
+    parent_id: null
+    level: 0
+    path: "automotive"
+
+  - id: "technology"
+    name: "Technology"
+    parent_id: null
+    level: 0
+    path: "technology"
+
+  - id: "lifestyle"
+    name: "Lifestyle"
+    parent_id: null
+    level: 0
+    path: "lifestyle"
+
+  - id: "business"
+    name: "Business"
+    parent_id: null
+    level: 0
+    path: "business"
+
+  # ── Level 1 — Automotive subcategories ───────────────────────────────────
+  - id: "electric_vehicle"
+    name: "Electric Vehicle"
+    parent_id: "automotive"
+    level: 1
+    path: "automotive/electric_vehicle"
+
+  - id: "ride_hailing"
+    name: "Ride Hailing"
+    parent_id: "automotive"
+    level: 1
+    path: "automotive/ride_hailing"
+
+  - id: "vietnam_brand"
+    name: "Vietnam Brand"
+    parent_id: "automotive"
+    level: 1
+    path: "automotive/vietnam_brand"
+
+  - id: "car_review"
+    name: "Car Review"
+    parent_id: "automotive"
+    level: 1
+    path: "automotive/car_review"
+
+  - id: "car_ownership"
+    name: "Car Ownership Experience"
+    parent_id: "automotive"
+    level: 1
+    path: "automotive/car_ownership"
+
+  # ── Level 2 — EV model segments ───────────────────────────────────────────
+  - id: "mini_car"
+    name: "Mini Car"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/mini_car"
+
+  - id: "mini_suv"
+    name: "Mini SUV"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/mini_suv"
+
+  - id: "compact_suv"
+    name: "Compact SUV"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/compact_suv"
+
+  - id: "mid_suv"
+    name: "Mid-Size SUV"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/mid_suv"
+
+  - id: "full_suv"
+    name: "Full-Size SUV"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/full_suv"
+
+  - id: "large_suv"
+    name: "Large SUV"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/large_suv"
+
+  - id: "sedan_suv"
+    name: "Sedan / SUV"
+    parent_id: "electric_vehicle"
+    level: 2
+    path: "automotive/electric_vehicle/sedan_suv"
+
+  # ── Level 1 — Business ────────────────────────────────────────────────────
+  - id: "business_leader"
+    name: "Business Leader"
+    parent_id: "business"
+    level: 1
+    path: "business/business_leader"
+
+  - id: "market_expansion"
+    name: "Market Expansion"
+    parent_id: "business"
+    level: 1
+    path: "business/market_expansion"
+
+  # ── Level 1 — Technology ──────────────────────────────────────────────────
+  - id: "battery_tech"
+    name: "Battery Technology"
+    parent_id: "technology"
+    level: 1
+    path: "technology/battery_tech"
+
+  - id: "charging_infra"
+    name: "Charging Infrastructure"
+    parent_id: "technology"
+    level: 1
+    path: "technology/charging_infra"
+
+  - id: "autonomous_driving"
+    name: "Autonomous Driving"
+    parent_id: "technology"
+    level: 1
+    path: "technology/autonomous_driving"
+
+  # ── Level 1 — Lifestyle ───────────────────────────────────────────────────
+  - id: "green_living"
+    name: "Green Living"
+    parent_id: "lifestyle"
+    level: 1
+    path: "lifestyle/green_living"
+
+  - id: "community"
+    name: "Owner Community"
+    parent_id: "lifestyle"
+    level: 1
+    path: "lifestyle/community"

@@ -1,7 +1,18 @@
-from sqlalchemy import select, delete as sql_delete
+from sqlalchemy import select, delete as sql_delete, asc, desc
 
 from internal.model.post_insight import PostInsight
 from ..option import GetOneOptions, ListOptions, DeleteOptions
+
+# Map order_by string tokens → (column, direction_fn)
+_ORDER_BY_COLUMNS = {
+    "analyzed_at": PostInsight.analyzed_at,
+    "created_at": PostInsight.created_at,
+    "updated_at": PostInsight.updated_at,
+    "content_created_at": PostInsight.content_created_at,
+    "risk_score": PostInsight.risk_score,
+    "impact_score": PostInsight.impact_score,
+    "overall_sentiment_score": PostInsight.overall_sentiment_score,
+}
 
 
 def build_get_one_query(opt: GetOneOptions):
@@ -30,9 +41,17 @@ def build_list_query(opt: ListOptions):
     if opt.risk_level:
         stmt = stmt.where(PostInsight.risk_level == opt.risk_level)
 
-    # Ordering
+    # Ordering — parse "column_name [ASC|DESC]" string
     if opt.order_by:
-        stmt = stmt.order_by(PostInsight.analyzed_at.desc())
+        parts = opt.order_by.strip().split()
+        col_name = parts[0].lower()
+        direction = parts[1].upper() if len(parts) > 1 else "DESC"
+        col = _ORDER_BY_COLUMNS.get(col_name)
+        if col is not None:
+            stmt = stmt.order_by(desc(col) if direction == "DESC" else asc(col))
+        else:
+            # Unrecognised column — fall back to analyzed_at DESC
+            stmt = stmt.order_by(PostInsight.analyzed_at.desc())
 
     # Limit
     if opt.limit > 0:

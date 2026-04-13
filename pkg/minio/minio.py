@@ -11,7 +11,14 @@ from minio.error import S3Error  # type: ignore
 from loguru import logger
 from .interface import IObjectStorage
 from .type import MinIOConfig, CompressionConfig, UploadResult
-from .constant import *
+from .constant import (
+    METADATA_COMPRESSION_ALGORITHM,
+    METADATA_COMPRESSION_LEVEL,
+    METADATA_ORIGINAL_SIZE,
+    METADATA_COMPRESSED_SIZE,
+    METADATA_COMPRESSED,
+    COMPRESSION_METADATA_KEYS,
+)
 
 
 class MinioAdapterError(Exception):

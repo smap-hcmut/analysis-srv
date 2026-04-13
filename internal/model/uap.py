@@ -135,7 +135,122 @@ class UAPRecord:
     content: UAPContent = field(default_factory=UAPContent)
     signals: UAPSignals = field(default_factory=UAPSignals)
     context: UAPContext = field(default_factory=UAPContext)
+    domain_type_code: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_ingest_record(cls, raw: dict[str, Any]) -> "UAPRecord":
+        """Parse ingest-srv flat wire format into a UAPRecord.
+
+        ingest-srv emits a flat structure (no uap_version, no ingest/signals/context blocks).
+        This classmethod maps each ingest-srv field to the corresponding UAPRecord field.
+
+        Required fields (raises ErrUAPValidation if absent/empty):
+            identity.project_id
+            identity.uap_id
+
+        Rich metadata (domain_type_code, hierarchy, platform_meta) is stored in .raw
+        so no information is lost downstream.
+        """
+        identity = raw.get("identity") or {}
+        content_raw = raw.get("content") or {}
+        author_raw = raw.get("author") or {}
+        engagement_raw = raw.get("engagement") or {}
+        temporal_raw = raw.get("temporal") or {}
+        hierarchy_raw = raw.get("hierarchy") or {}
+        media_raw = raw.get("media") or []
+
+        # --- Required field validation ---
+        project_id = identity.get("project_id", "")
+        if not project_id:
+            raise ErrUAPValidation("identity.project_id is required")
+
+        uap_id = identity.get("uap_id", "")
+        if not uap_id:
+            raise ErrUAPValidation("identity.uap_id is required")
+
+        # --- Attachments (media[] → content.attachments[]) ---
+        attachments = [
+            UAPAttachment(
+                type=m.get("type", ""),
+                url=m.get("url", "") or m.get("download_url", ""),
+                content="",
+            )
+            for m in media_raw
+            if isinstance(m, dict)
+        ]
+
+        # --- Keywords: crawl_keyword (str) → keywords_matched ([str]) ---
+        crawl_keyword = raw.get("crawl_keyword", "")
+        keywords_matched = [crawl_keyword] if crawl_keyword else []
+
+        # --- domain_type_code ---
+        domain_type_code = raw.get("domain_type_code", "")
+
+        # --- Preserve rich metadata in .raw ---
+        preserved_raw: dict[str, Any] = {}
+        if domain_type_code:
+            preserved_raw["domain_type_code"] = domain_type_code
+        if hierarchy_raw:
+            preserved_raw["hierarchy"] = hierarchy_raw
+        platform_meta = raw.get("platform_meta")
+        if platform_meta:
+            preserved_raw["platform_meta"] = platform_meta
+        task_id = identity.get("task_id", "")
+        if task_id:
+            preserved_raw["task_id"] = task_id
+
+        return cls(
+            uap_version="",  # ingest-srv does not emit uap_version
+            event_id=uap_id,
+            domain_type_code=domain_type_code,
+            ingest=UAPIngest(
+                project_id=project_id,
+                source=UAPSource(
+                    source_id=identity.get("origin_id", ""),
+                    source_type=identity.get("platform", ""),
+                ),
+                batch=UAPBatch(
+                    received_at=temporal_raw.get("ingested_at", ""),
+                ),
+                trace=UAPTrace(
+                    mapping_id=task_id,
+                ),
+            ),
+            content=UAPContent(
+                doc_id=uap_id,
+                doc_type=(identity.get("uap_type") or "post").lower(),
+                text=content_raw.get("text", ""),
+                url=identity.get("url"),
+                language=content_raw.get("language"),
+                published_at=temporal_raw.get("posted_at"),
+                author=UAPAuthor(
+                    author_id=author_raw.get("id"),
+                    display_name=author_raw.get("nickname"),
+                    username=author_raw.get("username"),
+                    avatar_url=author_raw.get("avatar"),
+                    is_verified=bool(author_raw.get("is_verified", False)),
+                ),
+                parent=UAPParent(
+                    parent_id=hierarchy_raw.get("parent_id"),
+                    parent_type=None,
+                ),
+                attachments=attachments,
+            ),
+            signals=UAPSignals(
+                engagement=UAPEngagement(
+                    like_count=cls._safe_int(engagement_raw.get("likes")),
+                    comment_count=cls._safe_int(engagement_raw.get("comments_count")),
+                    share_count=cls._safe_int(engagement_raw.get("shares")),
+                    view_count=cls._safe_int(engagement_raw.get("views")),
+                    save_count=cls._safe_int(engagement_raw.get("saves")),
+                ),
+            ),
+            context=UAPContext(
+                keywords_matched=keywords_matched,
+            ),
+            raw=preserved_raw,
+        )
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> "UAPRecord":

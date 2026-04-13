@@ -42,18 +42,9 @@ def add_uap_metadata(
         if uap.content.author:
             result.author_id = uap.content.author.author_id
             result.author_name = uap.content.author.display_name
-            # UAPAuthor might not have username/avatar/verified depending on definition check
-            # Checking definition: author_id, display_name, author_type are there.
-            # Use getattr for safety or rely on dataclass
-            result.author_username = getattr(uap.content.author, "username", None)
-            result.author_avatar_url = getattr(uap.content.author, "avatar_url", None)
-            result.author_is_verified = getattr(
-                uap.content.author, "is_verified", False
-            )
-
-        # Hashtags (if available in content)
-        if hasattr(uap.content, "hashtags"):
-            result.hashtags = uap.content.hashtags
+            result.author_username = uap.content.author.username
+            result.author_avatar_url = uap.content.author.avatar_url
+            result.author_is_verified = uap.content.author.is_verified
 
     # Batch context (from ingest)
     if uap.ingest and uap.ingest.batch:

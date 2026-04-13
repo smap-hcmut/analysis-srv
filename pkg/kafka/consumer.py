@@ -152,7 +152,7 @@ class KafkaConsumer(IKafkaConsumer):
         """
         return self._running and self.consumer is not None
 
+
 __all__ = [
-    "IKafkaConsumer",
     "KafkaConsumer",
 ]

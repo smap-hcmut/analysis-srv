@@ -1,0 +1,18 @@
+domain_code: "_default"
+display_name: "Default Domain (fallback)"
+
+# Self-contained domain ontology file.
+# Default domain uses the same VinFast ontology as fallback.
+ontology:
+  path: "config/ontology/vinfast_vn.yaml"
+  overlays: []
+
+# Runtime overlay values injected into OntologyConfig for the NLP pipeline.
+runtime:
+  brand_names: []
+  topic_seeds: []
+  stop_entities: []
+
+# Contract layer — domain_overlay slug written into analytics.report.digest.
+contract:
+  domain_overlay: "domain-default"

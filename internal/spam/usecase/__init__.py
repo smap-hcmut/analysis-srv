@@ -1,0 +1,1 @@
+"""Spam usecase package."""

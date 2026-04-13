@@ -221,20 +221,33 @@ async def main():
         await server.start()
 
     except KeyboardInterrupt:
-        logger.info("Shutdown requested by user")
+        if logger:
+            logger.info("Shutdown requested by user")
+        else:
+            print("Shutdown requested by user")
     except Exception as e:
-        logger.error(f"Failed to start consumer: {e}")
-        logger.exception("Consumer startup error:")
+        if logger:
+            logger.error(f"Failed to start consumer: {e}")
+            logger.exception("Consumer startup error:")
+        else:
+            import traceback
+
+            print(f"Failed to start consumer: {e}")
+            traceback.print_exc()
     finally:
         if server:
             await server.shutdown()
         # Cleanup Kafka producer
-        logger.info("Cleaning up dependencies...")
+        if logger:
+            logger.info("Cleaning up dependencies...")
         try:
             if deps and deps.kafka_producer:
                 await deps.kafka_producer.stop()
         except Exception as e:
-            logger.error(f"Error stopping Kafka producer: {e}")
+            if logger:
+                logger.error(f"Error stopping Kafka producer: {e}")
+            else:
+                print(f"Error stopping Kafka producer: {e}")
 
 
 if __name__ == "__main__":

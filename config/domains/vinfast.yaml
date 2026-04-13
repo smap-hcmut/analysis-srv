@@ -1,0 +1,30 @@
+domain_code: "vinfast"
+display_name: "VinFast Automotive"
+
+# Self-contained domain ontology file.
+ontology:
+  path: "config/ontology/vinfast_vn.yaml"
+  overlays: []
+
+# Runtime overlay values injected into OntologyConfig for the NLP pipeline.
+runtime:
+  brand_names:
+    - "VinFast"
+    - "Vin Fast"
+    - "VINFAST"
+    - "VF3"
+    - "VF5"
+    - "VF6"
+    - "VF7"
+    - "VF8"
+    - "VF9"
+  topic_seeds:
+    - "xe điện"
+    - "ô tô điện"
+    - "VinFast"
+    - "xe ô tô"
+  stop_entities: []
+
+# Contract layer — domain_overlay slug written into analytics.report.digest.
+contract:
+  domain_overlay: "domain-vinfast-vn"

@@ -1,13 +1,10 @@
-from .interface import IAnalyticsUseCase, IAnalyticsPublisher
 from .type import AnalyticsResult, Input, Output, Config
-from .usecase.new import New as NewAnalyticsPipeline
+from .usecase.batch_enricher import NLPBatchEnricher
 
 __all__ = [
-    "IAnalyticsUseCase",
-    "IAnalyticsPublisher",
     "AnalyticsResult",
     "Input",
     "Output",
     "Config",
-    "NewAnalyticsPipeline",
+    "NLPBatchEnricher",
 ]

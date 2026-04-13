@@ -1,12 +1,30 @@
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
-from .constant import *
-
-
-class KafkaConsumerError(Exception):
-    """Base exception for Kafka consumer operations."""
-
-    pass
+from .constant import (
+    DEFAULT_AUTO_OFFSET_RESET,
+    DEFAULT_ENABLE_AUTO_COMMIT,
+    DEFAULT_MAX_POLL_RECORDS,
+    DEFAULT_SESSION_TIMEOUT_MS,
+    DEFAULT_ACKS,
+    DEFAULT_COMPRESSION_TYPE,
+    DEFAULT_MAX_BATCH_SIZE,
+    DEFAULT_LINGER_MS,
+    DEFAULT_ENABLE_IDEMPOTENCE,
+    VALID_AUTO_OFFSET_RESET,
+    VALID_ACKS,
+    VALID_COMPRESSION_TYPES,
+    ERROR_BOOTSTRAP_SERVERS_EMPTY,
+    ERROR_TOPICS_EMPTY,
+    ERROR_GROUP_ID_EMPTY,
+    ERROR_INVALID_AUTO_OFFSET_RESET,
+    ERROR_INVALID_MAX_POLL_RECORDS,
+    ERROR_INVALID_SESSION_TIMEOUT,
+    ERROR_INVALID_ACKS,
+    ERROR_INVALID_COMPRESSION_TYPE,
+    ERROR_INVALID_MAX_BATCH_SIZE,
+    ERROR_INVALID_LINGER_MS,
+)
+from .errors import KafkaConsumerError, KafkaProducerError
 
 
 @dataclass
@@ -134,5 +152,6 @@ __all__ = [
     "KafkaConsumerConfig",
     "KafkaProducerConfig",
     "KafkaConsumerError",
+    "KafkaProducerError",
     "KafkaMessage",
 ]

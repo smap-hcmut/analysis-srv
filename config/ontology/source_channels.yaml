@@ -1,0 +1,44 @@
+# Ontology — Source channel definitions
+# Fields:
+#   id       : unique slug (snake_case)
+#   name     : display name
+#   platform : platform identifier (must match UAPRecord platform field values)
+#   url      : base URL of the platform (informational)
+#   active   : whether this channel is actively monitored
+
+source_channels:
+  - id: "tiktok"
+    name: "TikTok"
+    platform: "tiktok"
+    url: "https://www.tiktok.com"
+    active: true
+
+  - id: "facebook"
+    name: "Facebook"
+    platform: "facebook"
+    url: "https://www.facebook.com"
+    active: true
+
+  - id: "youtube"
+    name: "YouTube"
+    platform: "youtube"
+    url: "https://www.youtube.com"
+    active: true
+
+  - id: "instagram"
+    name: "Instagram"
+    platform: "instagram"
+    url: "https://www.instagram.com"
+    active: true
+
+  - id: "twitter"
+    name: "X (Twitter)"
+    platform: "twitter"
+    url: "https://twitter.com"
+    active: false
+
+  - id: "web"
+    name: "Web / News"
+    platform: "web"
+    url: ""
+    active: true
