@@ -23,13 +23,18 @@ def load_aspects(
     config: Config, logger: Optional[Logger] = None
 ) -> dict[Aspect, dict[str, list[str]]]:
     if not config.aspect_dictionary_path:
-        logger.info("internal.keyword_extraction.usecase.helpers: No aspect dictionary path configured, using empty dict")
+        logger.info(
+            "internal.keyword_extraction.usecase.helpers: No aspect dictionary path configured, using empty dict"
+        )
         return {}
 
     try:
         dict_path = Path(config.aspect_dictionary_path)
         if not dict_path.exists():
-            logger.warn("internal.keyword_extraction.usecase.helpers: Aspect dictionary file not found", extra={"path": str(dict_path)})
+            logger.warn(
+                "internal.keyword_extraction.usecase.helpers: Aspect dictionary file not found",
+                extra={"path": str(dict_path)},
+            )
             return {}
 
         with open(dict_path, "r", encoding=FILE_ENCODING_UTF8) as f:
@@ -44,13 +49,19 @@ def load_aspects(
                 aspect = Aspect[aspect_name.upper()]
                 aspect_dict[aspect] = terms_dict
             except KeyError:
-                logger.warn("internal.keyword_extraction.usecase.helpers: Invalid aspect in dictionary", extra={"aspect_name": aspect_name})
+                logger.warn(
+                    "internal.keyword_extraction.usecase.helpers: Invalid aspect in dictionary",
+                    extra={"aspect_name": aspect_name},
+                )
                 continue
 
         return aspect_dict
 
     except Exception as e:
-        logger.error("internal.keyword_extraction.usecase.helpers: Failed to load aspect dictionary", extra={"error": str(e), "error_type": type(e).__name__})
+        logger.error(
+            "internal.keyword_extraction.usecase.helpers: Failed to load aspect dictionary",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
         return {}
 
 
@@ -68,7 +79,10 @@ def build_lookup_map(
             for term in terms_dict[DICT_KEY_SECONDARY]:
                 keyword_map[term.lower()] = aspect
 
-    logger.debug("internal.keyword_extraction.usecase.helpers: Lookup map built", extra={"total_keywords": len(keyword_map)})
+    logger.debug(
+        "internal.keyword_extraction.usecase.helpers: Lookup map built",
+        extra={"total_keywords": len(keyword_map)},
+    )
 
     return keyword_map
 
@@ -111,7 +125,10 @@ def extract_ai(
         ai_result = ai_extractor.extract(text)
 
         if not ai_result.success or not ai_result.keywords:
-            logger.warn("internal.keyword_extraction.usecase.helpers: AI extraction failed or returned no keywords", extra={"error": ai_result.error_message})
+            logger.warn(
+                "internal.keyword_extraction.usecase.helpers: AI extraction failed or returned no keywords",
+                extra={"error": ai_result.error_message},
+            )
             return []
 
         ai_keywords = []
@@ -132,7 +149,7 @@ def extract_ai(
             ai_keywords.append(
                 KeywordItem(
                     keyword=keyword_lower,
-                    aspect=ASPECT_GENERAL.value,
+                    aspect=ASPECT_GENERAL,
                     score=kw.score,
                     source=SOURCE_AI,
                 )
@@ -141,7 +158,10 @@ def extract_ai(
         return ai_keywords
 
     except Exception as e:
-        logger.error("internal.keyword_extraction.usecase.helpers: AI extraction error", extra={"error": str(e), "error_type": type(e).__name__})
+        logger.error(
+            "internal.keyword_extraction.usecase.helpers: AI extraction error",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
         return []
 
 

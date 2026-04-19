@@ -3,6 +3,7 @@ from typing import List, Dict, Optional, Any
 
 from pkg.logger.logger import Logger
 from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
+from pkg.phobert_onnx.type import PhobertOnnxOutput
 from internal.sentiment_analysis.type import (
     Config,
     KeywordInput,
@@ -34,28 +35,41 @@ def map_score_to_label(score: float, config: Config) -> str:
         return LABEL_NEUTRAL
 
 
-def convert_to_absa_format(phobert_result: dict, config: Config) -> SentimentResult:
-    # Get rating (1-5)
-    rating = phobert_result.get("rating", DEFAULT_RATING)
-
-    # Map rating to score
-    score_map = {
-        1: SCORE_RATING_1,
-        2: SCORE_RATING_2,
-        3: SCORE_RATING_3,
-        4: SCORE_RATING_4,
-        5: SCORE_RATING_5,
+def convert_to_absa_format(
+    phobert_result: PhobertOnnxOutput, config: Config
+) -> SentimentResult:
+    # Map PhoBERT 3-class output (rating: 0=NEG, 1=POS, 2=NEU) to score and 5-star rating
+    _score_map = {
+        0: SCORE_RATING_2,  # NEG → -0.5
+        1: SCORE_RATING_4,  # POS →  0.5
+        2: SCORE_RATING_3,  # NEU →  0.0
     }
-    score = score_map.get(rating, SCORE_RATING_3)
+    _rating_map = {
+        0: 2,  # NEG → 2 stars
+        1: 4,  # POS → 4 stars
+        2: 3,  # NEU → 3 stars
+    }
+
+    score = _score_map.get(phobert_result.rating, SCORE_RATING_3)
+    rating = _rating_map.get(phobert_result.rating, DEFAULT_RATING)
 
     # Map score to label
     label = map_score_to_label(score, config)
 
+    # Convert PhobertOnnxProbability dataclass to dict[str, float]
+    probs: dict = {}
+    if phobert_result.probabilities is not None:
+        probs = {
+            "NEGATIVE": phobert_result.probabilities.NEGATIVE,
+            "POSITIVE": phobert_result.probabilities.POSITIVE,
+            "NEUTRAL": phobert_result.probabilities.NEUTRAL,
+        }
+
     return SentimentResult(
         label=label,
         score=score,
-        confidence=phobert_result.get("confidence", 0.0),
-        probabilities=phobert_result.get("probabilities", {}),
+        confidence=phobert_result.confidence,
+        probabilities=probs,
         rating=rating,
     )
 
