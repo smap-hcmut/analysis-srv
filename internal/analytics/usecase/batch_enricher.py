@@ -49,6 +49,12 @@ class NLPBatchEnricher:
     InsightMessage (for ContractPublisher) and the AnalyticsResult (for
     post_insight persistence).
 
+    enrich_batch() runs in three phases to maximise ONNX throughput:
+      Phase 1 (per record, fast): preprocessing → intent classification
+                                  → keyword extraction
+      Phase 2 (batched, one ONNX call):  sentiment analysis for all records
+      Phase 3 (per record, fast): impact calculation → result builder
+
     Designed to be called via asyncio.to_thread() inside the STAGE_NLP step
     of the Phase 3-6 pipeline.
     """
@@ -84,16 +90,101 @@ class NLPBatchEnricher:
     ) -> list[NLPFact]:
         """Run NLP enrichment on a batch of UAPRecords.
 
-        Returns one NLPFact per successfully enriched record.
+        Three-phase execution to batch sentiment ONNX calls:
+          Phase 1: stages 1-3 per record  (preprocessing / intent / keywords)
+          Phase 2: batch sentiment analysis across all non-skipped records
+          Phase 3: impact calculation + result builder per record
+
         Errors per record are logged and skipped — never raised.
+        Returns one NLPFact per successfully enriched record.
         """
-        facts: list[NLPFact] = []
-        for uap in records:
+        if not records:
+            return []
+
+        # ----------------------------------------------------------------
+        # Phase 1: stages 1-3 per record (fast Python, no ONNX)
+        # ----------------------------------------------------------------
+        # Each slot: (uap, result, full_text, kws_for_sa, skip, t_start) | None
+        phase1: list = [None] * len(records)
+
+        for idx, uap in enumerate(records):
             try:
                 start = time.perf_counter()
-                result = self._run_nlp(uap, project_id)
+                result, full_text, kws, skip = self._run_stages_1_to_3(uap, project_id)
+                phase1[idx] = (uap, result, full_text, kws, skip, start)
+            except Exception as exc:
+                self.logger.error(
+                    "internal.analytics.usecase.batch_enricher: "
+                    f"stages 1-3 failed: {exc}"
+                )
+
+        # ----------------------------------------------------------------
+        # Phase 2: batch sentiment analysis (1-2 ONNX calls total)
+        # ----------------------------------------------------------------
+        sa_indices: list[int] = []
+        sa_inputs: list[SAInput] = []
+
+        for idx, item in enumerate(phase1):
+            if item is None:
+                continue
+            uap, result, full_text, kws, skip, _ = item
+            if skip:
+                continue
+            if not self.config.enable_sentiment_analysis or not self.sentiment_analyzer:
+                continue
+
+            keyword_inputs = [
+                KeywordInput(
+                    keyword=kw.keyword,
+                    aspect=kw.aspect,
+                    position=None,
+                    score=kw.score,
+                    source=kw.source,
+                )
+                for kw in kws
+            ]
+            sa_inputs.append(SAInput(text=full_text, keywords=keyword_inputs))
+            sa_indices.append(idx)
+
+        # Call process_batch() — one ONNX call for all overall texts,
+        # one more for all keyword context windows.
+        sa_outputs_map: dict[int, object] = {}
+        if sa_inputs and self.sentiment_analyzer:
+            try:
+                sa_outputs = self.sentiment_analyzer.process_batch(sa_inputs)
+                for orig_idx, sa_out in zip(sa_indices, sa_outputs):
+                    sa_outputs_map[orig_idx] = sa_out
+            except Exception as exc:
+                self.logger.error(
+                    "internal.analytics.usecase.batch_enricher: "
+                    f"batch sentiment analysis failed: {exc}"
+                )
+
+        # ----------------------------------------------------------------
+        # Phase 3: apply sentiment + impact calculation + build NLPFact
+        # ----------------------------------------------------------------
+        facts: list[NLPFact] = []
+
+        for idx, item in enumerate(phase1):
+            if item is None:
+                continue
+            uap, result, full_text, kws, skip, start = item
+            try:
+                # Apply pre-computed sentiment result if available
+                if idx in sa_outputs_map:
+                    self._apply_sentiment_result(result, sa_outputs_map[idx])
+
+                # Stage 5: impact calculation (fast, no ONNX)
+                if (
+                    not skip
+                    and self.config.enable_impact_calculation
+                    and self.impact_calculator
+                ):
+                    self._run_impact_calculation(uap, result, full_text)
+
                 result.processing_time_ms = int((time.perf_counter() - start) * 1000)
 
+                # Build NLPFact via result builder
                 if self.result_builder:
                     build_output = self.result_builder.build(
                         BuildInput(uap_record=uap, analytics_result=result)
@@ -115,8 +206,9 @@ class NLPBatchEnricher:
             except Exception as exc:
                 self.logger.error(
                     "internal.analytics.usecase.batch_enricher: "
-                    f"failed to enrich record: {exc}"
+                    f"phase 3 failed for record: {exc}"
                 )
+
         return facts
 
     # ------------------------------------------------------------------
@@ -171,11 +263,16 @@ class NLPBatchEnricher:
         )
 
     # ------------------------------------------------------------------
-    # Private: single-record NLP processing
+    # Private helpers: per-phase processing
     # ------------------------------------------------------------------
 
-    def _run_nlp(self, uap: UAPRecord, project_id: str) -> AnalyticsResult:
-        """Run all NLP stages for a single UAPRecord. Returns AnalyticsResult."""
+    def _run_stages_1_to_3(self, uap: UAPRecord, project_id: str) -> tuple:
+        """Stages 1-3 for a single record.
+
+        Returns:
+            (result, full_text, keywords_for_sentiment, skip_sentiment)
+            where skip_sentiment=True means sentiment/impact should not run.
+        """
         ingest = uap.ingest
         source_id = ingest.source.source_id if ingest.source else None
         source_type = ingest.source.source_type if ingest.source else PLATFORM_UNKNOWN
@@ -216,8 +313,10 @@ class NLPBatchEnricher:
 
         add_uap_metadata(result, uap, self.config)
 
-        # === STAGE 1: PREPROCESSING ===
         full_text = text
+        skip = False
+
+        # === STAGE 1: PREPROCESSING ===
         if self.config.enable_preprocessing and self.preprocessor:
             try:
                 tp_input = TPInput(
@@ -246,7 +345,8 @@ class NLPBatchEnricher:
                 if ic_output.should_skip:
                     result.processing_status = "success_skipped"
                     result.risk_level = "LOW"
-                    return result
+                    skip = True
+                    return result, full_text, [], skip
             except Exception as exc:
                 self.logger.error(
                     f"internal.analytics.usecase.batch_enricher: intent classification failed: {exc}"
@@ -265,93 +365,96 @@ class NLPBatchEnricher:
                     f"internal.analytics.usecase.batch_enricher: keyword extraction failed: {exc}"
                 )
 
-        # === STAGE 4: SENTIMENT ANALYSIS ===
-        if self.config.enable_sentiment_analysis and self.sentiment_analyzer:
-            try:
-                keyword_inputs = [
-                    KeywordInput(
-                        keyword=kw.keyword,
-                        aspect=kw.aspect,
-                        position=None,
-                        score=kw.score,
-                        source=kw.source,
-                    )
-                    for kw in keywords_for_sentiment
-                ]
-                sa_input = SAInput(text=full_text, keywords=keyword_inputs)
-                sa_output = self.sentiment_analyzer.process(sa_input)
-                result.overall_sentiment = sa_output.overall.label
-                result.overall_sentiment_score = sa_output.overall.score
-                result.overall_confidence = sa_output.overall.confidence
-                if sa_output.overall.probabilities:
-                    result.sentiment_probabilities = sa_output.overall.probabilities
-                aspects_list = []
-                for aspect_name, aspect_sentiment in sa_output.aspects.items():
-                    aspects_list.append(
-                        {
-                            "aspect": aspect_name,
-                            "polarity": aspect_sentiment.label,
-                            "confidence": aspect_sentiment.confidence,
-                            "score": aspect_sentiment.score,
-                            "evidence": ", ".join(aspect_sentiment.keywords[:3])
-                            if aspect_sentiment.keywords
-                            else "",
-                            "mentions": aspect_sentiment.mentions,
-                            "rating": aspect_sentiment.rating,
-                        }
-                    )
-                if aspects_list:
-                    result.aspects_breakdown = {"aspects": aspects_list}
-            except Exception as exc:
-                self.logger.error(
-                    f"internal.analytics.usecase.batch_enricher: sentiment analysis failed: {exc}"
-                )
+        return result, full_text, keywords_for_sentiment, skip
 
-        # === STAGE 5: IMPACT CALCULATION ===
-        if self.config.enable_impact_calculation and self.impact_calculator:
-            try:
-                ic_input = ICInput(
-                    interaction=InteractionInput(
-                        views=views,
-                        likes=likes,
-                        comments_count=comments,
-                        shares=shares,
-                        saves=saves,
-                    ),
-                    author=AuthorInput(
-                        followers=author_followers,
-                        is_verified=author_is_verified,
-                    ),
-                    sentiment=SentimentInput(
-                        label=result.overall_sentiment,
-                        score=result.overall_sentiment_score,
-                    ),
-                    platform=platform,
-                    text=full_text,
-                )
-                ic_output = self.impact_calculator.process(ic_input)
-                result.impact_score = ic_output.impact_score
-                result.risk_level = ic_output.risk_level
-                result.is_viral = ic_output.is_viral
-                result.is_kol = ic_output.is_kol
-                result.engagement_score = ic_output.engagement_score
-                result.virality_score = ic_output.virality_score
-                result.influence_score = ic_output.influence_score
-                result.risk_factors = ic_output.risk_factors
-                if ic_output.impact_breakdown:
-                    result.impact_breakdown = {
-                        "engagement_score": ic_output.impact_breakdown.engagement_score,
-                        "reach_score": ic_output.impact_breakdown.reach_score,
-                        "platform_multiplier": ic_output.impact_breakdown.platform_multiplier,
-                        "sentiment_amplifier": ic_output.impact_breakdown.sentiment_amplifier,
-                        "raw_impact": ic_output.impact_breakdown.raw_impact,
+    def _apply_sentiment_result(self, result: AnalyticsResult, sa_output) -> None:
+        """Apply a pre-computed sentiment Output to an AnalyticsResult."""
+        try:
+            result.overall_sentiment = sa_output.overall.label
+            result.overall_sentiment_score = sa_output.overall.score
+            result.overall_confidence = sa_output.overall.confidence
+            if sa_output.overall.probabilities:
+                result.sentiment_probabilities = sa_output.overall.probabilities
+            aspects_list = []
+            for aspect_name, aspect_sentiment in sa_output.aspects.items():
+                aspects_list.append(
+                    {
+                        "aspect": aspect_name,
+                        "polarity": aspect_sentiment.label,
+                        "confidence": aspect_sentiment.confidence,
+                        "score": aspect_sentiment.score,
+                        "evidence": ", ".join(aspect_sentiment.keywords[:3])
+                        if aspect_sentiment.keywords
+                        else "",
+                        "mentions": aspect_sentiment.mentions,
+                        "rating": aspect_sentiment.rating,
                     }
-            except Exception as exc:
-                self.logger.error(
-                    f"internal.analytics.usecase.batch_enricher: impact calculation failed: {exc}"
                 )
+            if aspects_list:
+                result.aspects_breakdown = {"aspects": aspects_list}
+        except Exception as exc:
+            self.logger.error(
+                f"internal.analytics.usecase.batch_enricher: apply sentiment failed: {exc}"
+            )
 
-        return result
+    def _run_impact_calculation(
+        self, uap: UAPRecord, result: AnalyticsResult, full_text: str
+    ) -> None:
+        """Stage 5: impact calculation for a single record."""
+        content = uap.content
+        author = content.author if content else None
+        author_followers = author.followers if author and author.followers else 0
+        author_is_verified = author.is_verified if author else False
+
+        signals = uap.signals
+        engagement = signals.engagement if signals else None
+        views = engagement.view_count if engagement else 0
+        likes = engagement.like_count if engagement else 0
+        comments = engagement.comment_count if engagement else 0
+        shares = engagement.share_count if engagement else 0
+        saves = engagement.save_count if engagement else 0
+
+        try:
+            ic_input = ICInput(
+                interaction=InteractionInput(
+                    views=views,
+                    likes=likes,
+                    comments_count=comments,
+                    shares=shares,
+                    saves=saves,
+                ),
+                author=AuthorInput(
+                    followers=author_followers,
+                    is_verified=author_is_verified,
+                ),
+                sentiment=SentimentInput(
+                    label=result.overall_sentiment,
+                    score=result.overall_sentiment_score,
+                ),
+                platform=result.platform,
+                text=full_text,
+            )
+            ic_output = self.impact_calculator.process(ic_input)
+            result.impact_score = ic_output.impact_score
+            result.risk_level = ic_output.risk_level
+            result.is_viral = ic_output.is_viral
+            result.is_kol = ic_output.is_kol
+            result.engagement_score = ic_output.engagement_score
+            result.virality_score = ic_output.virality_score
+            result.influence_score = ic_output.influence_score
+            result.risk_factors = ic_output.risk_factors
+            if ic_output.impact_breakdown:
+                result.impact_breakdown = {
+                    "engagement_score": ic_output.impact_breakdown.engagement_score,
+                    "reach_score": ic_output.impact_breakdown.reach_score,
+                    "platform_multiplier": ic_output.impact_breakdown.platform_multiplier,
+                    "sentiment_amplifier": ic_output.impact_breakdown.sentiment_amplifier,
+                    "raw_impact": ic_output.impact_breakdown.raw_impact,
+                }
+        except Exception as exc:
+            self.logger.error(
+                f"internal.analytics.usecase.batch_enricher: impact calculation failed: {exc}"
+            )
 
 
 __all__ = ["NLPBatchEnricher"]

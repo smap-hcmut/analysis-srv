@@ -2,13 +2,14 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 
 from pkg.kafka.consumer import KafkaConsumer
 from pkg.kafka.type import KafkaMessage
 from internal.model.uap import UAPRecord, ErrUAPValidation, ErrUAPVersionUnsupported
 from internal.runtime.type import RunContext
 from internal.analytics.usecase.batch_enricher import NLPBatchEnricher
+from pkg.logger.logger import set_trace_id, set_project_id, clear_project_id
 
 # UAP version header field (replaces internal.analytics.delivery.constant import)
 FIELD_UAP_VERSION = "uap_version"
@@ -142,108 +143,155 @@ class ConsumerServer(IConsumerServer):
                 extra={"key": self.REDIS_KEY_DOMAINS},
             )
 
-    async def _handle_message(self, message: KafkaMessage) -> None:
-        """Process a single Kafka message through the full pipeline.
+    async def _parse_message(self, message: KafkaMessage) -> Optional[UAPRecord]:
+        """Decode and parse a single Kafka message into a UAPRecord.
+
+        Returns None (with a warning log) for unknown formats or bad JSON.
+        Raises ErrUAPValidation / ErrUAPVersionUnsupported for the caller to
+        decide whether to skip.
+        """
+        if isinstance(message.value, bytes):
+            body = message.value.decode("utf-8")
+        elif isinstance(message.value, str):
+            body = message.value
+        else:
+            body = json.dumps(message.value)
+
+        envelope = json.loads(body)
+
+        if FIELD_UAP_VERSION in envelope:
+            return UAPRecord.parse(envelope)
+        elif "identity" in envelope:
+            return UAPRecord.from_ingest_record(envelope)
+        else:
+            self.logger.warning(
+                "internal.consumer.server: unknown message format, skipping",
+                extra={"keys": list(envelope.keys())},
+            )
+            return None
+
+    async def _handle_messages_batch(self, messages: List[KafkaMessage]) -> None:
+        """Process a batch of Kafka messages through the full pipeline.
 
         Flow:
-            Kafka message
-            → parse UAP
-            → ingest → IngestedBatchBundle
-            → asyncio.to_thread(pipeline.run)
+            Parse all messages → group valid UAPRecords by (project_id, domain)
+            → for each group: ingest → asyncio.to_thread(pipeline.run)
                 - normalization → dedup → spam → threads
-                - NLP enrichment (preprocessing, intent, keyword, sentiment, impact)
-            → async: persist each NLPFact to post_insight
-            → async: publish each NLPFact to contract topics via ContractPublisher
+                - NLP enrichment: batch ONNX inference for the whole group
+            → async: persist each NLPFact → publish to contract topics
 
-        Errors are logged but never propagate to prevent disrupting offset commits.
+        Grouping by project_id lets NLPBatchEnricher call predict_batch()
+        on N records at once instead of 1-by-1, amortising ONNX overhead.
         """
         if self.pipeline_usecase is None or self.ingestion_usecase is None:
             return
 
-        try:
-            # 1. Decode message
-            if isinstance(message.value, bytes):
-                body = message.value.decode("utf-8")
-            elif isinstance(message.value, str):
-                body = message.value
-            else:
-                body = json.dumps(message.value)
+        # --- Parse all messages ---
+        parsed: List[tuple] = []  # (project_id, domain_type_code, uap_record)
+        for message in messages:
+            try:
+                uap_record = await self._parse_message(message)
+                if uap_record is None:
+                    continue
 
-            envelope = json.loads(body)
+                project_id = uap_record.ingest.project_id if uap_record.ingest else None
+                if not project_id:
+                    continue
 
-            # 2. Format auto-detection: ingest-srv flat vs legacy UAP hierarchical
-            if FIELD_UAP_VERSION in envelope:
-                uap_record = UAPRecord.parse(envelope)  # legacy UAP format
-            elif "identity" in envelope:
-                uap_record = UAPRecord.from_ingest_record(
-                    envelope
-                )  # ingest-srv flat format
-            else:
+                parsed.append((project_id, uap_record.domain_type_code, uap_record))
+
+            except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
                 self.logger.warning(
-                    "internal.consumer.server: unknown message format, skipping",
-                    extra={"keys": list(envelope.keys())},
+                    f"internal.consumer.server: UAP error (skipped): {exc}"
                 )
-                return
+            except json.JSONDecodeError as exc:
+                self.logger.warning(
+                    f"internal.consumer.server: bad JSON (skipped): {exc}"
+                )
+            except ValueError as exc:
+                self.logger.warning(
+                    f"internal.consumer.server: validation error (skipped): {exc}"
+                )
+            except Exception as exc:
+                self.logger.error(
+                    f"internal.consumer.server: parse error (skipped): {exc}"
+                )
 
-            project_id = uap_record.ingest.project_id if uap_record.ingest else None
-            if not project_id:
-                return
+        if not parsed:
+            return
 
-            # 3. Domain routing — resolve ontology overlay from domain_type_code
-            domain_config = self.registry.domain_registry.lookup(
-                uap_record.domain_type_code
-            )
-            uap_record.raw["_resolved_domain_overlay"] = (
-                domain_config.contract_domain_overlay
-            )
+        # --- Group by (project_id, domain_type_code) ---
+        groups: dict[tuple, list] = {}
+        for project_id, domain_type_code, uap_record in parsed:
+            key = (project_id, domain_type_code)
+            groups.setdefault(key, []).append(uap_record)
 
-            # 4. Adapt to pipeline-ready bundle
-            bundle, stats = self.ingestion_usecase.from_kafka(
-                [uap_record],
-                project_id=project_id,
-                campaign_id="",
-            )
-            if not bundle.records:
-                return
+        # --- Process each group through the pipeline ---
+        for (project_id, domain_type_code), uap_records in groups.items():
+            try:
+                domain_config = self.registry.domain_registry.lookup(domain_type_code)
 
-            # 5. Build run context with per-domain ontology overlay
-            ctx = RunContext(
-                run_id=str(uuid.uuid4()),
-                project_id=project_id,
-                analysis_window_end=datetime.now(tz=timezone.utc),
-                ontology=domain_config.to_runtime_ontology(),
-            )
+                for uap_record in uap_records:
+                    uap_record.raw["_resolved_domain_overlay"] = (
+                        domain_config.contract_domain_overlay
+                    )
 
-            # 6. Run pipeline stages (CPU-bound; offload to thread pool)
-            #    Includes: normalization → dedup → spam → threads → NLP enrichment
-            result = await asyncio.to_thread(
-                self.pipeline_usecase.run,
-                bundle,
-                ctx,
-                self.pipeline_config,
-            )
+                bundle, _stats = self.ingestion_usecase.from_kafka(
+                    uap_records,
+                    project_id=project_id,
+                    campaign_id="",
+                )
+                if not bundle.records:
+                    continue
 
-            self.logger.debug(
-                f"internal.consumer.server: pipeline run_id={result.run_id}, "
-                f"records={result.total_valid_records}, "
-                f"nlp_facts={len(result.nlp_facts)}, "
-                f"timings={result.stage_timings}"
-            )
+                run_id = str(uuid.uuid4())
 
-            # 7. Async: persist NLP facts to post_insight + publish to contract topics
-            if result.nlp_facts:
-                await self._persist_and_publish(result.nlp_facts)
+                # Set log enrichment context for this batch group
+                set_trace_id(run_id)
+                set_project_id(project_id)
 
-        except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
-            self.logger.warning(f"internal.consumer.server: UAP error (skipped): {exc}")
-        except json.JSONDecodeError as exc:
-            self.logger.warning(f"internal.consumer.server: bad JSON (skipped): {exc}")
-        except ValueError as exc:
-            self.logger.warning(
-                f"internal.consumer.server: validation error (skipped): {exc}"
-            )
-        except Exception as exc:
-            self.logger.error(f"internal.consumer.server: unexpected error: {exc}")
+                ctx = RunContext(
+                    run_id=run_id,
+                    project_id=project_id,
+                    analysis_window_end=datetime.now(tz=timezone.utc),
+                    ontology=domain_config.to_runtime_ontology(),
+                )
+
+                # CPU-bound: offload to thread pool.
+                # NLPBatchEnricher.enrich_batch() will run batch ONNX here.
+                # ContextVars are propagated automatically to asyncio.to_thread.
+                result = await asyncio.to_thread(
+                    self.pipeline_usecase.run,
+                    bundle,
+                    ctx,
+                    self.pipeline_config,
+                )
+
+                self.logger.debug(
+                    f"internal.consumer.server: batch pipeline run_id={result.run_id}, "
+                    f"records={result.total_valid_records}, "
+                    f"nlp_facts={len(result.nlp_facts)}, "
+                    f"timings={result.stage_timings}"
+                )
+
+                if result.nlp_facts:
+                    await self._persist_and_publish(result.nlp_facts)
+
+            except Exception as exc:
+                self.logger.error(
+                    f"internal.consumer.server: pipeline failed for "
+                    f"project={project_id}: {exc}"
+                )
+            finally:
+                # Reset business context to avoid bleeding into next group
+                clear_project_id()
+
+    async def _handle_message(self, message: KafkaMessage) -> None:
+        """Process a single Kafka message (kept for compatibility / fallback).
+
+        Delegates to _handle_messages_batch() with a single-element list.
+        """
+        await self._handle_messages_batch([message])
 
     async def _persist_and_publish(self, nlp_facts: list) -> None:
         """Persist each NLPFact to post_insight and publish to contract topics.
@@ -277,10 +325,14 @@ class ConsumerServer(IConsumerServer):
     async def _consume_loop(self) -> None:
         try:
 
-            async def message_handler(message: KafkaMessage) -> None:
-                await self._handle_message(message)
+            async def batch_handler(messages: List[KafkaMessage]) -> None:
+                await self._handle_messages_batch(messages)
 
-            await self.consumer.consume(message_handler)
+            await self.consumer.consume_batch(
+                batch_handler,
+                batch_size=10,
+                timeout_ms=1000,
+            )
 
         except asyncio.CancelledError:
             self.logger.info("Consume loop cancelled")

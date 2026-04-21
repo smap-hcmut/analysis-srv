@@ -159,7 +159,7 @@ class SimplifiedSemanticInferenceEnricher:
                     canonical_entity_id=fact.canonical_entity_id,
                     concept_entity_id=fact.concept_entity_id,
                     unresolved_cluster_id=None,
-                    target_kind="canonical"
+                    target_kind="canonical_entity"
                     if fact.resolved_entity_kind == "entity"
                     else "concept",
                     entity_type=fact.entity_type,

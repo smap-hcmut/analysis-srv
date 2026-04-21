@@ -1,4 +1,5 @@
-from typing import Callable, Optional, Awaitable
+import asyncio
+from typing import Callable, Optional, Awaitable, List
 from aiokafka import AIOKafkaConsumer  # type: ignore
 from loguru import logger
 from .interface import IKafkaConsumer
@@ -139,6 +140,91 @@ class KafkaConsumer(IKafkaConsumer):
             logger.error(f"Error during message consumption: {e}")
             logger.exception("Consumption error details:")
             raise KafkaConsumerError(f"Consumption failed: {e}") from e
+
+    async def consume_batch(
+        self,
+        batch_handler: Callable[[List[KafkaMessage]], Awaitable[None]],
+        batch_size: int = 10,
+        timeout_ms: int = 1000,
+    ) -> None:
+        """Consume messages in batches using getmany() for higher throughput.
+
+        Fetches up to ``batch_size`` messages per iteration, calls
+        ``batch_handler`` with the full batch, then commits offsets once.
+        This amortises ONNX inference startup cost over many messages.
+
+        Args:
+            batch_handler: Async callable that processes a list of messages.
+            batch_size: Maximum number of messages per batch.
+            timeout_ms: How long to wait for messages before yielding an
+                        empty result (milliseconds).
+
+        Raises:
+            RuntimeError: If consumer is not started.
+            KafkaConsumerError: If consumption fails.
+        """
+        if not self.consumer or not self._running:
+            raise RuntimeError("Consumer not started. Call start() first.")
+
+        try:
+            while self._running:
+                try:
+                    # getmany returns {TopicPartition: [ConsumerRecord, ...]}
+                    records_map = await self.consumer.getmany(
+                        timeout_ms=timeout_ms,
+                        max_records=batch_size,
+                    )
+
+                    # Flatten to a single ordered list of KafkaMessage
+                    batch: List[KafkaMessage] = []
+                    for _tp, msgs in records_map.items():
+                        for msg in msgs:
+                            batch.append(
+                                KafkaMessage(
+                                    topic=msg.topic,
+                                    partition=msg.partition,
+                                    offset=msg.offset,
+                                    value=msg.value,
+                                    key=msg.key,
+                                    timestamp=msg.timestamp,
+                                    headers=dict(msg.headers) if msg.headers else {},
+                                )
+                            )
+
+                    if not batch:
+                        # No messages yet — brief sleep to avoid busy-looping
+                        await asyncio.sleep(0.05)
+                        continue
+
+                    try:
+                        await batch_handler(batch)
+                    except Exception as e:
+                        logger.error(f"Error in batch handler: {e}")
+                        logger.exception("Batch handler error details:")
+                    finally:
+                        # Commit once per batch (enable_auto_commit=False)
+                        if not self.config.enable_auto_commit:
+                            try:
+                                await self.consumer.commit()
+                            except Exception as commit_err:
+                                logger.error(
+                                    f"Failed to commit offsets after batch: {commit_err}"
+                                )
+
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Error fetching batch: {e}")
+                    logger.exception("Batch fetch error details:")
+                    raise KafkaConsumerError(f"Batch consumption failed: {e}") from e
+
+        except asyncio.CancelledError:
+            raise
+        except KafkaConsumerError:
+            raise
+        except Exception as e:
+            logger.error(f"Error during batch consumption: {e}")
+            raise KafkaConsumerError(f"Batch consumption failed: {e}") from e
 
     async def commit(self) -> None:
         """Manually commit offsets.

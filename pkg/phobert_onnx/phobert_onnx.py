@@ -208,16 +208,94 @@ class PhoBERTONNX(IPhoBERTONNX):
     def predict_batch(
         self, texts: List[str], return_probabilities: bool = True
     ) -> List[PhobertOnnxOutput]:
-        """Predict sentiment for multiple texts.
+        """Predict sentiment for multiple texts in a single ONNX call.
+
+        Empty texts receive a default neutral result immediately.
+        All non-empty texts are segmented, batch-tokenized, and run through
+        the ONNX runtime in one forward pass before per-row post-processing.
 
         Args:
-            texts: List of Vietnamese texts to analyze
+            texts: List of raw Vietnamese texts to analyze
             return_probabilities: Whether to include probability distribution
 
         Returns:
-            List of PhobertOnnxOutput objects
+            List of PhobertOnnxOutput objects, one per input text
         """
-        return [self.predict(text, return_probabilities) for text in texts]
+        if not texts:
+            return []
+
+        results: List[PhobertOnnxOutput] = [None] * len(texts)  # type: ignore[list-item]
+        non_empty_indices: List[int] = []
+        non_empty_segmented: List[str] = []
+
+        # Assign default neutral for empty inputs; segment the rest.
+        for i, text in enumerate(texts):
+            if not text or not text.strip():
+                probs = None
+                if return_probabilities:
+                    probs = PhobertOnnxProbability(
+                        NEGATIVE=DEFAULT_PROBABILITIES[0],
+                        POSITIVE=DEFAULT_PROBABILITIES[1],
+                        NEUTRAL=DEFAULT_PROBABILITIES[2],
+                    )
+                results[i] = PhobertOnnxOutput(
+                    rating=2,
+                    sentiment="Trung tính",
+                    confidence=1.0,
+                    probabilities=probs,
+                    label="Trung tính",
+                )
+            else:
+                non_empty_indices.append(i)
+                non_empty_segmented.append(self._segment_text(text))
+
+        if not non_empty_segmented:
+            return results
+
+        # Batch tokenize — padding=True pads all sequences to the longest
+        # in the batch so they form a rectangular tensor.
+        inputs = self.tokenizer(
+            non_empty_segmented,
+            return_tensors=TENSOR_TYPE_PT,
+            truncation=True,
+            max_length=self.config.max_length,
+            padding=True,
+            add_special_tokens=True,
+        )
+
+        # Single ONNX inference call for the entire batch.
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+
+        # outputs.logits shape: [N, num_classes]
+        batch_probs = outputs.logits.softmax(dim=1)
+
+        for batch_idx, orig_idx in enumerate(non_empty_indices):
+            probs = batch_probs[batch_idx]  # shape [num_classes]
+            label_idx = int(torch.argmax(probs).item())
+
+            sentiment_enum = SENTIMENT_INDEX_MAP[label_idx]
+            sentiment_label = SENTIMENT_LABELS[sentiment_enum]
+            rating = sentiment_enum.value
+            confidence = float(probs[label_idx].item())
+
+            probabilities = None
+            if return_probabilities:
+                probabilities = PhobertOnnxProbability(
+                    NEGATIVE=float(probs[0].item()),
+                    POSITIVE=float(probs[1].item()),
+                    NEUTRAL=float(probs[2].item()),
+                )
+
+            results[orig_idx] = PhobertOnnxOutput(
+                rating=rating,
+                sentiment=sentiment_label,
+                confidence=confidence,
+                probabilities=probabilities,
+                label=sentiment_label,
+            )
+
+        return results
 
 
 __all__ = [

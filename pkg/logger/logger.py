@@ -28,6 +28,10 @@ from .type import LoggerConfig
 _trace_id_var: ContextVar[Optional[str]] = ContextVar(TRACE_ID_KEY, default=None)
 _request_id_var: ContextVar[Optional[str]] = ContextVar(REQUEST_ID_KEY, default=None)
 
+# Business context variables — used for log enrichment (not tracing)
+_project_id_var: ContextVar[Optional[str]] = ContextVar("project_id", default=None)
+_campaign_id_var: ContextVar[Optional[str]] = ContextVar("campaign_id", default=None)
+
 
 class Logger(ILogger):
     """Logger wrapper with trace ID support.
@@ -90,12 +94,21 @@ class Logger(ILogger):
                 dt = record["time"].astimezone(ict_tz)
                 log_dict = {
                     "timestamp": email.utils.format_datetime(dt),
-                    "trace_id": record["extra"].get("trace_id", ""),
+                    "trace_id": record["extra"].get(
+                        "trace_id", _trace_id_var.get() or ""
+                    ),
                     "level": record["level"].name.lower(),
                     "caller": f"{record['file'].name}:{record['line']}",
                     "message": record["message"],
                     "service": service_name,
                 }
+                # Add business context fields for log enrichment
+                project_id = _project_id_var.get()
+                if project_id:
+                    log_dict["project_id"] = project_id
+                campaign_id = _campaign_id_var.get()
+                if campaign_id:
+                    log_dict["campaign_id"] = campaign_id
                 # Include extra fields
                 for key, value in record["extra"].items():
                     if key != "trace_id" and key not in log_dict:
@@ -124,6 +137,14 @@ class Logger(ILogger):
             record["extra"][TRACE_ID_KEY] = trace_id or ""
             if request_id:
                 record["extra"][REQUEST_ID_KEY] = request_id
+
+            # Add business context fields
+            project_id = _project_id_var.get()
+            if project_id:
+                record["extra"]["project_id"] = project_id
+            campaign_id = _campaign_id_var.get()
+            if campaign_id:
+                record["extra"]["campaign_id"] = campaign_id
 
             # Get or compute relative path (with caching)
             abs_path = record["file"].path
@@ -255,3 +276,46 @@ __all__ = [
     "Logger",
     "LoggerConfig",
 ]
+
+
+# Module-level context functions for direct access without a Logger instance
+
+
+def set_trace_id(trace_id: str) -> None:
+    """Set trace_id in current context."""
+    _trace_id_var.set(trace_id)
+
+
+def get_trace_id() -> Optional[str]:
+    """Get current trace_id from context."""
+    return _trace_id_var.get()
+
+
+def set_project_id(project_id: str) -> None:
+    """Set project_id in current context."""
+    _project_id_var.set(project_id)
+
+
+def get_project_id() -> Optional[str]:
+    """Get current project_id from context."""
+    return _project_id_var.get()
+
+
+def clear_project_id() -> None:
+    """Clear project_id from current context."""
+    _project_id_var.set(None)
+
+
+def set_campaign_id(campaign_id: str) -> None:
+    """Set campaign_id in current context."""
+    _campaign_id_var.set(campaign_id)
+
+
+def get_campaign_id() -> Optional[str]:
+    """Get current campaign_id from context."""
+    return _campaign_id_var.get()
+
+
+def clear_campaign_id() -> None:
+    """Clear campaign_id from current context."""
+    _campaign_id_var.set(None)

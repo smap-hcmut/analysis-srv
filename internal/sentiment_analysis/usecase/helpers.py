@@ -226,6 +226,42 @@ def group_keywords_by_aspect(
     return grouped
 
 
+def analyze_overall_batch(
+    texts: List[str],
+    phobert_model: PhoBERTONNX,
+    config: Config,
+    logger: Optional[Logger] = None,
+) -> List[SentimentResult]:
+    """Batch version of analyze_overall — one ONNX call for all texts.
+
+    Args:
+        texts: List of raw Vietnamese texts
+        phobert_model: PhoBERT model wrapper
+        config: Sentiment analysis configuration
+        logger: Optional logger
+
+    Returns:
+        List of SentimentResult objects, one per input text
+    """
+    try:
+        phobert_results = phobert_model.predict_batch(texts, return_probabilities=True)
+        return [convert_to_absa_format(r, config) for r in phobert_results]
+    except Exception as e:
+        if logger:
+            logger.warn(
+                "PhoBERT batch prediction failed for overall sentiment",
+                extra={"error": str(e), "count": len(texts)},
+            )
+        neutral = SentimentResult(
+            label=LABEL_NEUTRAL,
+            score=0.0,
+            confidence=0.0,
+            probabilities={},
+            error=str(e),
+        )
+        return [neutral] * len(texts)
+
+
 def analyze_overall(
     text: str,
     phobert_model: PhoBERTONNX,

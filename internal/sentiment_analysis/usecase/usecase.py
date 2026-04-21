@@ -1,10 +1,10 @@
-from typing import Optional
+from typing import Optional, List
 
 from pkg.logger.logger import Logger
 from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
 from internal.sentiment_analysis.interface import ISentimentAnalysisUseCase
 from internal.sentiment_analysis.type import Config, Input, Output
-from .process import process as _process
+from .process import process as _process, process_batch as _process_batch
 
 
 class SentimentAnalysisUseCase(ISentimentAnalysisUseCase):
@@ -21,6 +21,14 @@ class SentimentAnalysisUseCase(ISentimentAnalysisUseCase):
     def process(self, input_data: Input) -> Output:
         return _process(
             input_data=input_data,
+            phobert_model=self.phobert_model,
+            config=self.config,
+            logger=self.logger,
+        )
+
+    def process_batch(self, input_list: List[Input]) -> List[Output]:
+        return _process_batch(
+            input_list=input_list,
             phobert_model=self.phobert_model,
             config=self.config,
             logger=self.logger,
