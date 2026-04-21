@@ -18,7 +18,9 @@ def normalize_teencode(text: str, logger: Optional[Logger] = None) -> str:
             result = re.sub(pattern, formal, result, flags=re.IGNORECASE)
         return result
     except Exception as e:
-        logger.error("internal.text_preprocessing.usecase.helpers.normalize_teencode: %s", e)
+        logger.error(
+            "internal.text_preprocessing.usecase.helpers.normalize_teencode: %s", e
+        )
         raise
 
 
@@ -33,11 +35,17 @@ def detect_spam_signals(
         text_lower = text.lower()
         has_spam_keyword = any(keyword in text_lower for keyword in SPAM_KEYWORDS)
 
-        logger.warn("internal.text_preprocessing.usecase.helpers.detect_spam_signals: Spam signals detected", extra={"has_phone": has_phone, "has_spam_keyword": has_spam_keyword})
+        if has_phone or has_spam_keyword:
+            logger.warn(
+                "internal.text_preprocessing.usecase.helpers.detect_spam_signals: Spam signals detected",
+                extra={"has_phone": has_phone, "has_spam_keyword": has_spam_keyword},
+            )
 
         return has_phone, has_spam_keyword
     except Exception as e:
-        logger.error("internal.text_preprocessing.usecase.helpers.detect_spam_signals: %s", e)
+        logger.error(
+            "internal.text_preprocessing.usecase.helpers.detect_spam_signals: %s", e
+        )
         return False, False
 
 
@@ -163,6 +171,9 @@ def detect_spam(text: str, logger: Optional[Logger] = None) -> Tuple[bool, List[
     is_spam = len(reasons) > 0
 
     if is_spam:
-        logger.debug("internal.text_preprocessing.usecase.helpers.detect_spam: Spam detected", extra={"reasons": reasons})
+        logger.debug(
+            "internal.text_preprocessing.usecase.helpers.detect_spam: Spam detected",
+            extra={"reasons": reasons},
+        )
 
     return is_spam, reasons

@@ -175,4 +175,4 @@ def fuzzy_map_aspect(keyword: str, keyword_map: dict[str, Aspect]) -> Aspect:
         if term in keyword_lower or keyword_lower in term:
             return aspect
 
-    return ASPECT_GENERAL
+    return Aspect.GENERAL

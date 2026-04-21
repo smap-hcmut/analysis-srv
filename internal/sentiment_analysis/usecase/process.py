@@ -17,11 +17,16 @@ def process(
         text = input_data.text
         keywords = input_data.keywords
 
-        logger.debug("internal.sentiment_analysis.usecase.process: Processing started", extra={"text_len": len(text), "keywords_count": len(keywords)})
+        logger.debug(
+            "internal.sentiment_analysis.usecase.process: Processing started",
+            extra={"text_len": len(text), "keywords_count": len(keywords)},
+        )
 
         # Handle empty text
         if not text or not text.strip():
-            logger.warn("internal.sentiment_analysis.usecase.process: Empty text, returning neutral sentiment")
+            logger.debug(
+                "internal.sentiment_analysis.usecase.process: Empty text, returning neutral sentiment"
+            )
             return Output(
                 overall=SentimentResult(
                     label=LABEL_NEUTRAL,
@@ -48,11 +53,21 @@ def process(
                     text, valid_keywords, phobert_model, config, logger
                 )
             else:
-                logger.debug("internal.sentiment_analysis.usecase.process: No valid keywords, skipping aspect analysis")
+                logger.debug(
+                    "internal.sentiment_analysis.usecase.process: No valid keywords, skipping aspect analysis"
+                )
         else:
-            logger.debug("internal.sentiment_analysis.usecase.process: No keywords provided, overall sentiment only")
+            logger.debug(
+                "internal.sentiment_analysis.usecase.process: No keywords provided, overall sentiment only"
+            )
 
-        logger.info("internal.sentiment_analysis.usecase.process: Processing completed", extra={"overall_label": overall_sentiment.label, "aspects_count": len(aspect_sentiments)})
+        logger.info(
+            "internal.sentiment_analysis.usecase.process: Processing completed",
+            extra={
+                "overall_label": overall_sentiment.label,
+                "aspects_count": len(aspect_sentiments),
+            },
+        )
 
         return Output(overall=overall_sentiment, aspects=aspect_sentiments)
 

@@ -22,7 +22,7 @@ def process(
         transcription = input_data.content.transcription
         comments = input_data.comments
 
-        logger.info(
+        logger.debug(
             "internal.text_preprocessing.usecase.process.process: Processing started",
             extra={
                 "caption_len": len(caption),
@@ -70,7 +70,7 @@ def process(
             comments_len=comments_len,
         )
 
-        logger.info(
+        logger.debug(
             "internal.text_preprocessing.usecase.process.process: Processing completed",
             extra={
                 "clean_text_len": stats.total_length,
@@ -94,5 +94,8 @@ def process(
     except ValueError:
         raise
     except Exception as e:
-        logger.error("internal.text_preprocessing.usecase.process.process: Processing failed: %s", e)
+        logger.error(
+            "internal.text_preprocessing.usecase.process.process: Processing failed: %s",
+            e,
+        )
         raise

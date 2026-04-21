@@ -52,7 +52,7 @@ def relay_pending_records(conn: object, producer: object) -> RelayResult:
             except Exception as exc:
                 getattr(conn, "execute")(MARK_FAILED_SQL, (str(exc), row["id"]))
                 result.failed += 1
-                logger.warning(
+                logger.error(
                     "outbox: relay failed",
                     record_id=row["id"],
                     topic=row["topic"],

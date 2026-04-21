@@ -72,9 +72,9 @@ class EntityFact(BaseModel):
     entity_type: str | None = None
     confidence: float
     matched_by: str
-    resolution_kind: Literal["canonical_entity", "concept", "unresolved_candidate"] = (
-        "unresolved_candidate"
-    )
+    resolution_kind: Literal[
+        "canonical_entity", "concept", "unresolved_candidate", "ontology_alias_match"
+    ] = "unresolved_candidate"
     resolved_entity_kind: Literal["entity", "concept"] | None = None
     knowledge_layer: (
         Literal[

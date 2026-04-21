@@ -179,7 +179,11 @@ class ConsumerServer(IConsumerServer):
                     envelope
                 )  # ingest-srv flat format
             else:
-                return  # unknown format — skip silently
+                self.logger.warning(
+                    "internal.consumer.server: unknown message format, skipping",
+                    extra={"keys": list(envelope.keys())},
+                )
+                return
 
             project_id = uap_record.ingest.project_id if uap_record.ingest else None
             if not project_id:

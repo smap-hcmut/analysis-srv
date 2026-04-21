@@ -121,6 +121,20 @@ class KafkaConsumer(IKafkaConsumer):
                     logger.exception("Message processing error details:")
                     # Continue processing other messages
 
+                finally:
+                    # Always commit after each message (enable_auto_commit=False).
+                    # Using finally ensures poison messages don't cause infinite replay
+                    # on restart. Pipeline's dedup stage handles re-delivery safety.
+                    if not self.config.enable_auto_commit:
+                        try:
+                            await self.consumer.commit()
+                        except Exception as commit_err:
+                            logger.error(
+                                f"Failed to commit offset after processing "
+                                f"topic={msg.topic}, partition={msg.partition}, "
+                                f"offset={msg.offset}: {commit_err}"
+                            )
+
         except Exception as e:
             logger.error(f"Error during message consumption: {e}")
             logger.exception("Consumption error details:")
