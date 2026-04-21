@@ -1,5 +1,7 @@
 import asyncio
+import os
 import signal
+import sys
 
 from pkg.logger.logger import Logger, LoggerConfig
 from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
@@ -76,11 +78,22 @@ async def init_dependencies(config: Config) -> Dependencies:
             max_overflow=config.database.max_overflow,
         )
     )
-    if not await db.health_check():
-        raise RuntimeError("PostgreSQL health check failed")
+    _pg_backoff = [5, 10, 20, 30, 60]
+    for _attempt, _wait in enumerate(_pg_backoff, start=1):
+        if await db.health_check():
+            break
+        logger.warning(
+            f"PostgreSQL health check failed (attempt {_attempt}/{len(_pg_backoff)}), "
+            f"retrying in {_wait}s..."
+        )
+        await asyncio.sleep(_wait)
+    else:
+        raise RuntimeError("PostgreSQL health check failed after all retries")
     logger.info("PostgreSQL connection verified")
 
-    # Initialize Redis
+    # Initialize Redis (retry with exponential backoff so a temporary Redis
+    # restart at pod startup does not cause an immediate exit-code-0 failure
+    # that Kubernetes cannot distinguish from a clean shutdown).
     redis = RedisCache(
         RedisPkgConfig(
             host=config.redis.host,
@@ -90,8 +103,18 @@ async def init_dependencies(config: Config) -> Dependencies:
             max_connections=config.redis.max_connections,
         )
     )
-    if not await redis.health_check():
-        raise RuntimeError("Redis health check failed")
+    _redis_backoff = [5, 10, 20, 30, 60]
+    for _attempt, _wait in enumerate(_redis_backoff, start=1):
+        if await redis.health_check():
+            break
+        logger.warning(
+            f"Redis health check failed (attempt {_attempt}/{len(_redis_backoff)}), "
+            f"retrying in {_wait}s..."
+        )
+        await asyncio.sleep(_wait)
+    else:
+        # All retries exhausted — raise so main() logs and exits with code 1
+        raise RuntimeError("Redis health check failed after all retries")
     logger.info("Redis connection verified")
 
     # Initialize MinIO
@@ -158,6 +181,8 @@ async def init_dependencies(config: Config) -> Dependencies:
 
     # Build Kafka consumer config (used by internal ConsumerServer)
     topics = config.kafka.topics or KAFKA_DEFAULT_TOPICS
+    # Use POD_NAME so each replica has a distinct client_id in Kafka metrics.
+    pod_name = os.getenv("POD_NAME", "analytics-consumer")
     kafka_consumer_config = KafkaConsumerPkgConfig(
         bootstrap_servers=config.kafka.bootstrap_servers,
         topics=topics,
@@ -166,6 +191,10 @@ async def init_dependencies(config: Config) -> Dependencies:
         enable_auto_commit=False,
         max_poll_records=10,
         session_timeout_ms=30000,
+        # 10 min: gives headroom for ONNX inference on slow hardware.
+        # aiokafka default is only 300 s which risks a rebalance mid-batch.
+        max_poll_interval_ms=600000,
+        client_id=pod_name,
     )
 
     return Dependencies(
@@ -234,6 +263,7 @@ async def main():
 
             print(f"Failed to start consumer: {e}")
             traceback.print_exc()
+        sys.exit(1)
     finally:
         if server:
             await server.shutdown()
@@ -265,3 +295,5 @@ def run():
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nShutdown complete")
+    except SystemExit:
+        raise

@@ -1,7 +1,9 @@
 import asyncio
 import json
+import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, List
 
 from pkg.kafka.consumer import KafkaConsumer
@@ -19,6 +21,11 @@ from .type import Dependencies
 
 
 class ConsumerServer(IConsumerServer):
+    # Written once the Kafka consumer is running; deleted on shutdown.
+    # startupProbe and livenessProbe check for this file so Kubernetes only
+    # considers the pod ready when it is actually consuming messages.
+    HEALTHZ_FILE = Path("/tmp/healthy")
+
     def __init__(self, deps: Dependencies):
         self.deps = deps
         self.logger = deps.logger
@@ -84,6 +91,9 @@ class ConsumerServer(IConsumerServer):
             self.logger.info("Kafka consumer started, waiting for messages...")
 
             self._running = True
+            # Signal to Kubernetes probes that the consumer is fully up.
+            self.HEALTHZ_FILE.write_text("ok")
+
             self.consumer_task = asyncio.create_task(
                 self._consume_loop(), name="kafka-consumer"
             )
@@ -346,6 +356,13 @@ class ConsumerServer(IConsumerServer):
         try:
             self.logger.info("Shutting down Kafka consumer server...")
             self._running = False
+
+            # Remove healthz file so readiness/liveness probes fail immediately,
+            # ensuring no new traffic is routed to this pod during drain.
+            try:
+                self.HEALTHZ_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
 
             if self.consumer_task and not self.consumer_task.done():
                 self.consumer_task.cancel()

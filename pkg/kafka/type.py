@@ -50,6 +50,11 @@ class KafkaConsumerConfig:
     max_poll_records: int = DEFAULT_MAX_POLL_RECORDS
     session_timeout_ms: int = DEFAULT_SESSION_TIMEOUT_MS
     client_id: Optional[str] = None
+    # How long the consumer can be blocked processing a batch before Kafka
+    # considers it dead and triggers a group rebalance. ONNX inference per
+    # batch of 10 records typically takes 5-30s; 600 s gives safe headroom
+    # even under degraded hardware (default aiokafka value is only 300 s).
+    max_poll_interval_ms: int = 600000
 
     def __post_init__(self):
         """Validate configuration."""

@@ -45,6 +45,7 @@ class KafkaConsumer(IKafkaConsumer):
                 enable_auto_commit=self.config.enable_auto_commit,
                 max_poll_records=self.config.max_poll_records,
                 session_timeout_ms=self.config.session_timeout_ms,
+                max_poll_interval_ms=self.config.max_poll_interval_ms,
                 client_id=self.config.client_id,
             )
 
