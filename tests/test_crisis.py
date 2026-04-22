@@ -594,6 +594,45 @@ def test_run_manifest_includes_crisis_level():
     )
 
 
+def test_run_manifest_includes_language_filter_counters():
+    """run_manifest must expose NLP input/output and unsupported-language counters."""
+    from internal.model.uap import UAPRecord, UAPIngest, UAPContent
+    from internal.pipeline.type import IngestedBatchBundle, PipelineConfig, PipelineServices
+    from internal.pipeline.usecase.run_pipeline import run_pipeline
+    from internal.runtime.type import RunContext
+    from internal.normalization.usecase.new import New as new_normalization_usecase
+
+    records = [
+        UAPRecord(
+            ingest=UAPIngest(project_id="proj-lang-filter"),
+            content=UAPContent(doc_id="doc-vi", text="Xin chao ban"),
+        ),
+        UAPRecord(
+            ingest=UAPIngest(project_id="proj-lang-filter"),
+            content=UAPContent(doc_id="doc-id", text="ini adalah bahasa indonesia"),
+        ),
+    ]
+    batch = IngestedBatchBundle(records=records, project_id="proj-lang-filter")
+    ctx = RunContext(run_id="run-manifest-lang-001", project_id="proj-lang-filter")
+    config = PipelineConfig(
+        enable_normalization=True,
+        enable_nlp=False,
+        services=PipelineServices(
+            normalization=new_normalization_usecase(),
+        ),
+    )
+
+    result = run_pipeline(batch, ctx, config)
+
+    assert result.run_manifest is not None
+    assert "nlp_input_records" in result.run_manifest
+    assert "nlp_output_records" in result.run_manifest
+    assert "filtered_out_unsupported_language" in result.run_manifest
+    assert result.run_manifest["nlp_input_records"] == 0
+    assert result.run_manifest["nlp_output_records"] == 0
+    assert result.run_manifest["filtered_out_unsupported_language"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Observability — smoke test
 # ---------------------------------------------------------------------------

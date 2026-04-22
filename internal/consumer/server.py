@@ -280,7 +280,9 @@ class ConsumerServer(IConsumerServer):
                 self.logger.debug(
                     f"internal.consumer.server: batch pipeline run_id={result.run_id}, "
                     f"records={result.total_valid_records}, "
+                    f"nlp_input_records={result.nlp_input_records}, "
                     f"nlp_facts={len(result.nlp_facts)}, "
+                    f"filtered_unsupported_language={result.filtered_out_unsupported_language}, "
                     f"timings={result.stage_timings}"
                 )
 
@@ -334,14 +336,25 @@ class ConsumerServer(IConsumerServer):
 
     async def _consume_loop(self) -> None:
         try:
+            batch_size = int(os.getenv("ANALYTICS_CONSUME_BATCH_SIZE", "6"))
+            timeout_ms = int(os.getenv("ANALYTICS_CONSUME_TIMEOUT_MS", "1000"))
+            if batch_size < 1:
+                batch_size = 1
+            if timeout_ms < 100:
+                timeout_ms = 100
+
+            self.logger.info(
+                "Kafka consume loop config",
+                extra={"batch_size": batch_size, "timeout_ms": timeout_ms},
+            )
 
             async def batch_handler(messages: List[KafkaMessage]) -> None:
                 await self._handle_messages_batch(messages)
 
             await self.consumer.consume_batch(
                 batch_handler,
-                batch_size=10,
-                timeout_ms=1000,
+                batch_size=batch_size,
+                timeout_ms=timeout_ms,
             )
 
         except asyncio.CancelledError:

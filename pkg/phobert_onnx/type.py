@@ -14,6 +14,8 @@ class PhoBERTConfig:
 
     model_path: str = DEFAULT_MODEL_PATH
     max_length: int = DEFAULT_MAX_LENGTH
+    intra_op_num_threads: int = DEFAULT_INTRA_OP_NUM_THREADS
+    inter_op_num_threads: int = DEFAULT_INTER_OP_NUM_THREADS
 
     def __post_init__(self):
         """Validate configuration."""
@@ -23,6 +25,16 @@ class PhoBERTConfig:
         if self.max_length > MAX_SEQUENCE_LENGTH_LIMIT:
             raise ValueError(
                 f"max_length cannot exceed {MAX_SEQUENCE_LENGTH_LIMIT}, got {self.max_length}"
+            )
+
+        if self.intra_op_num_threads <= 0:
+            raise ValueError(
+                f"intra_op_num_threads must be positive, got {self.intra_op_num_threads}"
+            )
+
+        if self.inter_op_num_threads <= 0:
+            raise ValueError(
+                f"inter_op_num_threads must be positive, got {self.inter_op_num_threads}"
             )
 
 

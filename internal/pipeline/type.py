@@ -58,6 +58,8 @@ class PipelineFacts:
     spam_scores: list[Any] = field(default_factory=list)  # Phase 3
     thread_bundles: list[Any] = field(default_factory=list)  # Phase 3
     nlp_facts: list[NLPFact] = field(default_factory=list)  # Phase 4
+    nlp_input_records: int = 0
+    filtered_out_unsupported_language: int = 0
     enrichment_bundle: Optional[Any] = None  # Phase 4: EnrichmentBundle
     insight_cards: list[Any] = field(default_factory=list)  # Phase 5
     bi_bundle: Optional[Any] = None  # Phase 5
@@ -83,6 +85,8 @@ class PipelineRunResult:
     run_id: str
     total_valid_records: int
     nlp_facts: list[NLPFact] = field(default_factory=list)
+    nlp_input_records: int = 0
+    filtered_out_unsupported_language: int = 0
     insight_cards: list[Any] = field(default_factory=list)
     bi_bundle: Optional[Any] = None
     crisis_assessment: Optional[Any] = None  # Phase 6: CrisisAssessment

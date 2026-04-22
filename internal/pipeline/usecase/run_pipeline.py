@@ -104,7 +104,11 @@ def _stage_normalize(
     if svc is None:
         return facts
     norm_batch = svc.normalize(batch)
-    return dataclasses.replace(facts, normalized_records=norm_batch.mentions)
+    return dataclasses.replace(
+        facts,
+        normalized_records=norm_batch.mentions,
+        filtered_out_unsupported_language=norm_batch.filtered_out_unsupported_language,
+    )
 
 
 def _stage_dedup(
@@ -171,8 +175,31 @@ def _stage_nlp(
     svc = config.services.nlp_enricher
     if svc is None:
         return facts
-    nlp_facts = svc.enrich_batch(batch.records, batch.project_id)
-    return dataclasses.replace(facts, nlp_facts=nlp_facts)
+    records_for_nlp = batch.records
+    if facts.normalized_records:
+        allowed_ids = {
+            m.source_uap_id
+            for m in facts.normalized_records
+            if getattr(m, "source_uap_id", None)
+        }
+        allowed_ids.update(
+            m.origin_id for m in facts.normalized_records if getattr(m, "origin_id", None)
+        )
+
+        if allowed_ids:
+            records_for_nlp = [
+                r
+                for r in batch.records
+                if r.event_id in allowed_ids
+                or (r.content is not None and r.content.doc_id in allowed_ids)
+            ]
+
+    nlp_facts = svc.enrich_batch(records_for_nlp, batch.project_id)
+    return dataclasses.replace(
+        facts,
+        nlp_facts=nlp_facts,
+        nlp_input_records=len(records_for_nlp),
+    )
 
 
 def _stage_enrichment(
@@ -342,6 +369,8 @@ def run_pipeline(
         run_id=ctx.run_id,
         total_valid_records=len(batch.records),
         nlp_facts=facts.nlp_facts,
+        nlp_input_records=facts.nlp_input_records,
+        filtered_out_unsupported_language=facts.filtered_out_unsupported_language,
         insight_cards=facts.insight_cards,
         bi_bundle=facts.bi_bundle,
         crisis_assessment=facts.crisis_assessment,

@@ -73,6 +73,7 @@ def normalize_mentions(batch: IngestedBatchBundle) -> NormalizationBatch:
     """Convert an IngestedBatchBundle into a NormalizationBatch."""
     depth_map = _build_depth_map(batch.records)
     mentions: list[MentionRecord] = []
+    filtered_out_unsupported_language = 0
 
     for record in batch.records:
         doc_id = record.content.doc_id
@@ -85,6 +86,9 @@ def normalize_mentions(batch: IngestedBatchBundle) -> NormalizationBatch:
         raw_text = record.content.text or ""
         explicit_language = record.content.language
         norm = normalize_social_text(raw_text, None, explicit_language)
+        if not norm.language_supported:
+            filtered_out_unsupported_language += 1
+            continue
 
         mention_id = _stable_mention_id(project_id, doc_id)
         author_id = (
@@ -148,7 +152,11 @@ def normalize_mentions(batch: IngestedBatchBundle) -> NormalizationBatch:
         )
         mentions.append(mention)
 
-    return NormalizationBatch(mentions=mentions)
+    return NormalizationBatch(
+        mentions=mentions,
+        filtered_out_records=len(batch.records) - len(mentions),
+        filtered_out_unsupported_language=filtered_out_unsupported_language,
+    )
 
 
 __all__ = ["normalize_mentions"]

@@ -11,6 +11,7 @@ with warnings.catch_warnings():
 
 from transformers import AutoTokenizer  # type: ignore
 from optimum.onnxruntime import ORTModelForSequenceClassification  # type: ignore
+from onnxruntime import SessionOptions  # type: ignore
 from .interface import IPhoBERTONNX
 from .constant import (
     MODEL_FILE_NAME,
@@ -71,9 +72,15 @@ class PhoBERTONNX(IPhoBERTONNX):
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(str(self.model_path))
 
+            session_options = SessionOptions()
+            session_options.intra_op_num_threads = config.intra_op_num_threads
+            session_options.inter_op_num_threads = config.inter_op_num_threads
+
             # Load ONNX model
             self.model = ORTModelForSequenceClassification.from_pretrained(
-                str(self.model_path), file_name=MODEL_FILE_NAME
+                str(self.model_path),
+                file_name=MODEL_FILE_NAME,
+                session_options=session_options,
             )
         except Exception as e:
             raise RuntimeError(ERROR_MODEL_LOAD_FAILED.format(error=e))

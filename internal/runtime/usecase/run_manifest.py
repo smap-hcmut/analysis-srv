@@ -39,6 +39,9 @@ def build_run_manifest(
             else None,
         },
         "total_records": result.total_valid_records,
+        "nlp_input_records": result.nlp_input_records,
+        "nlp_output_records": len(result.nlp_facts),
+        "filtered_out_unsupported_language": result.filtered_out_unsupported_language,
         "stage_timings": result.stage_timings,
         "pipeline_config": {
             "enable_normalization": config.enable_normalization,

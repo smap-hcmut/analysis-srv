@@ -47,6 +47,20 @@ from internal.model.constant import (
 )
 
 
+def _env_int(name: str, default: int, min_value: int = 1) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+
+    try:
+        value = int(raw)
+        if value < min_value:
+            return default
+        return value
+    except ValueError:
+        return default
+
+
 async def init_dependencies(config: Config) -> Dependencies:
     """Initialize all service dependencies.
 
@@ -68,6 +82,13 @@ async def init_dependencies(config: Config) -> Dependencies:
         )
     )
     logger.info("Logger initialized")
+
+    # Keep ONNX/BLAS threading bounded per pod to avoid CPU oversubscription.
+    omp_threads = _env_int("ANALYTICS_OMP_NUM_THREADS", 1)
+    os.environ["OMP_NUM_THREADS"] = str(omp_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(omp_threads)
+    os.environ["MKL_NUM_THREADS"] = str(omp_threads)
+    os.environ["NUMEXPR_NUM_THREADS"] = str(omp_threads)
 
     # Initialize PostgreSQL database
     db = PostgresDatabase(
@@ -147,6 +168,8 @@ async def init_dependencies(config: Config) -> Dependencies:
         PhoBERTConfig(
             model_path=PHOBERT_MODEL_PATH,
             max_length=PHOBERT_MAX_LENGTH,
+            intra_op_num_threads=_env_int("ANALYTICS_ONNX_INTRA_OP_THREADS", 2),
+            inter_op_num_threads=_env_int("ANALYTICS_ONNX_INTER_OP_THREADS", 1),
         )
     )
     logger.info("Sentiment analyzer initialized")
@@ -183,17 +206,19 @@ async def init_dependencies(config: Config) -> Dependencies:
     topics = config.kafka.topics or KAFKA_DEFAULT_TOPICS
     # Use POD_NAME so each replica has a distinct client_id in Kafka metrics.
     pod_name = os.getenv("POD_NAME", "analytics-consumer")
+    max_poll_records = _env_int("ANALYTICS_KAFKA_MAX_POLL_RECORDS", 6)
+    max_poll_interval_ms = _env_int("ANALYTICS_KAFKA_MAX_POLL_INTERVAL_MS", 600000)
     kafka_consumer_config = KafkaConsumerPkgConfig(
         bootstrap_servers=config.kafka.bootstrap_servers,
         topics=topics,
         group_id=config.kafka.group_id,
         auto_offset_reset="earliest",
         enable_auto_commit=False,
-        max_poll_records=10,
+        max_poll_records=max_poll_records,
         session_timeout_ms=30000,
         # 10 min: gives headroom for ONNX inference on slow hardware.
         # aiokafka default is only 300 s which risks a rebalance mid-batch.
-        max_poll_interval_ms=600000,
+        max_poll_interval_ms=max_poll_interval_ms,
         client_id=pod_name,
     )
 
