@@ -1,0 +1,22 @@
+[
+  {
+    "id": "complaint-service-1",
+    "text": "Dịch vụ bảo hành VinFast quá chậm, nhân viên hỗ trợ kém.",
+    "expected": {
+      "intent": "COMPLAINT",
+      "sentiment": "NEGATIVE",
+      "keywords": ["bảo hành", "nhân viên", "hỗ trợ"],
+      "aspects": ["SERVICE"]
+    }
+  },
+  {
+    "id": "discussion-design-1",
+    "text": "Thiết kế xe VinFast nhìn hiện đại, ngoại thất khá đẹp.",
+    "expected": {
+      "intent": "DISCUSSION",
+      "sentiment": "POSITIVE",
+      "keywords": ["thiết kế", "ngoại thất"],
+      "aspects": ["DESIGN"]
+    }
+  }
+]

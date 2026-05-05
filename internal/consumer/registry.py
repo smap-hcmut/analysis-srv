@@ -114,6 +114,7 @@ class ConsumerRegistry:
             sentiment_analysis_usecase = NewSentimentAnalysisUseCase(
                 config=SentimentAnalysisConfig(
                     context_window_size=self.config.sentiment_analysis.context_window_size,
+                    max_keywords_per_aspect=self.config.sentiment_analysis.max_keywords_per_aspect,
                     threshold_positive=self.config.sentiment_analysis.threshold_positive,
                     threshold_negative=self.config.sentiment_analysis.threshold_negative,
                 ),

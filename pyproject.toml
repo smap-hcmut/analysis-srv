@@ -5,6 +5,9 @@ description = "Analytics service for sentiment analysis and keyword extraction"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115.0",
+    "httpx>=0.28.0",
+    "uvicorn>=0.32.0",
     # Message Queue & Async
     "aio-pika>=9.5.8",
     "aiokafka>=0.11.0",
@@ -44,6 +47,7 @@ dependencies = [
 
 [project.scripts]
 consumer = "apps.consumer.main:run"
+api = "apps.api.main:run"
 
 [build-system]
 requires = ["hatchling"]

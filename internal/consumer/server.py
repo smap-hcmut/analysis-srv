@@ -11,6 +11,7 @@ from pkg.kafka.type import KafkaMessage
 from internal.model.uap import UAPRecord, ErrUAPValidation, ErrUAPVersionUnsupported
 from internal.runtime.type import RunContext
 from internal.analytics.usecase.batch_enricher import NLPBatchEnricher
+from internal.analytics.usecase.batch_enricher import enrich_nlp_facts_with_bundle
 from pkg.logger.logger import set_trace_id, set_project_id, clear_project_id
 
 # UAP version header field (replaces internal.analytics.delivery.constant import)
@@ -156,7 +157,7 @@ class ConsumerServer(IConsumerServer):
     async def _parse_message(self, message: KafkaMessage) -> Optional[UAPRecord]:
         """Decode and parse a single Kafka message into a UAPRecord.
 
-        Returns None (with a warning log) for unknown formats or bad JSON.
+        Returns None (with a debug/info log) for unknown formats or bad JSON.
         Raises ErrUAPValidation / ErrUAPVersionUnsupported for the caller to
         decide whether to skip.
         """
@@ -174,7 +175,7 @@ class ConsumerServer(IConsumerServer):
         elif "identity" in envelope:
             return UAPRecord.from_ingest_record(envelope)
         else:
-            self.logger.warning(
+            self.logger.info(
                 "internal.consumer.server: unknown message format, skipping",
                 extra={"keys": list(envelope.keys())},
             )
@@ -211,15 +212,15 @@ class ConsumerServer(IConsumerServer):
                 parsed.append((project_id, uap_record.domain_type_code, uap_record))
 
             except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
-                self.logger.warning(
+                self.logger.info(
                     f"internal.consumer.server: UAP error (skipped): {exc}"
                 )
             except json.JSONDecodeError as exc:
-                self.logger.warning(
+                self.logger.info(
                     f"internal.consumer.server: bad JSON (skipped): {exc}"
                 )
             except ValueError as exc:
-                self.logger.warning(
+                self.logger.info(
                     f"internal.consumer.server: validation error (skipped): {exc}"
                 )
             except Exception as exc:
@@ -287,7 +288,14 @@ class ConsumerServer(IConsumerServer):
                 )
 
                 if result.nlp_facts:
-                    await self._persist_and_publish(result.nlp_facts)
+                    enrich_nlp_facts_with_bundle(
+                        result.nlp_facts,
+                        result.enrichment_bundle,
+                    )
+                    await self._persist_and_publish(
+                        result.nlp_facts,
+                        result.enrichment_bundle,
+                    )
 
             except Exception as exc:
                 self.logger.error(
@@ -305,7 +313,7 @@ class ConsumerServer(IConsumerServer):
         """
         await self._handle_messages_batch([message])
 
-    async def _persist_and_publish(self, nlp_facts: list) -> None:
+    async def _persist_and_publish(self, nlp_facts: list, enrichment_bundle=None) -> None:
         """Persist each NLPFact to post_insight and publish to contract topics.
 
         Non-fatal — errors are logged per-record; a single failure does not
@@ -315,7 +323,10 @@ class ConsumerServer(IConsumerServer):
             # Persist to post_insight
             if self.post_insight_usecase and nlp_fact.analytics_result is not None:
                 try:
-                    pi_input = NLPBatchEnricher.to_post_insight_input(nlp_fact)
+                    pi_input = NLPBatchEnricher.to_post_insight_input(
+                        nlp_fact,
+                        enrichment_bundle,
+                    )
                     await self.post_insight_usecase.create(pi_input)
                 except Exception as exc:
                     self.logger.error(

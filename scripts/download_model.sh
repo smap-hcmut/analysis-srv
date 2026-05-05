@@ -10,10 +10,18 @@ MINIO_ACCESS_KEY="${MINIO_ACCESS_KEY:-minioadmin}"
 MINIO_SECRET_KEY="${MINIO_SECRET_KEY:-minioadmin}"
 MINIO_BUCKET="${MINIO_BUCKET:-ml-models}"
 MINIO_PREFIX="${MINIO_PREFIX:-phobert/phobert_sentiment}"
-LOCAL_PATH="${LOCAL_PATH:-internal/model/phobert_sentiment}"
+LOCAL_PATH="${LOCAL_PATH:-internal/model/phobert}"
 
 # Required files
 REQUIRED_FILES=(
+    "phobert.onnx"
+    "config.json"
+    "vocab.txt"
+    "bpe.codes"
+    "tokenizer_config.json"
+)
+
+REMOTE_FILES=(
     "model.onnx"
     "config.json"
     "vocab.txt"
@@ -84,8 +92,10 @@ mkdir -p "$LOCAL_PATH"
 
 # Download each required file
 echo "Downloading model files..."
-for file in "${REQUIRED_FILES[@]}"; do
-    remote_path="myminio/$MINIO_BUCKET/$MINIO_PREFIX/$file"
+for i in "${!REQUIRED_FILES[@]}"; do
+    file="${REQUIRED_FILES[$i]}"
+    remote_file="${REMOTE_FILES[$i]}"
+    remote_path="myminio/$MINIO_BUCKET/$MINIO_PREFIX/$remote_file"
     local_file="$LOCAL_PATH/$file"
     
     echo "Downloading $file..."

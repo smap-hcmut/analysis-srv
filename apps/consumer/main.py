@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import signal
 import sys
@@ -82,6 +83,12 @@ async def init_dependencies(config: Config) -> Dependencies:
         )
     )
     logger.info("Logger initialized")
+
+    # aiokafka emits transient rebalance chatter at warning level during pod
+    # startup/rollout. Keep the library quieter and rely on our structured
+    # application logs for actionable Kafka failures.
+    logging.getLogger("aiokafka").setLevel(logging.ERROR)
+    logging.getLogger("kafka").setLevel(logging.ERROR)
 
     # Keep ONNX/BLAS threading bounded per pod to avoid CPU oversubscription.
     omp_threads = _env_int("ANALYTICS_OMP_NUM_THREADS", 1)

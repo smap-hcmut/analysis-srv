@@ -16,6 +16,7 @@ DEFAULT_THRESHOLD_NEGATIVE = -0.25
 
 # Context window configuration
 DEFAULT_CONTEXT_WINDOW_SIZE = 100  # characters
+DEFAULT_MAX_KEYWORDS_PER_ASPECT = 3
 
 # Delimiters for context windowing
 DELIMITERS = [".", ",", ";", "!", "?", "nhưng", "tuy nhiên", "mặc dù", "bù lại"]
@@ -65,6 +66,7 @@ __all__ = [
     "DEFAULT_THRESHOLD_POSITIVE",
     "DEFAULT_THRESHOLD_NEGATIVE",
     "DEFAULT_CONTEXT_WINDOW_SIZE",
+    "DEFAULT_MAX_KEYWORDS_PER_ASPECT",
     "DELIMITERS",
     "WHITESPACE_CHARS",
     "STRIP_PUNCTUATION",

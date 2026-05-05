@@ -13,10 +13,15 @@ CRISIS:
   - "lừa\\s*gạt"
   - "gian\\s*lận"
   - "cảnh\\s*báo"
+  - "né\\s*gấp"
+  - "bịp"
+  - "quỵt"
   # Unsigned variations
   - "tay chay"
   - "lua dao"
   - "boc phot"
+  - "ne gap"
+  - "quyt"
 
 SEEDING:
   - "\\b0\\d{9,10}\\b"  # Phone numbers
@@ -41,6 +46,9 @@ SPAM:
   - "tuyển\\s*dụng"
   - "cần\\s*gấp"
   - "thu\\s*nhập"
+  - "cộng\\s*tác\\s*viên"
+  - "làm\\s*online"
+  - "việc\\s*làm\\s*online"
   # Unsigned variations
   - "vay tien"
   - "vay von"
@@ -48,6 +56,7 @@ SPAM:
   - "lai suat"
   - "giai ngan"
   - "tuyen dung"
+  - "cong tac vien"
 
 COMPLAINT:
   - "lỗi.*(không|chưa).*sửa"
@@ -60,6 +69,16 @@ COMPLAINT:
   - "rác.*quá"
   - "(tồi|tệ|kém).*chất\\s*lượng"
   - "chất\\s*lượng.*(tệ|kém)"
+  - "(quá|rất).*chậm"
+  - "hỗ\\s*trợ.*(kém|tệ|chậm)"
+  - "thái\\s*độ.*(kém|tệ)"
+  - "không.*(bắt\\s*máy|trả\\s*lời|phản\\s*hồi)"
+  - "lỗi.*đăng\\s*nhập"
+  - "không.*đăng\\s*nhập"
+  - "mở.*là.*văng"
+  - "văng.*ra"
+  - "treo\\s*app"
+  - "app.*lỗi"
   # Sarcasm / Mỉa mai
   - "tuyệt\\s*vời.*không.*(bắt\\s*máy|trả\\s*lời)"
   - "tuyệt\\s*vời.*quá.*cơ"
@@ -69,14 +88,21 @@ LEAD:
   - "giá.*bao\\s*nhiêu"
   - "bao\\s*nhiêu.*tiền"
   - "bao.*tiền"  # Slang: bao tiền
+  - "phí.*bao\\s*nhiêu"
+  - "bao\\s*nhiêu.*phí"
   - "mua.*ở\\s*đâu"
   - "ở\\s*đâu.*mua"
   - "test\\s*drive"
   - "xin.*giá"
+  - "báo\\s*giá"
   - "cho.*xin.*giá"
   - "đặt.*mua"
   - "đặt.*cọc"
   - "mua.*ngay"
+  - "có\\s*nên\\s*mua"
+  - "nên.*mua.*không"
+  - "ưu\\s*đãi.*không"
+  - "có.*ưu\\s*đãi"
   # Unsigned variations
   - "gia.*bao.*nhieu"
   - "mua.*o.*dau"
@@ -84,6 +110,7 @@ LEAD:
 SUPPORT:
   - "cách.*sạc"
   - "làm\\s*sao.*sạc"
+  - "làm\\s*sao.*đăng\\s*(ký|nhập)"
   - "showroom"
   - "đại\\s*lý"
   - "bảo\\s*hành"
@@ -91,6 +118,11 @@ SUPPORT:
   - "hướng\\s*dẫn"
   - "cách.*sử\\s*dụng"
   - "trung\\s*tâm.*bảo\\s*hành"
+  - "đăng\\s*ký"
+  - "tài\\s*khoản"
+  - "đăng\\s*nhập"
+  - "hoàn\\s*tiền"
+  - "liên\\s*hệ.*ở\\s*đâu"
   # Specific support questions
   - "sạc.*ở\\s*đâu"
   - "trạm.*sạc"

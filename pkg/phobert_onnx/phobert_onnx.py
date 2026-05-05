@@ -1,17 +1,31 @@
-import torch  # type: ignore
+import os
+import numpy as np
+import logging
 import warnings
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
+
+# analysis-consumer only uses Transformers for tokenizer + ONNXRuntime.
+# Forcing USE_TORCH=0 avoids importing the heavyweight torch runtime on nodes
+# where it is unstable, while preserving the tokenizer/Optimum code path.
+os.environ.setdefault("USE_TORCH", "0")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("onnxruntime").setLevel(logging.ERROR)
 
 # Suppress numpy deprecation warning from pyvi (happens when loading pickle model)
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     warnings.filterwarnings("ignore", message=".*align.*")
-    from pyvi import ViTokenizer  # type: ignore
+    with open(os.devnull, "w") as _devnull:
+        with redirect_stdout(_devnull), redirect_stderr(_devnull):
+            from pyvi import ViTokenizer  # type: ignore
+            from transformers import AutoTokenizer  # type: ignore
 
-from transformers import AutoTokenizer  # type: ignore
-from optimum.onnxruntime import ORTModelForSequenceClassification  # type: ignore
-from onnxruntime import SessionOptions  # type: ignore
+from onnxruntime import InferenceSession, SessionOptions  # type: ignore
 from .interface import IPhoBERTONNX
 from .constant import (
     MODEL_FILE_NAME,
@@ -19,10 +33,7 @@ from .constant import (
     DEFAULT_PROBABILITIES,
     SENTIMENT_INDEX_MAP,
     SENTIMENT_LABELS,
-    TENSOR_TYPE_PT,
     PADDING_STRATEGY,
-    KEY_INPUT_IDS,
-    KEY_ATTENTION_MASK,
     ERROR_MODEL_DIR_NOT_FOUND,
     ERROR_MODEL_FILE_NOT_FOUND,
     ERROR_MODEL_LOAD_FAILED,
@@ -76,11 +87,11 @@ class PhoBERTONNX(IPhoBERTONNX):
             session_options.intra_op_num_threads = config.intra_op_num_threads
             session_options.inter_op_num_threads = config.inter_op_num_threads
 
-            # Load ONNX model
-            self.model = ORTModelForSequenceClassification.from_pretrained(
-                str(self.model_path),
-                file_name=MODEL_FILE_NAME,
-                session_options=session_options,
+            # Load ONNX model directly to avoid Optimum's heavier import chain.
+            self.model = InferenceSession(
+                str(model_file),
+                sess_options=session_options,
+                providers=["CPUExecutionProvider"],
             )
         except Exception as e:
             raise RuntimeError(ERROR_MODEL_LOAD_FAILED.format(error=e))
@@ -99,7 +110,7 @@ class PhoBERTONNX(IPhoBERTONNX):
         # Always segment
         return ViTokenizer.tokenize(text)
 
-    def _tokenize(self, text: str) -> Dict[str, torch.Tensor]:
+    def _tokenize(self, text: str) -> Dict[str, Any]:
         """Tokenize segmented text.
 
         Args:
@@ -110,17 +121,19 @@ class PhoBERTONNX(IPhoBERTONNX):
         """
         inputs = self.tokenizer(
             text,
-            return_tensors=TENSOR_TYPE_PT,
+            return_tensors="np",
             truncation=True,
             max_length=self.config.max_length,
             padding=PADDING_STRATEGY,
             add_special_tokens=True,  # Critical: Ensure <s> and </s> tokens are added for PhoBERT
         )
-        return inputs
+        return {
+            key: value
+            for key, value in inputs.items()
+            if key in {"input_ids", "attention_mask"}
+        }
 
-    def _postprocess(
-        self, logits: torch.Tensor, return_probabilities: bool = True
-    ) -> PhobertOnnxOutput:
+    def _postprocess(self, logits: Any, return_probabilities: bool = True) -> PhobertOnnxOutput:
         """Post-process model output to get rating and probabilities.
 
         Args:
@@ -131,10 +144,13 @@ class PhoBERTONNX(IPhoBERTONNX):
             PhobertOnnxOutput with rating, sentiment label, confidence, and optionally probabilities
         """
         # Convert logits to probabilities
-        probs = logits.softmax(dim=1)
+        logits_arr = np.asarray(logits, dtype=np.float32)
+        shifted = logits_arr - np.max(logits_arr, axis=1, keepdims=True)
+        probs = np.exp(shifted)
+        probs = probs / np.sum(probs, axis=1, keepdims=True)
 
         # Get predicted class index
-        label_idx = torch.argmax(probs, dim=1).item()
+        label_idx = int(np.argmax(probs, axis=1)[0])
 
         # Map to sentiment (using index map)
         sentiment_enum = SENTIMENT_INDEX_MAP[label_idx]
@@ -147,7 +163,7 @@ class PhoBERTONNX(IPhoBERTONNX):
         rating = sentiment_enum.value
 
         # Get confidence score
-        confidence = probs[0][label_idx].item()
+        confidence = float(probs[0][label_idx])
 
         probabilities = None
         if return_probabilities:
@@ -204,11 +220,10 @@ class PhoBERTONNX(IPhoBERTONNX):
         inputs = self._tokenize(segmented_text)
 
         # 3. Inference
-        with torch.no_grad():
-            outputs = self.model(**inputs)
+        outputs = self.model.run(None, dict(inputs))
 
         # 4. Post-process
-        result = self._postprocess(outputs.logits, return_probabilities)
+        result = self._postprocess(outputs[0], return_probabilities)
 
         return result
 
@@ -232,8 +247,9 @@ class PhoBERTONNX(IPhoBERTONNX):
             return []
 
         results: List[PhobertOnnxOutput] = [None] * len(texts)  # type: ignore[list-item]
-        non_empty_indices: List[int] = []
-        non_empty_segmented: List[str] = []
+        unique_positions: Dict[str, int] = {}
+        unique_segmented: List[str] = []
+        text_to_indices: Dict[str, List[int]] = {}
 
         # Assign default neutral for empty inputs; segment the rest.
         for i, text in enumerate(texts):
@@ -253,54 +269,70 @@ class PhoBERTONNX(IPhoBERTONNX):
                     label="Trung tính",
                 )
             else:
-                non_empty_indices.append(i)
-                non_empty_segmented.append(self._segment_text(text))
+                text_to_indices.setdefault(text, []).append(i)
+                if text not in unique_positions:
+                    unique_positions[text] = len(unique_segmented)
+                    unique_segmented.append(self._segment_text(text))
 
-        if not non_empty_segmented:
+        if not unique_segmented:
             return results
 
         # Batch tokenize — padding=True pads all sequences to the longest
         # in the batch so they form a rectangular tensor.
         inputs = self.tokenizer(
-            non_empty_segmented,
-            return_tensors=TENSOR_TYPE_PT,
+            unique_segmented,
+            return_tensors="np",
             truncation=True,
             max_length=self.config.max_length,
             padding=True,
             add_special_tokens=True,
         )
+        inputs = {
+            key: value
+            for key, value in inputs.items()
+            if key in {"input_ids", "attention_mask"}
+        }
 
         # Single ONNX inference call for the entire batch.
-        with torch.no_grad():
-            outputs = self.model(**inputs)
+        outputs = self.model.run(None, dict(inputs))
 
         # outputs.logits shape: [N, num_classes]
-        batch_probs = outputs.logits.softmax(dim=1)
+        logits_arr = np.asarray(outputs[0], dtype=np.float32)
+        shifted = logits_arr - np.max(logits_arr, axis=1, keepdims=True)
+        batch_probs = np.exp(shifted)
+        batch_probs = batch_probs / np.sum(batch_probs, axis=1, keepdims=True)
 
-        for batch_idx, orig_idx in enumerate(non_empty_indices):
+        unique_results: List[PhobertOnnxOutput] = [None] * len(unique_segmented)  # type: ignore[list-item]
+
+        for batch_idx in range(len(unique_segmented)):
             probs = batch_probs[batch_idx]  # shape [num_classes]
-            label_idx = int(torch.argmax(probs).item())
+            label_idx = int(np.argmax(probs))
 
             sentiment_enum = SENTIMENT_INDEX_MAP[label_idx]
             sentiment_label = SENTIMENT_LABELS[sentiment_enum]
             rating = sentiment_enum.value
-            confidence = float(probs[label_idx].item())
+            confidence = float(probs[label_idx])
 
             probabilities = None
             if return_probabilities:
                 probabilities = PhobertOnnxProbability(
-                    NEGATIVE=float(probs[0].item()),
-                    POSITIVE=float(probs[1].item()),
-                    NEUTRAL=float(probs[2].item()),
+                    NEGATIVE=float(probs[0]),
+                    POSITIVE=float(probs[1]),
+                    NEUTRAL=float(probs[2]),
                 )
 
-            results[orig_idx] = PhobertOnnxOutput(
+            unique_results[batch_idx] = PhobertOnnxOutput(
                 rating=rating,
                 sentiment=sentiment_label,
                 confidence=confidence,
                 probabilities=probabilities,
                 label=sentiment_label,
             )
+
+        for text, indices in text_to_indices.items():
+            unique_result = unique_results[unique_positions[text]]
+            for orig_idx in indices:
+                results[orig_idx] = unique_result
 
         return results
 

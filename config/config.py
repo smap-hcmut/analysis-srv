@@ -155,6 +155,7 @@ class SentimentAnalysisConfig:
     """Sentiment analysis configuration."""
 
     context_window_size: int = 100
+    max_keywords_per_aspect: int = 3
     threshold_positive: float = 0.25
     threshold_negative: float = -0.25
 
@@ -493,6 +494,9 @@ class ConfigLoader:
             sentiment_analysis=SentimentAnalysisConfig(
                 context_window_size=self._get_value(
                     "sentiment_analysis.context_window_size", 100
+                ),
+                max_keywords_per_aspect=self._get_value(
+                    "sentiment_analysis.max_keywords_per_aspect", 3
                 ),
                 threshold_positive=self._get_value(
                     "sentiment_analysis.threshold_positive", 0.25

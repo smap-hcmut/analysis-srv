@@ -127,6 +127,10 @@ def _build_uap_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
         if val := data.get(data_key):
             metadata[meta_key] = val
 
+    enrichment_summary = data.get("enrichment_summary")
+    if enrichment_summary:
+        metadata["enrichment"] = enrichment_summary
+
     return metadata
 
 

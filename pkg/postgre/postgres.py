@@ -38,12 +38,27 @@ class PostgresDatabase:
                 url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
                 url = url.replace("postgres://", "postgresql+asyncpg://", 1)
 
+            # Server-side timeouts so a runaway query cannot pin a backend
+            # for hours and starve the global Postgres connection pool.
+            server_settings: dict[str, str] = {}
+            if self.config.statement_timeout_ms > 0:
+                server_settings["statement_timeout"] = str(self.config.statement_timeout_ms)
+            if self.config.idle_in_transaction_timeout_ms > 0:
+                server_settings["idle_in_transaction_session_timeout"] = str(
+                    self.config.idle_in_transaction_timeout_ms
+                )
+
+            connect_args: dict = {}
+            if server_settings:
+                connect_args["server_settings"] = server_settings
+
             # Create async engine with connection pooling
             engine_kwargs = {
                 "echo": self.config.echo,
                 "echo_pool": self.config.echo_pool,
                 "pool_pre_ping": self.config.pool_pre_ping,
                 "pool_recycle": self.config.pool_recycle,
+                "connect_args": connect_args,
             }
 
             # Use NullPool if echo is enabled (debug mode)

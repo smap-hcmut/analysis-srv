@@ -77,6 +77,16 @@ class NLP:
 
 
 @dataclass
+class EnrichmentSummary:
+    entity_count: int = 0
+    topic_count: int = 0
+    topic_labels: list[str] = field(default_factory=list)
+    issue_count: int = 0
+    issue_categories: list[str] = field(default_factory=list)
+    source_influence_tier: Optional[str] = None
+
+
+@dataclass
 class BusinessEngagement:
     like_count: int = 0
     comment_count: int = 0
@@ -162,6 +172,7 @@ class InsightMessage:
     identity: Identity = field(default_factory=Identity)
     content: Content = field(default_factory=Content)
     nlp: NLP = field(default_factory=NLP)
+    enrichment: EnrichmentSummary = field(default_factory=EnrichmentSummary)
     business: Business = field(default_factory=Business)
     rag: RAG = field(default_factory=RAG)
     provenance: Provenance = field(default_factory=Provenance)

@@ -1,3 +1,4 @@
+import re
 import yaml
 from pathlib import Path
 from typing import Optional
@@ -17,6 +18,52 @@ from internal.keyword_extraction.constant import (
     KEYWORD_TYPE_CHUNK,
     ASPECT_GENERAL,
 )
+
+AI_NOISE_TOKENS = {
+    "ai",
+    "ahamova",
+    "bao",
+    "ca",
+    "cho",
+    "cung",
+    "cuc",
+    "da",
+    "dang",
+    "day",
+    "de",
+    "gia",
+    "giup",
+    "hoi",
+    "ib",
+    "khach",
+    "khong",
+    "la",
+    "luon",
+    "minh",
+    "moi",
+    "ngay",
+    "nguoi",
+    "ngay",
+    "nghe",
+    "nhe",
+    "nhieu",
+    "noi",
+    "o",
+    "qua",
+    "rat",
+    "roi",
+    "se",
+    "shop",
+    "tai",
+    "thang",
+    "the",
+    "thi",
+    "thoi",
+    "tra",
+    "vai",
+    "vay",
+    "voi",
+}
 
 
 def load_aspects(
@@ -90,14 +137,13 @@ def build_lookup_map(
 def match_dictionary(text: str, keyword_map: dict[str, Aspect]) -> list[KeywordItem]:
     matches = []
     text_lower = text.lower()
-    words = text_lower.split()
     matched_terms: set[str] = set()
 
     for term, aspect in keyword_map.items():
         if term in matched_terms:
             continue
 
-        if term in words or term in text_lower:
+        if contains_term(text_lower, term):
             matches.append(
                 KeywordItem(
                     keyword=term,
@@ -109,6 +155,35 @@ def match_dictionary(text: str, keyword_map: dict[str, Aspect]) -> list[KeywordI
             matched_terms.add(term)
 
     return matches
+
+
+def contains_term(text: str, term: str) -> bool:
+    pattern = rf"(?<!\w){re.escape(term.lower())}(?!\w)"
+    return re.search(pattern, text.lower()) is not None
+
+
+def should_keep_ai_keyword(
+    keyword: str,
+    aspect: str,
+    exclude_terms: set[str],
+) -> bool:
+    keyword_lower = keyword.strip().lower()
+    if not keyword_lower or aspect == ASPECT_GENERAL:
+        return False
+
+    tokens = re.findall(r"\w+", keyword_lower)
+    if len(tokens) < 2:
+        return False
+
+    if any(char.isdigit() for char in keyword_lower):
+        return False
+
+    for term in exclude_terms:
+        if term != keyword_lower and contains_term(keyword_lower, term):
+            return False
+
+    content_tokens = [token for token in tokens if token not in AI_NOISE_TOKENS]
+    return len(content_tokens) >= 2
 
 
 def extract_ai(
@@ -125,10 +200,11 @@ def extract_ai(
         ai_result = ai_extractor.extract(text)
 
         if not ai_result.success or not ai_result.keywords:
-            logger.warn(
-                "internal.keyword_extraction.usecase.helpers: AI extraction failed or returned no keywords",
-                extra={"error": ai_result.error_message},
-            )
+            if ai_result.error_message:
+                logger.warn(
+                    "internal.keyword_extraction.usecase.helpers: AI extraction failed",
+                    extra={"error": ai_result.error_message},
+                )
             return []
 
         ai_keywords = []
@@ -172,7 +248,7 @@ def fuzzy_map_aspect(keyword: str, keyword_map: dict[str, Aspect]) -> Aspect:
         return keyword_map[keyword_lower]
 
     for term, aspect in keyword_map.items():
-        if term in keyword_lower or keyword_lower in term:
+        if contains_term(keyword_lower, term) or contains_term(term, keyword_lower):
             return aspect
 
     return Aspect.GENERAL

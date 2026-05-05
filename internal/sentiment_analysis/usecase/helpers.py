@@ -1,4 +1,5 @@
 import unicodedata
+import re
 from typing import List, Dict, Optional, Any
 
 from pkg.logger.logger import Logger
@@ -14,6 +15,7 @@ from internal.sentiment_analysis.constant import (
     LABEL_NEUTRAL,
     LABEL_POSITIVE,
     LABEL_NEGATIVE,
+    DEFAULT_ASPECT,
     DEFAULT_RATING,
     SCORE_RATING_1,
     SCORE_RATING_2,
@@ -226,6 +228,34 @@ def group_keywords_by_aspect(
     return grouped
 
 
+def limit_keywords_per_aspect(
+    keywords: list[KeywordInput],
+    max_keywords_per_aspect: int,
+) -> list[KeywordInput]:
+    selected: list[KeywordInput] = []
+    counts_by_aspect: dict[str, int] = {}
+    seen_by_aspect: dict[str, set[str]] = {}
+
+    for keyword in keywords:
+        aspect = keyword.aspect or DEFAULT_ASPECT
+        normalized = keyword.keyword.strip().lower()
+        if not normalized:
+            continue
+
+        seen = seen_by_aspect.setdefault(aspect, set())
+        if normalized in seen:
+            continue
+
+        if counts_by_aspect.get(aspect, 0) >= max_keywords_per_aspect:
+            continue
+
+        seen.add(normalized)
+        counts_by_aspect[aspect] = counts_by_aspect.get(aspect, 0) + 1
+        selected.append(keyword)
+
+    return selected
+
+
 def analyze_overall_batch(
     texts: List[str],
     phobert_model: PhoBERTONNX,
@@ -260,6 +290,72 @@ def analyze_overall_batch(
             error=str(e),
         )
         return [neutral] * len(texts)
+
+
+def calibrate_overall_sentiment(
+    text: str,
+    result: SentimentResult,
+    intent: str | None = None,
+) -> SentimentResult:
+    normalized_intent = (intent or "").strip().upper()
+    normalized_text = normalize_text(text)
+
+    if normalized_intent in {"COMPLAINT", "CRISIS"}:
+        return override_sentiment(result, LABEL_NEGATIVE, SCORE_RATING_2, 2, 0.8)
+
+    if normalized_intent in {"SUPPORT", "LEAD", "SPAM", "SEEDING"}:
+        return override_sentiment(result, LABEL_NEUTRAL, SCORE_RATING_3, DEFAULT_RATING, 0.7)
+
+    if result.label != LABEL_NEGATIVE and has_negative_signal(normalized_text):
+        return override_sentiment(result, LABEL_NEGATIVE, SCORE_RATING_2, 2, 0.75)
+
+    return result
+
+
+def normalize_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFD", text.lower())
+    stripped = "".join(
+        char for char in normalized if unicodedata.category(char) != "Mn"
+    )
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def has_negative_signal(text: str) -> bool:
+    negative_phrases = (
+        "khong ai tra loi",
+        "khong tra loi",
+        "khong bat may",
+        "khong phan hoi",
+        "phan hoi cham",
+        "loi dang nhap",
+        "vang ra",
+        "lua dao",
+        "ne gap",
+        "thai do te",
+        "that vong",
+        "te qua",
+    )
+    return any(phrase in text for phrase in negative_phrases)
+
+
+def override_sentiment(
+    result: SentimentResult,
+    label: str,
+    score: float,
+    rating: int,
+    min_confidence: float,
+) -> SentimentResult:
+    if result.label == label and result.score == score and result.rating == rating:
+        return result
+
+    return SentimentResult(
+        label=label,
+        score=score,
+        confidence=max(result.confidence, min_confidence),
+        probabilities=result.probabilities,
+        rating=rating,
+        error=result.error,
+    )
 
 
 def analyze_overall(

@@ -1,6 +1,6 @@
 from enum import Enum
 
-DEFAULT_MODEL_PATH = "models/phobert"
+DEFAULT_MODEL_PATH = "internal/model/phobert"
 DEFAULT_MAX_LENGTH = 256
 MAX_SEQUENCE_LENGTH_LIMIT = 512
 MODEL_FILE_NAME = "phobert.onnx"

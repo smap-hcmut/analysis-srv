@@ -40,6 +40,14 @@ class PostgresConfig:
     pool_pre_ping: bool = DEFAULT_POOL_PRE_PING
     echo: bool = DEFAULT_ECHO
     echo_pool: bool = DEFAULT_ECHO_POOL
+    # Hard cap on how long a single statement may run on the server.
+    # 0 = no limit (default). The API service overrides this so a runaway
+    # analytics CTE cannot hold a backend for hours and starve the global
+    # Postgres connection pool. Consumer keeps it at 0 for batch jobs.
+    statement_timeout_ms: int = 0
+    # Kill connections stuck "idle in transaction" so they cannot block
+    # VACUUM or hold locks indefinitely. 0 = no limit (default).
+    idle_in_transaction_timeout_ms: int = 0
 
     def __post_init__(self):
         """Validate configuration."""

@@ -5,7 +5,7 @@ from pkg.logger.logger import Logger
 from pkg.spacy_yake.spacy_yake import SpacyYake
 from internal.keyword_extraction.type import Config, Input, Output, Metadata, Aspect
 from internal.keyword_extraction.constant import ASPECT_GENERAL
-from .helpers import match_dictionary, extract_ai, fuzzy_map_aspect
+from .helpers import match_dictionary, extract_ai, fuzzy_map_aspect, should_keep_ai_keyword
 
 
 def process(
@@ -24,7 +24,7 @@ def process(
 
         # Handle empty input
         if not text or not text.strip():
-            logger.info("internal.keyword_extraction.usecase.process: Empty text, returning empty result")
+            logger.debug("internal.keyword_extraction.usecase.process: Empty text, returning empty result")
             return Output(
                 keywords=[],
                 metadata=Metadata(
@@ -51,10 +51,14 @@ def process(
             )
 
             # Stage 3: Aspect Mapping for AI keywords
+            filtered_ai_keywords = []
             for kw in ai_keywords:
                 if kw.aspect == ASPECT_GENERAL:
                     mapped_aspect = fuzzy_map_aspect(kw.keyword, keyword_map)
                     kw.aspect = mapped_aspect.value
+                if should_keep_ai_keyword(kw.keyword, kw.aspect, dict_terms):
+                    filtered_ai_keywords.append(kw)
+            ai_keywords = filtered_ai_keywords
 
         # Combine results
         all_keywords = dict_keywords + ai_keywords
@@ -82,7 +86,7 @@ def process(
             total_time_ms=round(elapsed_ms, 2),
         )
 
-        logger.info("internal.keyword_extraction.usecase.process: Processing completed", extra={"dict_matches": metadata.dict_matches, "ai_matches": metadata.ai_matches, "total_keywords": metadata.total_keywords, "total_time_ms": metadata.total_time_ms})
+        logger.debug("internal.keyword_extraction.usecase.process: Processing completed", extra={"dict_matches": metadata.dict_matches, "ai_matches": metadata.ai_matches, "total_keywords": metadata.total_keywords, "total_time_ms": metadata.total_time_ms})
 
         return Output(keywords=final_keywords, metadata=metadata)
 

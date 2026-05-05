@@ -89,7 +89,7 @@ def process(
             raw_impact=raw_impact,
         )
 
-        logger.info(
+        logger.debug(
             "internal.impact_calculation.usecase.process: Processing completed",
             extra={
                 "impact_score": impact_score,

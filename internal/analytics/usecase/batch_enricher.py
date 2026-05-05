@@ -33,6 +33,8 @@ from internal.builder.interface import IResultBuilderUseCase
 from internal.builder.type import BuildInput
 from internal.pipeline.type import NLPFact
 from internal.post_insight.type import CreatePostInsightInput
+from internal.enrichment.type import EnrichmentBundle
+from internal.model.insight_message import EnrichmentSummary, NLPEntity
 from internal.post_insight.repository.postgre.helpers import _parse_datetime
 
 from ..type import Config, AnalyticsResult
@@ -143,7 +145,13 @@ class NLPBatchEnricher:
                 )
                 for kw in kws
             ]
-            sa_inputs.append(SAInput(text=full_text, keywords=keyword_inputs))
+            sa_inputs.append(
+                SAInput(
+                    text=full_text,
+                    keywords=keyword_inputs,
+                    intent=result.primary_intent,
+                )
+            )
             sa_indices.append(idx)
 
         # Call process_batch() — one ONNX call for all overall texts,
@@ -216,13 +224,19 @@ class NLPBatchEnricher:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def to_post_insight_input(fact: NLPFact) -> CreatePostInsightInput:
+    def to_post_insight_input(
+        fact: NLPFact,
+        enrichment_bundle: Optional[EnrichmentBundle] = None,
+    ) -> CreatePostInsightInput:
         """Convert an NLPFact to a CreatePostInsightInput for persistence."""
         r = fact.analytics_result
         if r is None:
             raise ValueError(
                 "NLPFact.analytics_result is None — cannot build post_insight input"
             )
+        enrichment_summary = _serialize_enrichment_summary(fact.insight_message.enrichment)
+        if enrichment_summary is None:
+            enrichment_summary = _build_enrichment_summary(fact, enrichment_bundle)
         return CreatePostInsightInput(
             project_id=r.project_id or "",
             source_id=r.source_id,
@@ -242,6 +256,7 @@ class NLPBatchEnricher:
             share_count=r.share_count,
             save_count=r.save_count,
             hashtags=r.hashtags or [],
+            enrichment_summary=enrichment_summary,
             overall_sentiment=r.overall_sentiment,
             overall_sentiment_score=r.overall_sentiment_score,
             overall_confidence=r.overall_confidence,
@@ -457,4 +472,128 @@ class NLPBatchEnricher:
             )
 
 
-__all__ = ["NLPBatchEnricher"]
+def enrich_nlp_facts_with_bundle(
+    facts: list[NLPFact],
+    enrichment_bundle: Optional[EnrichmentBundle],
+) -> list[NLPFact]:
+    """Attach a compact subset of enrichment output to each NLPFact."""
+    if not facts or enrichment_bundle is None:
+        return facts
+
+    entities_by_uap = _group_entities_by_uap_id(enrichment_bundle)
+    summaries_by_uap = _group_enrichment_summary_by_uap_id(enrichment_bundle)
+
+    for fact in facts:
+        source_uap_id = fact.uap_record.event_id if fact.uap_record else ""
+        if not source_uap_id:
+            continue
+
+        entities = entities_by_uap.get(source_uap_id, [])
+        if entities:
+            fact.insight_message.nlp.entities = entities
+
+        summary = summaries_by_uap.get(source_uap_id)
+        if summary is not None:
+            fact.insight_message.enrichment = summary
+
+    return facts
+
+
+def _group_entities_by_uap_id(bundle: EnrichmentBundle) -> dict[str, list[NLPEntity]]:
+    entities_by_uap: dict[str, list[NLPEntity]] = {}
+    for fact in bundle.entity_facts:
+        if not fact.source_uap_id or not fact.candidate_text:
+            continue
+        entities_by_uap.setdefault(fact.source_uap_id, []).append(
+            NLPEntity(
+                type=(fact.entity_type or "OTHER").upper(),
+                value=fact.candidate_text,
+                confidence=float(fact.confidence),
+            )
+        )
+    return entities_by_uap
+
+
+def _group_enrichment_summary_by_uap_id(
+    bundle: EnrichmentBundle,
+) -> dict[str, EnrichmentSummary]:
+    summaries: dict[str, EnrichmentSummary] = {}
+
+    for fact in bundle.entity_facts:
+        summary = summaries.setdefault(fact.source_uap_id, EnrichmentSummary())
+        summary.entity_count += 1
+
+    for fact in bundle.topic_facts:
+        summary = summaries.setdefault(fact.source_uap_id, EnrichmentSummary())
+        summary.topic_count += 1
+        label = fact.reporting_topic_label or fact.effective_topic_label or fact.topic_label
+        if label and label not in summary.topic_labels:
+            summary.topic_labels.append(label)
+
+    for fact in bundle.issue_signal_facts:
+        summary = summaries.setdefault(fact.source_uap_id, EnrichmentSummary())
+        summary.issue_count += 1
+        category = fact.issue_category
+        if category and category not in summary.issue_categories:
+            summary.issue_categories.append(category)
+
+    for fact in bundle.source_influence_facts:
+        summary = summaries.setdefault(fact.source_uap_id, EnrichmentSummary())
+        if not summary.source_influence_tier:
+            summary.source_influence_tier = fact.influence_tier
+
+    return summaries
+
+
+def _build_enrichment_summary(
+    fact: NLPFact,
+    enrichment_bundle: Optional[EnrichmentBundle],
+) -> Optional[dict[str, object]]:
+    if enrichment_bundle is None:
+        return None
+
+    source_uap_id = fact.uap_record.event_id if fact.uap_record else ""
+    if not source_uap_id:
+        return None
+
+    summary = _group_enrichment_summary_by_uap_id(enrichment_bundle).get(source_uap_id)
+    if summary is None:
+        return None
+
+    return {
+        "entity_count": summary.entity_count,
+        "topic_count": summary.topic_count,
+        "topic_labels": summary.topic_labels,
+        "issue_count": summary.issue_count,
+        "issue_categories": summary.issue_categories,
+        "source_influence_tier": summary.source_influence_tier,
+    }
+
+
+def _serialize_enrichment_summary(
+    summary: Optional[EnrichmentSummary],
+) -> Optional[dict[str, object]]:
+    if summary is None:
+        return None
+
+    if (
+        summary.entity_count == 0
+        and summary.topic_count == 0
+        and summary.issue_count == 0
+        and not summary.topic_labels
+        and not summary.issue_categories
+        and not summary.source_influence_tier
+    ):
+        return None
+
+    return {
+        "entity_count": summary.entity_count,
+        "topic_count": summary.topic_count,
+        "topic_labels": list(summary.topic_labels),
+        "issue_count": summary.issue_count,
+        "issue_categories": list(summary.issue_categories),
+        "source_influence_tier": summary.source_influence_tier,
+    }
+
+
+__all__ = ["NLPBatchEnricher", "enrich_nlp_facts_with_bundle"]

@@ -22,6 +22,7 @@ COPY --chown=analytics:analytics apps/ apps/
 COPY --chown=analytics:analytics config/ config/
 COPY --chown=analytics:analytics internal/ internal/
 COPY --chown=analytics:analytics pkg/ pkg/
+COPY --chown=analytics:analytics scripts/ scripts/
 
 USER analytics
 

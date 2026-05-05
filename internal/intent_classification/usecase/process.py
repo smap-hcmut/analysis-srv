@@ -20,7 +20,7 @@ def process(
         logger.debug("internal.intent_classification.usecase.process: Processing started", extra={"text_len": len(text)})
 
         if not text:
-            logger.info("internal.intent_classification.usecase.process: Empty text, defaulting to DISCUSSION")
+            logger.debug("internal.intent_classification.usecase.process: Empty text, defaulting to DISCUSSION")
             return Output(
                 intent=Intent.DISCUSSION,
                 confidence=CONFIDENCE_MAX,
@@ -40,7 +40,7 @@ def process(
                 matches[intent] = matched
 
         if not matches:
-            logger.info("internal.intent_classification.usecase.process: No patterns matched, defaulting to DISCUSSION")
+            logger.debug("internal.intent_classification.usecase.process: No patterns matched, defaulting to DISCUSSION")
             return Output(
                 intent=Intent.DISCUSSION,
                 confidence=CONFIDENCE_MAX,
@@ -58,7 +58,7 @@ def process(
 
         should_skip = best_intent in (Intent.SPAM, Intent.SEEDING)
 
-        logger.info("internal.intent_classification.usecase.process: Processing completed", extra={"intent": best_intent.name, "confidence": confidence, "should_skip": should_skip, "num_matches": num_matches})
+        logger.debug("internal.intent_classification.usecase.process: Processing completed", extra={"intent": best_intent.name, "confidence": confidence, "should_skip": should_skip, "num_matches": num_matches})
 
         return Output(
             intent=best_intent,

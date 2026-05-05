@@ -1,0 +1,122 @@
+[
+  {
+    "id": "ahamova-complaint-service-1",
+    "text": "Ahamova hỗ trợ quá chậm, gọi hotline cả ngày mà không ai trả lời.",
+    "expected": {
+      "intent": "COMPLAINT",
+      "sentiment": "NEGATIVE",
+      "keywords": ["hỗ trợ", "hotline", "trả lời"],
+      "aspects": ["SERVICE"]
+    }
+  },
+  {
+    "id": "ahamova-support-account-1",
+    "text": "Cho mình hỏi Ahamova đăng ký tài khoản như thế nào, có hướng dẫn không?",
+    "expected": {
+      "intent": "SUPPORT",
+      "sentiment": "NEUTRAL",
+      "keywords": ["đăng ký", "tài khoản", "hướng dẫn"],
+      "aspects": ["SERVICE"]
+    }
+  },
+  {
+    "id": "ahamova-lead-price-1",
+    "text": "Phí giao hàng Ahamova bao nhiêu, có ưu đãi cho khách mới không?",
+    "expected": {
+      "intent": "LEAD",
+      "sentiment": "NEUTRAL",
+      "keywords": ["phí", "ưu đãi"],
+      "aspects": ["PRICE"]
+    }
+  },
+  {
+    "id": "ahamova-complaint-app-1",
+    "text": "App Ahamova lỗi đăng nhập liên tục, mở lên là văng ra.",
+    "expected": {
+      "intent": "COMPLAINT",
+      "sentiment": "NEGATIVE",
+      "keywords": ["app", "lỗi", "đăng nhập", "văng ra"],
+      "aspects": ["PERFORMANCE"]
+    }
+  },
+  {
+    "id": "ahamova-discussion-service-1",
+    "text": "Ahamova xử lý đơn khá nhanh, shipper hỗ trợ nhiệt tình.",
+    "expected": {
+      "intent": "DISCUSSION",
+      "sentiment": "POSITIVE",
+      "keywords": ["xử lý", "shipper", "hỗ trợ", "nhiệt tình"],
+      "aspects": ["SERVICE"]
+    }
+  },
+  {
+    "id": "ahamova-crisis-1",
+    "text": "Mọi người cẩn thận, Ahamova lừa đảo hoàn tiền, né gấp.",
+    "expected": {
+      "intent": "CRISIS",
+      "sentiment": "NEGATIVE",
+      "keywords": ["hoàn tiền"],
+      "aspects": ["PRICE"]
+    }
+  },
+  {
+    "id": "ahamova-seeding-1",
+    "text": "Inbox mình để nhận mã giảm giá Ahamova, liên hệ 0909123456 nhé.",
+    "expected": {
+      "intent": "SEEDING",
+      "sentiment": "NEUTRAL",
+      "keywords": ["mã giảm giá"],
+      "aspects": ["PRICE"]
+    }
+  },
+  {
+    "id": "ahamova-spam-1",
+    "text": "Ahamova tuyển dụng cộng tác viên online tại nhà, thu nhập cao, ib ngay.",
+    "expected": {
+      "intent": "SPAM",
+      "sentiment": "NEUTRAL",
+      "keywords": [],
+      "aspects": []
+    }
+  },
+  {
+    "id": "ahamova-discussion-price-1",
+    "text": "Ưu đãi Ahamova tháng này khá ổn, phí cũng hợp lý.",
+    "expected": {
+      "intent": "DISCUSSION",
+      "sentiment": "POSITIVE",
+      "keywords": ["ưu đãi", "phí", "hợp lý"],
+      "aspects": ["PRICE"]
+    }
+  },
+  {
+    "id": "ahamova-support-refund-1",
+    "text": "Ahamova có hỗ trợ hoàn tiền không, liên hệ ở đâu vậy?",
+    "expected": {
+      "intent": "SUPPORT",
+      "sentiment": "NEUTRAL",
+      "keywords": ["hỗ trợ", "hoàn tiền", "liên hệ"],
+      "aspects": ["PRICE", "SERVICE"]
+    }
+  },
+  {
+    "id": "ahamova-complaint-service-2",
+    "text": "CSKH Ahamova thái độ tệ, phản hồi cực chậm luôn.",
+    "expected": {
+      "intent": "COMPLAINT",
+      "sentiment": "NEGATIVE",
+      "keywords": ["cskh", "thái độ", "phản hồi"],
+      "aspects": ["SERVICE"]
+    }
+  },
+  {
+    "id": "ahamova-lead-buy-1",
+    "text": "Ahamova có nên mua không, ai cho mình xin báo giá với?",
+    "expected": {
+      "intent": "LEAD",
+      "sentiment": "NEUTRAL",
+      "keywords": ["giá"],
+      "aspects": ["PRICE"]
+    }
+  }
+]

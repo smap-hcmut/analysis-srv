@@ -1,8 +1,11 @@
+import importlib
 import logging
+import subprocess
+import sys
 import warnings
-import numpy as np  # type: ignore
 from typing import Dict, List
-import spacy  # type: ignore
+
+import numpy as np  # type: ignore
 import yake  # type: ignore
 from .interface import ISpacyYake
 from .constant import *
@@ -36,27 +39,93 @@ class SpacyYake(ISpacyYake):
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.nlp = None
+        self.spacy_mode = "disabled"
+        self.spacy_status_reason = "SpaCy runtime probe not started."
 
-        # Initialize SpaCy
-        if spacy is None:
-            self.logger.error("Failed to import spaCy")
-            self.nlp = None
-            raise ImportError("spaCy is not installed")
+        # Initialize YAKE first so keyword extraction can still run even when
+        # SpaCy is unsafe on a specific node.
+        if yake is None:
+            self.logger.error("Failed to import YAKE")
+            self.yake_extractor = None
+            raise ImportError("yake is not installed")
+
+        yake_config = {
+            "lan": config.yake_language,
+            "n": config.yake_n,
+            "dedupLim": config.yake_dedup_lim,
+            "top": config.yake_max_keywords,
+            "features": None,
+        }
+        self.yake_extractor = yake.KeywordExtractor(**yake_config)
+        self.logger.info(f"Initialized YAKE with config: {yake_config}")
+
+        self._initialize_spacy()
+
+    def _probe_spacy_import(self) -> bool:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", "import spacy"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+        except Exception as e:
+            self.spacy_status_reason = f"Probe failed: {e}"
+            self.logger.info(
+                "SpaCy unavailable, using YAKE-only extraction",
+                extra={"reason": str(e)},
+            )
+            return False
+
+        if result.returncode != 0:
+            if result.returncode < 0:
+                exit_reason = f"signal {-result.returncode}"
+            else:
+                exit_reason = f"exit code {result.returncode}"
+
+            stderr = (result.stderr or "").strip()
+            stderr_suffix = f" ({stderr.splitlines()[-1]})" if stderr else ""
+            self.spacy_status_reason = f"Probe failed with {exit_reason}{stderr_suffix}"
+            self.logger.info(
+                "SpaCy unavailable, using YAKE-only extraction",
+                extra={"reason": self.spacy_status_reason},
+            )
+            return False
+
+        self.spacy_status_reason = "SpaCy import probe succeeded."
+        return True
+
+    def _initialize_spacy(self) -> None:
+        if not self._probe_spacy_import():
+            return
+
+        try:
+            spacy = importlib.import_module("spacy")
+        except Exception as e:
+            self.spacy_status_reason = f"SpaCy import failed after probe: {e}"
+            self.logger.info(
+                "SpaCy import failed after probe, using YAKE-only extraction",
+                extra={"reason": str(e)},
+            )
+            return
 
         # Smart model loading with graceful fallback
         # Priority order: user model -> multilingual -> blank Vietnamese
         model_loaded = False
 
         # Build fallback chain based on user preference
-        fallback_models = [config.spacy_model]
+        fallback_models = [self.config.spacy_model]
 
         # If user specified Vietnamese model, add fallbacks
-        if "vi_core" in config.spacy_model:
+        if "vi_core" in self.config.spacy_model:
             # Try smaller Vietnamese model if large fails
-            if "_lg" in config.spacy_model:
-                fallback_models.append(config.spacy_model.replace("_lg", "_sm"))
-            elif "_sm" in config.spacy_model:
-                fallback_models.append(config.spacy_model.replace("_sm", "_lg"))
+            if "_lg" in self.config.spacy_model:
+                fallback_models.append(self.config.spacy_model.replace("_lg", "_sm"))
+            elif "_sm" in self.config.spacy_model:
+                fallback_models.append(self.config.spacy_model.replace("_sm", "_lg"))
 
         # Always try multilingual model (official, stable)
         if SpacyModel.XX_ENT_WIKI_SM not in fallback_models:
@@ -74,44 +143,42 @@ class SpacyYake(ISpacyYake):
                     warnings.filterwarnings("ignore", category=UserWarning, module="spacy")
                     self.nlp = spacy.load(model_name)
                 self.logger.info(f"Loaded SpaCy model: {model_name}")
+                self.spacy_mode = "model"
+                self.spacy_status_reason = f"Loaded SpaCy model: {model_name}"
                 model_loaded = True
                 break
             except OSError:
                 continue
+            except Exception as e:
+                self.spacy_status_reason = f"SpaCy model load failed: {e}"
+                self.logger.info(
+                    "SpaCy model load failed, using YAKE-only extraction",
+                    extra={"reason": str(e)},
+                )
+                self.nlp = None
+                return
 
         # Final fallback: Blank Vietnamese model (tokenizer only)
         if not model_loaded:
             try:
-                self.logger.warning(
-                    f" No pre-trained model found. Using blank 'vi' model (tokenizer only).\n"
-                    f"Attempted models: {', '.join(fallback_models)}\n"
-                    f"To improve AI Discovery, install multilingual model:\n"
-                    f"  uv run python -m spacy download xx_ent_wiki_sm"
+                self.logger.info(
+                    "SpaCy model not found, using blank Vietnamese tokenizer",
+                    extra={"attempted_models": fallback_models},
                 )
                 self.nlp = spacy.blank(SpacyModel.BLANK_VI.value)
                 # Blank model needs sentencizer for sentence segmentation
                 if "sentencizer" not in self.nlp.pipe_names:
                     self.nlp.add_pipe("sentencizer")
                 self.logger.info("Using blank Vietnamese model with sentencizer")
+                self.spacy_mode = "blank"
+                self.spacy_status_reason = "Using blank Vietnamese SpaCy model."
             except Exception as e:
                 self.logger.error(f"Failed to create blank model: {e}")
                 self.nlp = None
+                self.spacy_status_reason = f"Failed to create blank SpaCy model: {e}"
 
-        # Initialize YAKE
-        if yake is None:
-            self.logger.error("Failed to import YAKE")
-            self.yake_extractor = None
-            raise ImportError("yake is not installed")
-
-        yake_config = {
-            "lan": config.yake_language,
-            "n": config.yake_n,
-            "dedupLim": config.yake_dedup_lim,
-            "top": config.yake_max_keywords,
-            "features": None,
-        }
-        self.yake_extractor = yake.KeywordExtractor(**yake_config)
-        self.logger.info(f"Initialized YAKE with config: {yake_config}")
+    def _method_name(self) -> str:
+        return "spacy_yake" if self.nlp else "yake_fallback"
 
     def _validate_text(self, text: str) -> bool:
         """Validate input text.
@@ -127,7 +194,7 @@ class SpacyYake(ISpacyYake):
         if not text or not text.strip():
             return False
         if len(text) > MAX_TEXT_LENGTH_WARNING:
-            self.logger.warning(
+            self.logger.info(
                 f"Text length {len(text)} exceeds recommended limit of {MAX_TEXT_LENGTH_WARNING}"
             )
         return True
@@ -345,25 +412,29 @@ class SpacyYake(ISpacyYake):
                 success=False,
                 error_message=ERROR_INVALID_INPUT,
                 metadata={"error": ERROR_INVALID_INPUT},
+                method_name=self._method_name(),
                 confidence_score=0.0,
             )
 
         # Check if models are loaded
         if not self.nlp or not self.yake_extractor:
-            return SpacyYakeOutput(
-                success=False,
-                error_message=ERROR_MODEL_NOT_INITIALIZED,
-                metadata={"error": ERROR_MODEL_NOT_INITIALIZED},
-                confidence_score=0.0,
-            )
+            if not self.yake_extractor:
+                return SpacyYakeOutput(
+                    success=False,
+                    error_message=ERROR_MODEL_NOT_INITIALIZED,
+                    metadata={"error": ERROR_MODEL_NOT_INITIALIZED},
+                    method_name=self._method_name(),
+                    confidence_score=0.0,
+                )
 
         try:
-            # Process with SpaCy for linguistic features
-            doc = self.nlp(text)
-
-            # Extract linguistic features
-            entities = self._extract_entities(doc)
-            noun_chunks = self._extract_noun_chunks(doc)
+            entities = []
+            noun_chunks = []
+            if self.nlp:
+                # Process with SpaCy for linguistic features when safe.
+                doc = self.nlp(text)
+                entities = self._extract_entities(doc)
+                noun_chunks = self._extract_noun_chunks(doc)
 
             # Extract statistical keywords with YAKE
             yake_keywords = self.yake_extractor.extract_keywords(text)
@@ -381,7 +452,10 @@ class SpacyYake(ISpacyYake):
 
             # Build metadata (kept as dict for flexibility, but could be strictly typed too)
             metadata = {
-                "method": "spacy_yake",
+                "method": self._method_name(),
+                "spacy_available": bool(self.nlp),
+                "spacy_mode": self.spacy_mode,
+                "spacy_status": self.spacy_status_reason,
                 "entities_count": len(entities),
                 "noun_chunks_count": len(noun_chunks),
                 "yake_keywords_count": len(yake_keywords),
@@ -392,6 +466,7 @@ class SpacyYake(ISpacyYake):
             return SpacyYakeOutput(
                 keywords=final_keywords,
                 metadata=metadata,
+                method_name=self._method_name(),
                 confidence_score=confidence,
                 success=True,
             )
@@ -402,6 +477,7 @@ class SpacyYake(ISpacyYake):
                 success=False,
                 error_message=str(e),
                 metadata={"error": str(e)},
+                method_name=self._method_name(),
                 confidence_score=0.0,
             )
 

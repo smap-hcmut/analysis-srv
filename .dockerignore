@@ -32,6 +32,10 @@ htmlcov
 # Documentation & scripts (not needed in image)
 documents/
 scripts/
+!scripts/evaluate_nlp_accuracy.py
+!scripts/fixtures/
+!scripts/fixtures/nlp_eval_sample.json
+!scripts/fixtures/nlp_eval_golden_ahamova.json
 migration/
 Makefile
 

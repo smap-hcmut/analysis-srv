@@ -14,10 +14,12 @@ from .helpers import (
     analyze_overall,
     analyze_overall_batch,
     analyze_aspects,
+    calibrate_overall_sentiment,
     convert_to_absa_format,
     extract_smart_window,
     aggregate_scores,
     group_keywords_by_aspect,
+    limit_keywords_per_aspect,
 )
 
 
@@ -52,7 +54,11 @@ def process(
             )
 
         # Analyze overall sentiment
-        overall_sentiment = analyze_overall(text, phobert_model, config, logger)
+        overall_sentiment = calibrate_overall_sentiment(
+            text=text,
+            result=analyze_overall(text, phobert_model, config, logger),
+            intent=input_data.intent,
+        )
 
         # Analyze aspect-based sentiment if keywords provided
         aspect_sentiments = {}
@@ -119,15 +125,32 @@ def process_batch(
     # --- Phase 1: batch overall sentiment (1 ONNX call) ---
     texts = [inp.text for inp in input_list]
     overall_results = analyze_overall_batch(texts, phobert_model, config, logger)
+    overall_results = [
+        calibrate_overall_sentiment(
+            text=inp.text,
+            result=overall,
+            intent=inp.intent,
+        )
+        for inp, overall in zip(input_list, overall_results)
+    ]
 
     # --- Phase 2: collect ALL keyword context windows across all inputs ---
     # Each entry: (orig_input_idx, aspect, keyword_str, context_text)
     all_context_meta: List[Tuple[int, str, str, str]] = []
+    keywords_by_input: Dict[int, Dict[str, List[KeywordInput]]] = {}
     for i, inp in enumerate(input_list):
         if not inp.text or not inp.text.strip() or not inp.keywords:
             continue
         valid_kws = [kw for kw in inp.keywords if kw.keyword and kw.keyword.strip()]
-        for kw in valid_kws:
+        if not valid_kws:
+            continue
+
+        keywords_by_input[i] = group_keywords_by_aspect(valid_kws)
+        selected_kws = limit_keywords_per_aspect(
+            valid_kws, config.max_keywords_per_aspect
+        )
+
+        for kw in selected_kws:
             context = extract_smart_window(
                 text=inp.text,
                 keyword=kw.keyword,
@@ -172,24 +195,28 @@ def process_batch(
     outputs: List[Output] = []
     for i, (inp, overall) in enumerate(zip(input_list, overall_results)):
         aspect_sentiments = {}
+        all_keywords_by_aspect = keywords_by_input.get(i, {})
 
         # Aggregate scores for aspects that had valid context windows
         for aspect, kw_scores in aspect_score_map.get(i, {}).items():
-            aspect_sentiments[aspect] = aggregate_scores(kw_scores, config)
+            aspect_sentiment = aggregate_scores(kw_scores, config)
+            all_aspect_keywords = all_keywords_by_aspect.get(aspect, [])
+            if all_aspect_keywords:
+                aspect_sentiment.mentions = len(all_aspect_keywords)
+                aspect_sentiment.keywords = [kw.keyword for kw in all_aspect_keywords]
+            aspect_sentiments[aspect] = aspect_sentiment
 
         # Aspects whose every keyword failed context extraction → emit neutral
-        if inp.keywords:
-            valid_kws = [kw for kw in inp.keywords if kw.keyword and kw.keyword.strip()]
-            for aspect, kws in group_keywords_by_aspect(valid_kws).items():
-                if aspect not in aspect_sentiments:
-                    aspect_sentiments[aspect] = AspectSentiment(
-                        label=LABEL_NEUTRAL,
-                        score=0.0,
-                        confidence=0.0,
-                        mentions=len(kws),
-                        keywords=[kw.keyword for kw in kws],
-                        rating=DEFAULT_RATING,
-                    )
+        for aspect, kws in all_keywords_by_aspect.items():
+            if aspect not in aspect_sentiments:
+                aspect_sentiments[aspect] = AspectSentiment(
+                    label=LABEL_NEUTRAL,
+                    score=0.0,
+                    confidence=0.0,
+                    mentions=len(kws),
+                    keywords=[kw.keyword for kw in kws],
+                    rating=DEFAULT_RATING,
+                )
 
         outputs.append(Output(overall=overall, aspects=aspect_sentiments))
 

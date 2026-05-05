@@ -371,6 +371,7 @@ def run_pipeline(
         nlp_facts=facts.nlp_facts,
         nlp_input_records=facts.nlp_input_records,
         filtered_out_unsupported_language=facts.filtered_out_unsupported_language,
+        enrichment_bundle=facts.enrichment_bundle,
         insight_cards=facts.insight_cards,
         bi_bundle=facts.bi_bundle,
         crisis_assessment=facts.crisis_assessment,

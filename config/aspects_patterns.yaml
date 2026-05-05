@@ -48,6 +48,8 @@ PERFORMANCE:
     - "giảm xóc"
     - "hộp số"
     - "vận hành"
+    - "ứng dụng"
+    - "app"
   secondary:
     # Removed standalone generic adjectives (yếu, mạnh, nhanh, chậm, khỏe)
     # Keep only specific technical terms and compound phrases
@@ -62,6 +64,11 @@ PERFORMANCE:
     - "sạc chậm"
     - "động cơ khỏe"
     - "động cơ yếu"
+    - "lỗi đăng nhập"
+    - "không vào được"
+    - "văng ra"
+    - "treo app"
+    - "đơ"
 
 PRICE:
   primary:
@@ -75,8 +82,13 @@ PRICE:
     - "trả góp"
     - "khuyến mãi"
     - "khuyến mại"
+    - "ưu đãi"
+    - "mã giảm giá"
+    - "voucher"
     - "giảm giá"
     - "phí"
+    - "cước"
+    - "hoàn tiền"
     - "bảo hiểm"
     - "lệ phí"
   secondary:
@@ -99,6 +111,8 @@ SERVICE:
   primary:
     - "bảo hành"
     - "nhân viên"
+    - "cskh"
+    - "shipper"
     - "showroom"
     - "cứu hộ"
     - "xưởng"
@@ -112,6 +126,12 @@ SERVICE:
     - "hotline"
     - "tổng đài"
     - "chăm sóc"
+    - "phản hồi"
+    - "xử lý"
+    - "tài khoản"
+    - "đăng ký"
+    - "liên hệ"
+    - "hướng dẫn"
   secondary:
     # Removed standalone generic adjectives (tốt, kém, nhanh, chậm)
     # Keep only service-specific contextual terms
@@ -127,3 +147,12 @@ SERVICE:
     - "phục vụ tệ"
     - "thái độ tốt"
     - "thái độ tệ"
+    - "thái độ kém"
+    - "trả lời"
+    - "không phản hồi"
+    - "phản hồi chậm"
+    - "chậm phản hồi"
+    - "không bắt máy"
+    - "không trả lời"
+    - "xử lý nhanh"
+    - "xử lý chậm"
