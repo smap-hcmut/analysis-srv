@@ -299,7 +299,11 @@ def test_pipeline_reporting_stage():
     records = [
         UAPRecord(
             ingest=UAPIngest(project_id=PROJECT_ID),
-            content=UAPContent(doc_id=f"doc{i}", text=f"sample text {i}"),
+            content=UAPContent(
+                doc_id=f"doc{i}",
+                text=f"mention text sample {i} with meaningful details",
+                language="en",
+            ),
         )
         for i in range(10)
     ]

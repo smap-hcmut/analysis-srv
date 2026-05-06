@@ -1,0 +1,28 @@
+domain_code: "ahamove"
+display_name: "Ahamove Logistics"
+
+# Shared logistics ontology with Ahamove-specific runtime anchors.
+ontology:
+  path: "config/ontology/logistics_vn.yaml"
+  overlays: []
+
+runtime:
+  brand_names:
+    - "Ahamove"
+    - "AhaMove"
+    - "Aha move"
+    - "Ahamove giao hàng"
+    - "đặt ship Ahamove"
+    - "Ahamove Delivery"
+  topic_seeds:
+    - "giao hàng"
+    - "ship nội thành"
+    - "tài xế giao hàng"
+    - "phí giao hàng"
+    - "thời gian giao"
+    - "chuyển đồ"
+    - "giao hỏa tốc"
+  stop_entities: []
+
+contract:
+  domain_overlay: "domain-ahamove-vn"

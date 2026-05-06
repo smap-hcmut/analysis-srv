@@ -1,0 +1,28 @@
+domain_code: "grab"
+display_name: "Grab On-Demand Logistics"
+
+# Shared logistics ontology with Grab-specific runtime anchors.
+ontology:
+  path: "config/ontology/logistics_vn.yaml"
+  overlays: []
+
+runtime:
+  brand_names:
+    - "Grab"
+    - "GrabBike"
+    - "GrabCar"
+    - "GrabFood"
+    - "GrabExpress"
+    - "GrabMart"
+  topic_seeds:
+    - "đặt xe"
+    - "đón trả khách"
+    - "phí cuốc"
+    - "mã giảm giá"
+    - "giao đồ ăn"
+    - "giao hàng grab"
+    - "ship grab"
+  stop_entities: []
+
+contract:
+  domain_overlay: "domain-grab-vn"

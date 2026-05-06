@@ -20,7 +20,6 @@ import pytest
 
 from internal.domain.loader import DomainLoader
 from internal.domain.type import (
-    DomainOntologyFilesConfig,
     DomainRegistry,
     DomainRuntimeConfig,
 )
@@ -38,6 +37,8 @@ def make_cfg(
     brand_names: list[str] | None = None,
     topic_seeds: list[str] | None = None,
     stop_entities: list[str] | None = None,
+    ontology_path: str = "config/ontology/vinfast_vn.yaml",
+    overlay_paths: list[str] | None = None,
 ) -> DomainRuntimeConfig:
     return DomainRuntimeConfig(
         domain_code=domain_code,
@@ -46,6 +47,8 @@ def make_cfg(
         brand_names=brand_names or [],
         topic_seeds=topic_seeds or [],
         stop_entities=stop_entities or [],
+        ontology_path=ontology_path,
+        overlay_paths=overlay_paths or [],
     )
 
 
@@ -130,24 +133,19 @@ class TestDomainRuntimeConfigHelpers:
         ontology.brand_names.append("INTRUDER")
         assert cfg.brand_names == ["VinFast"]
 
-    def test_to_ontology_files_config_default_paths(self):
+    def test_ontology_path_defaults_to_vinfast(self):
         cfg = make_cfg()
-        files = cfg.to_ontology_files_config()
-        assert files.entities_path == "config/ontology/entities.yaml"
-        assert files.taxonomy_path == "config/ontology/taxonomy.yaml"
-        assert files.source_channels_path == "config/ontology/source_channels.yaml"
+        assert cfg.ontology_path == "config/ontology/vinfast_vn.yaml"
+        assert cfg.overlay_paths == []
 
-    def test_to_ontology_files_config_custom_paths(self):
+    def test_custom_ontology_path_and_overlays(self):
         cfg = DomainRuntimeConfig(
             domain_code="custom",
-            ontology_files=DomainOntologyFilesConfig(
-                entities_path="custom/ent.yaml",
-                taxonomy_path="custom/tax.yaml",
-                source_channels_path="custom/ch.yaml",
-            ),
+            ontology_path="custom/domain.yaml",
+            overlay_paths=["custom/overlay.yaml"],
         )
-        files = cfg.to_ontology_files_config()
-        assert files.entities_path == "custom/ent.yaml"
+        assert cfg.ontology_path == "custom/domain.yaml"
+        assert cfg.overlay_paths == ["custom/overlay.yaml"]
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +158,9 @@ class TestDomainLoaderParse:
         data = {
             "domain_code": "vinfast",
             "display_name": "VinFast Automotive",
-            "ontology_files": {
-                "entities_path": "config/ontology/entities.yaml",
-                "taxonomy_path": "config/ontology/taxonomy.yaml",
-                "source_channels_path": "config/ontology/source_channels.yaml",
+            "ontology": {
+                "path": "config/ontology/logistics_vn.yaml",
+                "overlays": ["config/ontology/overlay.yaml"],
             },
             "runtime": {
                 "brand_names": ["VinFast", "VF8", "VF9"],
@@ -181,6 +178,8 @@ class TestDomainLoaderParse:
         assert cfg.brand_names == ["VinFast", "VF8", "VF9"]
         assert cfg.topic_seeds == ["xe điện", "ô tô điện"]
         assert cfg.stop_entities == ["xe máy"]
+        assert cfg.ontology_path == "config/ontology/logistics_vn.yaml"
+        assert cfg.overlay_paths == ["config/ontology/overlay.yaml"]
 
     def test_minimal_dict_only_domain_code(self):
         cfg = DomainLoader._parse({"domain_code": "minimal"})
@@ -193,12 +192,8 @@ class TestDomainLoaderParse:
 
     def test_default_ontology_paths_when_absent(self):
         cfg = DomainLoader._parse({"domain_code": "x"})
-        assert cfg.ontology_files.entities_path == "config/ontology/entities.yaml"
-        assert cfg.ontology_files.taxonomy_path == "config/ontology/taxonomy.yaml"
-        assert (
-            cfg.ontology_files.source_channels_path
-            == "config/ontology/source_channels.yaml"
-        )
+        assert cfg.ontology_path == "config/ontology/vinfast_vn.yaml"
+        assert cfg.overlay_paths == []
 
     def test_missing_domain_code_raises_value_error(self):
         with pytest.raises(ValueError, match="domain_code"):

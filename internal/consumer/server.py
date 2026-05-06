@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import json
 import os
 import uuid
@@ -13,6 +14,9 @@ from internal.runtime.type import RunContext
 from internal.analytics.usecase.batch_enricher import NLPBatchEnricher
 from internal.analytics.usecase.batch_enricher import enrich_nlp_facts_with_bundle
 from pkg.logger.logger import set_trace_id, set_project_id, clear_project_id
+from internal.http.project_client import build_project_service_client
+from internal.enrichment.type import EnricherConfig
+from internal.enrichment.usecase.usecase import EnrichmentUseCase
 
 # UAP version header field (replaces internal.analytics.delivery.constant import)
 FIELD_UAP_VERSION = "uap_version"
@@ -47,6 +51,13 @@ class ConsumerServer(IConsumerServer):
         self.contract_publisher = None
         self.post_insight_usecase = None
 
+        self.project_service_client = None
+        self._crisis_runtime_apply_enabled = self._env_enabled(
+            os.getenv("ANALYTICS_ENABLE_CRISIS_RUNTIME_APPLY", "false")
+        )
+        self._last_crisis_runtime_status: dict[str, str] = {}
+        self._domain_pipeline_config_cache: dict[str, object] = {}
+
     async def start(self) -> None:
         try:
             from .registry import ConsumerRegistry
@@ -63,6 +74,23 @@ class ConsumerServer(IConsumerServer):
             self.ingestion_usecase = self.registry.ingestion_usecase
             self.contract_publisher = self.registry.contract_publisher
             self.post_insight_usecase = self.registry.post_insight_usecase
+
+            if self._crisis_runtime_apply_enabled:
+                try:
+                    self.project_service_client = build_project_service_client()
+                    self.logger.info(
+                        "Crisis runtime auto-apply enabled",
+                        extra={
+                            "feature": "crisis_runtime_apply",
+                            "mode": "project_service_internal_api",
+                        },
+                    )
+                except Exception as exc:
+                    self.logger.error(
+                        "Failed to initialize crisis runtime client; feature disabled",
+                        extra={"error": str(exc)},
+                    )
+                    self._crisis_runtime_apply_enabled = False
 
             # Get Kafka consumer config from dependencies
             kafka_consumer_config = self.deps.kafka_consumer_config
@@ -241,6 +269,9 @@ class ConsumerServer(IConsumerServer):
         for (project_id, domain_type_code), uap_records in groups.items():
             try:
                 domain_config = self.registry.domain_registry.lookup(domain_type_code)
+                pipeline_config = self._resolve_pipeline_config_for_domain(
+                    domain_config.domain_code
+                )
 
                 for uap_record in uap_records:
                     uap_record.raw["_resolved_domain_overlay"] = (
@@ -275,7 +306,7 @@ class ConsumerServer(IConsumerServer):
                     self.pipeline_usecase.run,
                     bundle,
                     ctx,
-                    self.pipeline_config,
+                    pipeline_config,
                 )
 
                 self.logger.debug(
@@ -286,6 +317,8 @@ class ConsumerServer(IConsumerServer):
                     f"filtered_unsupported_language={result.filtered_out_unsupported_language}, "
                     f"timings={result.stage_timings}"
                 )
+
+                await self._maybe_apply_crisis_runtime(result)
 
                 if result.nlp_facts:
                     enrich_nlp_facts_with_bundle(
@@ -401,6 +434,9 @@ class ConsumerServer(IConsumerServer):
             if self.registry:
                 self.registry.shutdown()
 
+            if self.project_service_client is not None:
+                await self.project_service_client.close()
+
             self.logger.info("Kafka consumer server shutdown complete")
 
         except Exception as e:
@@ -409,6 +445,119 @@ class ConsumerServer(IConsumerServer):
 
     def is_running(self) -> bool:
         return self._running
+
+    @staticmethod
+    def _env_enabled(value: str) -> bool:
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _map_crisis_level_to_status(level: str) -> str:
+        normalized = level.strip().lower()
+        if normalized == "critical":
+            return "CRITICAL"
+        if normalized == "warning":
+            return "WARNING"
+        return "NORMAL"
+
+    async def _maybe_apply_crisis_runtime(self, result) -> None:
+        if not self._crisis_runtime_apply_enabled:
+            return
+        if self.project_service_client is None:
+            return
+
+        assessment = getattr(result, "crisis_assessment", None)
+        if assessment is None:
+            return
+
+        project_id = str(getattr(assessment, "project_id", "")).strip()
+        if not project_id:
+            return
+
+        crisis_level = str(getattr(assessment, "crisis_level", "none"))
+        target_status = self._map_crisis_level_to_status(crisis_level)
+        last_status = self._last_crisis_runtime_status.get(project_id)
+
+        # Avoid noisy no-op calls on initial NORMAL state when no prior runtime
+        # transition has been applied for this project.
+        if last_status is None and target_status == "NORMAL":
+            return
+
+        if last_status == target_status:
+            return
+
+        run_id = str(getattr(assessment, "run_id", ""))
+        score = float(getattr(assessment, "composite_crisis_score", 0.0) or 0.0)
+        reason = (
+            f"analysis auto-apply: level={crisis_level.lower()} score={score:.2f}"
+        )
+        event_ref = f"analysis-run:{run_id}" if run_id else ""
+
+        try:
+            output = await self.project_service_client.apply_crisis_runtime(
+                project_id,
+                status=target_status,
+                reason=reason,
+                event_ref=event_ref,
+            )
+            self._last_crisis_runtime_status[project_id] = target_status
+            self.logger.info(
+                "Crisis runtime applied",
+                extra={
+                    "project_id": output.project_id,
+                    "crisis_status": output.crisis_status,
+                    "applied_crawl_mode": output.applied_crawl_mode,
+                    "affected_datasources": output.affected_datasource_count,
+                },
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Crisis runtime apply failed",
+                extra={
+                    "project_id": project_id,
+                    "target_status": target_status,
+                    "error": str(exc),
+                },
+            )
+
+    def _resolve_pipeline_config_for_domain(self, domain_code: str):
+        if self.pipeline_config is None or self.registry is None:
+            return self.pipeline_config
+
+        resolved_code = (domain_code or "").strip() or "_default"
+        cached = self._domain_pipeline_config_cache.get(resolved_code)
+        if cached is not None:
+            return cached
+
+        try:
+            domain_cfg = self.registry.domain_registry.lookup(resolved_code)
+            ontology_registry = domain_cfg.load_ontology_registry()
+
+            enrichment_cfg = EnricherConfig(
+                entity_enabled=self.deps.config.enrichment.entity_enabled,
+                semantic_enabled=self.deps.config.enrichment.semantic_enabled,
+                topic_enabled=self.deps.config.enrichment.topic_enabled,
+                source_influence_enabled=self.deps.config.enrichment.source_influence_enabled,
+                semantic_full_enabled=self.deps.config.enrichment.semantic_full_enabled,
+            )
+            enrichment_uc = EnrichmentUseCase(
+                config=enrichment_cfg,
+                ontology_registry=ontology_registry,
+            )
+
+            services = dataclasses.replace(
+                self.pipeline_config.services,
+                ontology_registry=ontology_registry,
+                enrichment=enrichment_uc,
+            )
+            cfg = dataclasses.replace(self.pipeline_config, services=services)
+            self._domain_pipeline_config_cache[resolved_code] = cfg
+            return cfg
+        except Exception as exc:
+            self.logger.error(
+                "Failed to resolve domain pipeline config, fallback to default",
+                extra={"domain_code": resolved_code, "error": str(exc)},
+            )
+            return self.pipeline_config
 
 
 __all__ = ["ConsumerServer"]

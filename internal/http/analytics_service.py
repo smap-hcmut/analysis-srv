@@ -702,46 +702,44 @@ ORDER BY project_id, volume DESC
             result = await session.execute(text(query), params or {})
             return [dict(row._mapping) for row in result.fetchall()]
 
+    def _source_identity_expr(self, alias: str) -> str:
+        """Canonical source identity expression used for dedup and grouping.
+
+        Order matters: prefer explicit source identifiers, then stable UAP IDs,
+        then URL, finally row UUID as last-resort fallback.
+        """
+        return (
+            "COALESCE("
+            f"NULLIF({alias}.source_id, ''), "
+            f"NULLIF({alias}.uap_metadata->>'post_id', ''), "
+            f"NULLIF({alias}.uap_metadata->>'comment_id', ''), "
+            f"NULLIF({alias}.uap_metadata->>'video_id', ''), "
+            f"NULLIF({alias}.uap_metadata->>'url', ''), "
+            f"{alias}.id::text"
+            ")"
+        )
+
     def _base_cte(self, project_ids: list[str]) -> str:
         quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
+        identity_expr = self._source_identity_expr("pi")
         return f"""
 WITH latest_post_insight AS (
-  SELECT *
-  FROM (
-    SELECT
-      pi.*,
-      ROW_NUMBER() OVER (
-        PARTITION BY
-          COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
-          COALESCE(
-            NULLIF(pi.source_id, ''),
-            NULLIF(pi.uap_metadata->>'post_id', ''),
-            NULLIF(pi.uap_metadata->>'comment_id', ''),
-            NULLIF(pi.uap_metadata->>'video_id', ''),
-            NULLIF(pi.uap_metadata->>'url', ''),
-            MD5(CONCAT_WS('|', COALESCE(NULLIF(LOWER(pi.uap_metadata->>'author_username'), ''), 'unknown'), COALESCE(NULLIF(pi.content, ''), '__empty__')))
-          )
-        ORDER BY COALESCE(pi.updated_at, pi.analyzed_at, pi.ingested_at, pi.created_at) DESC NULLS LAST, pi.created_at DESC NULLS LAST, pi.id DESC
-      ) AS snapshot_rank
-    FROM analysis.post_insight pi
-    WHERE project_id IN ({quoted_ids})
-  ) ranked
-  WHERE snapshot_rank = 1
+  SELECT DISTINCT ON (
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr}
+  )
+    pi.*
+  FROM analysis.post_insight pi
+  WHERE project_id IN ({quoted_ids})
+  ORDER BY
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr},
+    COALESCE(pi.updated_at, pi.analyzed_at, pi.ingested_at, pi.created_at) DESC NULLS LAST,
+    pi.created_at DESC NULLS LAST,
+    pi.id DESC
 ), deduped_post_insight AS (
   SELECT *
-  FROM (
-    SELECT
-      lpi.*,
-      ROW_NUMBER() OVER (
-        PARTITION BY
-          COALESCE(NULLIF(UPPER(lpi.platform), ''), 'UNKNOWN'),
-          COALESCE(NULLIF(LOWER(lpi.uap_metadata->>'author_username'), ''), NULLIF(LOWER(lpi.uap_metadata->>'author_display_name'), ''), 'unknown'),
-          COALESCE(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lpi.content, ''), '\\s+', ' ', 'g')), ''), NULLIF(lpi.source_id, ''), NULLIF(lpi.uap_metadata->>'post_id', ''), NULLIF(lpi.uap_metadata->>'comment_id', ''), NULLIF(lpi.uap_metadata->>'video_id', ''), NULLIF(lpi.uap_metadata->>'url', ''), lpi.id::text)
-        ORDER BY COALESCE(lpi.updated_at, lpi.analyzed_at, lpi.ingested_at, lpi.created_at) DESC NULLS LAST, lpi.created_at DESC NULLS LAST, lpi.id DESC
-      ) AS display_rank
-    FROM latest_post_insight lpi
-  ) ranked
-  WHERE display_rank = 1
+  FROM latest_post_insight
 )
 """
 

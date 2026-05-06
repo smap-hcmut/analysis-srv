@@ -67,3 +67,23 @@ impact:
     viral: 70.0
     kol_followers: 50000
     max_raw_score: 100000.0
+
+pipeline:
+  enable_normalization: true
+  enable_dedup: true
+  enable_spam: true
+  enable_threads: true
+  enable_nlp: true
+  enable_enrichment: true
+  enable_review: false
+  enable_reporting: true
+  enable_crisis: true
+
+domain_registry:
+  domains_dir: "config/domains"
+  fallback_domain: "_default"
+
+# Crisis runtime auto-apply (consumer -> project-srv internal API) is env-driven:
+#   ANALYTICS_ENABLE_CRISIS_RUNTIME_APPLY=true
+#   ANALYTICS_PROJECT_SERVICE_URL=http://project-srv.smap.svc.cluster.local
+#   INTERNAL_KEY=<shared internal key>

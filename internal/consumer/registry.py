@@ -47,6 +47,8 @@ from internal.pipeline.usecase.new import New as NewPipeline
 from internal.ontology.usecase.file_registry import FileOntologyRegistry
 from internal.enrichment.usecase.usecase import EnrichmentUseCase
 from internal.enrichment.type import EnricherConfig
+from internal.reporting.usecase.new import new_reporting_usecase
+from internal.crisis.usecase.new import new_crisis_usecase
 
 
 @dataclass
@@ -269,6 +271,8 @@ class ConsumerRegistry:
                 nlp_enricher=nlp_batch_enricher,
                 ontology_registry=ontology_registry,
                 enrichment=enrichment_uc,
+                reporting=new_reporting_usecase(),
+                crisis=new_crisis_usecase(),
             )
             pipeline_config = PipelineConfig(
                 enable_normalization=self.config.pipeline.enable_normalization,

@@ -24,6 +24,14 @@ class CachedValue:
     expires_at: float
 
 
+@dataclass
+class CrisisRuntimeApplyResult:
+    project_id: str
+    crisis_status: str
+    applied_crawl_mode: str
+    affected_datasource_count: int
+
+
 class ProjectServiceClient:
     def __init__(self, base_url: str, internal_key: str, timeout_seconds: float = 10.0):
         self.base_url = base_url.rstrip("/")
@@ -129,6 +137,53 @@ class ProjectServiceClient:
         if isinstance(project, dict) and project.get("name"):
             return str(project["name"])
         return project_id
+
+    async def apply_crisis_runtime(
+        self,
+        project_id: str,
+        *,
+        status: str,
+        reason: str = "",
+        event_ref: str = "",
+    ) -> CrisisRuntimeApplyResult:
+        if not project_id:
+            raise BadRequestError("project_id is required")
+        if not status:
+            raise BadRequestError("status is required")
+
+        normalized_status = str(status).strip().upper()
+        if normalized_status not in {"NORMAL", "WARNING", "CRITICAL"}:
+            raise BadRequestError(f"invalid crisis status: {status}")
+
+        url = f"{self.base_url}/api/v1/internal/projects/{project_id}/crisis-config/apply-runtime"
+        headers = {
+            "X-Internal-Key": self.internal_key,
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "status": normalized_status,
+            "reason": reason,
+            "event_ref": event_ref,
+        }
+
+        try:
+            response = await self._client.post(url, headers=headers, json=payload)
+        except httpx.HTTPError as exc:
+            raise UpstreamError(f"project runtime apply unavailable: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise UpstreamError(
+                f"project runtime apply failed ({response.status_code}): {response.text}"
+            )
+
+        payload_data = response.json() if response.content else {}
+        data = payload_data.get("data") if isinstance(payload_data, dict) else {}
+        return CrisisRuntimeApplyResult(
+            project_id=str(data.get("project_id") or project_id),
+            crisis_status=str(data.get("crisis_status") or normalized_status),
+            applied_crawl_mode=str(data.get("applied_crawl_mode") or ""),
+            affected_datasource_count=int(data.get("affected_datasource_count") or 0),
+        )
 
     async def close(self) -> None:
         await self._client.aclose()

@@ -1,0 +1,712 @@
+# ==============================================================================
+# Vietnam On-Demand Logistics — Shared domain ontology
+#
+# Schema: matches internal.ontology.type.OntologyRegistry.
+# Shared by logistics-first brands such as Ahamove and Grab delivery surfaces.
+# ==============================================================================
+
+metadata:
+  name: smap-logistics-vn
+  version: "2026.05.05-logistics-v1"
+  description: >
+    Vietnam on-demand logistics ontology for social listening across courier,
+    food delivery, and last-mile fulfillment conversations.
+
+domain_id: logistics_vn
+
+activation:
+  primary_min_score: 2.5
+  primary_min_matched_records: 2
+  signals:
+    - phrase: giao hang
+      weight: 2.0
+    - phrase: ship hang
+      weight: 2.0
+    - phrase: tai xe
+      weight: 1.5
+    - phrase: tai xe cong nghe
+      weight: 1.5
+    - phrase: don hang
+      weight: 1.5
+    - phrase: giao do an
+      weight: 1.5
+    - phrase: grabexpress
+      weight: 2.5
+    - phrase: grabfood
+      weight: 2.0
+    - phrase: ahamove
+      weight: 2.5
+    - phrase: phi giao hang
+      weight: 1.5
+
+entity_types:
+  - brand
+  - product
+  - person
+  - organization
+  - location
+  - facility
+  - retailer
+  - concept
+
+taxonomy_nodes:
+  - id: category.logistics
+    label: Logistics
+    node_type: category
+  - id: category.last_mile
+    label: Last Mile Delivery
+    node_type: category
+    parent_id: category.logistics
+  - id: category.food_delivery
+    label: Food Delivery
+    node_type: category
+    parent_id: category.logistics
+  - id: category.ride_delivery
+    label: Ride and Delivery Platform
+    node_type: category
+    parent_id: category.logistics
+  - id: category.merchant_operations
+    label: Merchant Operations
+    node_type: category
+    parent_id: category.logistics
+  - id: category.courier_network
+    label: Courier Network
+    node_type: category
+    parent_id: category.logistics
+  - id: category.customer_support
+    label: Customer Support
+    node_type: category
+    parent_id: category.logistics
+
+  - id: feature.delivery_speed
+    label: Delivery Speed
+    node_type: feature
+  - id: feature.delivery_fee
+    label: Delivery Fee
+    node_type: feature
+  - id: feature.driver_attitude
+    label: Driver Attitude
+    node_type: feature
+  - id: feature.driver_availability
+    label: Driver Availability
+    node_type: feature
+  - id: feature.package_safety
+    label: Package Safety
+    node_type: feature
+  - id: feature.order_accuracy
+    label: Order Accuracy
+    node_type: feature
+  - id: feature.app_experience
+    label: App Experience
+    node_type: feature
+  - id: feature.payment
+    label: Payment
+    node_type: feature
+  - id: feature.support_resolution
+    label: Support Resolution
+    node_type: feature
+  - id: feature.promo_value
+    label: Promotion Value
+    node_type: feature
+  - id: feature.coverage
+    label: Coverage
+    node_type: feature
+  - id: feature.trust_safety
+    label: Trust and Safety
+    node_type: feature
+
+aspect_categories:
+  - id: delivery_speed
+    label: Delivery Speed
+    description: Conversation about shipment speed, ETA, delays, and handoff time.
+    seed_phrases:
+      - giao nhanh
+      - giao cham
+      - tre don
+      - tre giao
+      - eta
+      - giao dung gio
+      - pickup time
+      - dropoff time
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [delivery_operations, courier_capacity]
+    related_issue_ids: [late_delivery, driver_shortage]
+
+  - id: delivery_fee
+    label: Delivery Fee
+    description: Conversation about shipping fee, surge fee, and total delivery cost.
+    seed_phrases:
+      - phi giao hang
+      - ship fee
+      - cuoc phi
+      - phi cao
+      - surcharge
+      - gia ship
+      - phi ung dung
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [pricing_and_promotions]
+    related_issue_ids: [high_fee, hidden_fee]
+
+  - id: driver_quality
+    label: Driver Quality
+    description: Conversation about driver attitude, professionalism, and execution quality.
+    seed_phrases:
+      - tai xe than thien
+      - tai xe kho chiu
+      - shipper de thuong
+      - shipper vo y thuc
+      - tai xe huy don
+      - phuc vu kem
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [courier_capacity, support_and_recovery]
+    related_issue_ids: [driver_attitude_problem, driver_shortage]
+
+  - id: package_safety
+    label: Package Safety
+    description: Conversation about intact orders, spills, damage, and delivery care.
+    seed_phrases:
+      - vo hang
+      - be don
+      - do an do
+      - that lac
+      - hu hang
+      - nguyen ven
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [delivery_operations, trust_and_safety]
+    related_issue_ids: [damaged_order, lost_order, safety_concern]
+
+  - id: order_accuracy
+    label: Order Accuracy
+    description: Conversation about missing items, wrong orders, and merchant fulfillment quality.
+    seed_phrases:
+      - giao sai
+      - thieu mon
+      - sai mon
+      - giao nham
+      - thieu hang
+      - dung don
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [merchant_and_order_quality]
+    related_issue_ids: [wrong_item, missing_item]
+
+  - id: app_experience
+    label: App Experience
+    description: Conversation about app stability, booking flow, and usability.
+    seed_phrases:
+      - app loi
+      - lag app
+      - khong dat duoc don
+      - crash app
+      - treo app
+      - kho dung
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [app_and_payment]
+    related_issue_ids: [app_instability]
+
+  - id: payment
+    label: Payment
+    description: Conversation about cashless payment, refunds, wallet, and billing.
+    seed_phrases:
+      - thanh toan
+      - vi dien tu
+      - momo
+      - the tin dung
+      - hoan tien
+      - thu tien 2 lan
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [app_and_payment, pricing_and_promotions]
+    related_issue_ids: [payment_problem, hidden_fee, promotion_failure]
+
+  - id: support_resolution
+    label: Support Resolution
+    description: Conversation about support speed, escalation, and problem closure.
+    seed_phrases:
+      - cham ho tro
+      - khong ai xu ly
+      - tong dai
+      - support
+      - chat ho tro
+      - giai quyet
+    compatible_entity_types: [brand, organization, retailer, concept]
+    linked_topic_keys: [support_and_recovery]
+    related_issue_ids: [support_problem, lost_order]
+
+  - id: promo_value
+    label: Promotion Value
+    description: Conversation about discount codes, fee waivers, and voucher effectiveness.
+    seed_phrases:
+      - ma giam gia
+      - voucher
+      - freeship
+      - khuyen mai
+      - khong ap duoc ma
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [pricing_and_promotions]
+    related_issue_ids: [promotion_failure, high_fee]
+
+  - id: coverage
+    label: Coverage
+    description: Conversation about service availability, zone reach, and supply density.
+    seed_phrases:
+      - khong co tai xe
+      - het tai xe
+      - khong phuc vu khu nay
+      - it shipper
+      - pham vi ho tro
+    compatible_entity_types: [brand, product, location, organization, concept]
+    linked_topic_keys: [courier_capacity]
+    related_issue_ids: [driver_shortage, late_delivery]
+
+  - id: trust_safety
+    label: Trust and Safety
+    description: Conversation about scams, unsafe handling, and platform trust.
+    seed_phrases:
+      - lua dao
+      - scam
+      - khong an toan
+      - gia mao
+      - mat do
+      - mat hang
+      - tai nan
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [trust_and_safety, support_and_recovery]
+    related_issue_ids: [fraud_concern, safety_concern]
+
+intent_categories:
+  - id: question
+    label: Question
+    description: Asking for information or help.
+    seed_phrases: [hoi, "?", bao nhieu, o dau, sao lai]
+  - id: complaint
+    label: Complaint
+    description: Negative operational or service complaint.
+    seed_phrases: [te, cham, loi, buc xuc, khong hai long]
+  - id: commentary
+    label: Commentary
+    description: General discussion or observation.
+    seed_phrases: [theo minh, thay rang, review, cam nhan]
+  - id: praise
+    label: Praise
+    description: Positive feedback or recommendation.
+    seed_phrases: [tot, ok, "on", hai long, rat nhanh]
+  - id: purchase_intent
+    label: Purchase Intent
+    description: Intent to book, order, or try the service.
+    seed_phrases: [dat don, goi ship, thu xem, dat mon, book xe]
+  - id: compare
+    label: Comparison
+    description: Comparing services, fees, or delivery quality.
+    seed_phrases: [so sanh, compare, vs, hon, kem hon]
+  - id: recommendation
+    label: Recommendation
+    description: Recommending a service or workaround.
+    seed_phrases: [nen dung, recommend, gioi thieu, de xuat]
+
+issue_categories:
+  - id: late_delivery
+    label: Late Delivery
+    description: Pickup or delivery is materially slower than expected.
+    seed_phrases: [giao cham, tre don, tre giao, qua lau, tre hen]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [delivery_operations, courier_capacity]
+    related_aspect_ids: [delivery_speed, coverage]
+
+  - id: high_fee
+    label: High Fee
+    description: Delivery fee is higher than expected or competitor alternatives.
+    seed_phrases: [phi cao, cuoc cao, qua dat, ship mac]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [pricing_and_promotions, service_comparison]
+    related_aspect_ids: [delivery_fee, promo_value]
+
+  - id: hidden_fee
+    label: Hidden Fee
+    description: Users report unexplained or unexpected charges.
+    seed_phrases: [phi an, thu them, tinh sai tien, khong ro phi]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [pricing_and_promotions, app_and_payment]
+    related_aspect_ids: [delivery_fee, payment]
+
+  - id: driver_shortage
+    label: Driver Shortage
+    description: Insufficient available couriers or drivers.
+    seed_phrases: [khong co tai xe, het shipper, it tai xe, kho tim tai xe]
+    compatible_entity_types: [brand, product, location, organization, concept]
+    linked_topic_keys: [courier_capacity, delivery_operations]
+    related_aspect_ids: [coverage, delivery_speed, driver_quality]
+
+  - id: driver_attitude_problem
+    label: Driver Attitude Problem
+    description: Driver behavior, communication, or professionalism issue.
+    seed_phrases: [shipper kho chiu, noi chuyen kho nghe, huy don vo ly, thai do kem]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [courier_capacity, support_and_recovery]
+    related_aspect_ids: [driver_quality, trust_safety]
+
+  - id: damaged_order
+    label: Damaged Order
+    description: Package, parcel, or food arrives damaged or spilled.
+    seed_phrases: [vo hang, do mon, hu hang, nap vo, rot do]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [delivery_operations, merchant_and_order_quality]
+    related_aspect_ids: [package_safety, order_accuracy]
+
+  - id: lost_order
+    label: Lost Order
+    description: Order or package is missing, untraceable, or never arrives.
+    seed_phrases: [that lac, mat don, khong thay hang, bien mat don]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [delivery_operations, support_and_recovery]
+    related_aspect_ids: [package_safety, support_resolution]
+
+  - id: wrong_item
+    label: Wrong Item
+    description: The received item does not match the placed order.
+    seed_phrases: [giao sai mon, giao nham, sai hang, sai san pham]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [merchant_and_order_quality]
+    related_aspect_ids: [order_accuracy, support_resolution]
+
+  - id: missing_item
+    label: Missing Item
+    description: One or more ordered items are missing.
+    seed_phrases: [thieu mon, thieu hang, bo sot, giao thieu]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [merchant_and_order_quality]
+    related_aspect_ids: [order_accuracy, support_resolution]
+
+  - id: payment_problem
+    label: Payment Problem
+    description: Failed payment, double charge, or refund issue.
+    seed_phrases: [thanh toan loi, tru tien 2 lan, khong hoan tien, loi vi]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [app_and_payment, pricing_and_promotions]
+    related_aspect_ids: [payment, app_experience]
+
+  - id: app_instability
+    label: App Instability
+    description: App crashes, hangs, or fails during booking flow.
+    seed_phrases: [app lag, app crash, khong load duoc, loi dat don]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [app_and_payment]
+    related_aspect_ids: [app_experience, payment]
+
+  - id: support_problem
+    label: Support Problem
+    description: Support is unreachable, slow, or ineffective.
+    seed_phrases: [khong duoc ho tro, cham xu ly, support khong tra loi, tong dai ban]
+    compatible_entity_types: [brand, organization, retailer, concept]
+    linked_topic_keys: [support_and_recovery]
+    related_aspect_ids: [support_resolution, trust_safety]
+
+  - id: promotion_failure
+    label: Promotion Failure
+    description: Promo code, voucher, or freeship does not apply correctly.
+    seed_phrases: [khong ap ma, voucher loi, khong freeship, mat uu dai]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [pricing_and_promotions, app_and_payment]
+    related_aspect_ids: [promo_value, payment]
+
+  - id: fraud_concern
+    label: Fraud Concern
+    description: Scam, impersonation, or suspicious fee collection concern.
+    seed_phrases: [lua dao, scam, gia mao, doi ship ao, thu tien la]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [trust_and_safety, support_and_recovery]
+    related_aspect_ids: [trust_safety, payment]
+
+  - id: safety_concern
+    label: Safety Concern
+    description: Unsafe driving, unsafe handling, or risk to users and goods.
+    seed_phrases: [nguy hiem, khong an toan, lai au, vo y thuc, tai nan]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [trust_and_safety, delivery_operations]
+    related_aspect_ids: [trust_safety, package_safety]
+
+source_channels:
+  - id: tiktok
+    label: TikTok
+  - id: facebook
+    label: Facebook
+  - id: youtube
+    label: YouTube
+  - id: instagram
+    label: Instagram
+  - id: twitter
+    label: X (Twitter)
+  - id: web
+    label: Web / News
+
+entities:
+  - id: concept.last_mile_delivery
+    name: last mile delivery
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [giao hang noi thanh, giao hang nhanh, last mile, giao hang]
+    taxonomy_ids: [category.logistics, category.last_mile]
+    description: Generic last-mile delivery concept.
+
+  - id: concept.food_delivery
+    name: food delivery
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [giao do an, dat mon, giao mon, ship do an]
+    taxonomy_ids: [category.logistics, category.food_delivery]
+    description: Generic food delivery concept.
+
+  - id: concept.on_demand_courier
+    name: on demand courier
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [shipper cong nghe, tai xe cong nghe, giao hang tuc thi]
+    taxonomy_ids: [category.logistics, category.courier_network]
+    description: Generic courier supply concept.
+
+  - id: concept.ride_booking
+    name: ride booking
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [dat xe, book xe, goi xe]
+    taxonomy_ids: [category.logistics, category.ride_delivery]
+    description: Ride booking concept used by super-app delivery platforms.
+
+  - id: brand.grab
+    name: Grab
+    entity_type: brand
+    knowledge_layer: domain
+    aliases: [grab, grab viet nam, grabvn]
+    compact_aliases: [grabvn]
+    taxonomy_ids: [category.logistics, category.ride_delivery]
+    neighboring_entity_ids: [product.grab_express, product.grab_food]
+    neighboring_aspect_ids: [delivery_speed, delivery_fee, app_experience, payment]
+    domain_anchor_phrases: [grabexpress, grabfood, dat xe grab]
+    description: Grab consumer platform brand.
+
+  - id: product.grab_express
+    name: GrabExpress
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [grabexpress, grab express, giao hang grab]
+    taxonomy_ids: [category.logistics, category.last_mile]
+    neighboring_entity_ids: [brand.grab]
+    neighboring_aspect_ids: [delivery_speed, delivery_fee, coverage]
+    domain_anchor_phrases: [ship grab, giao hang grab]
+    description: Grab on-demand parcel delivery service.
+
+  - id: product.grab_food
+    name: GrabFood
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [grabfood, grab food, dat mon grab]
+    taxonomy_ids: [category.logistics, category.food_delivery, category.merchant_operations]
+    neighboring_entity_ids: [brand.grab]
+    neighboring_aspect_ids: [order_accuracy, promo_value, support_resolution]
+    domain_anchor_phrases: [voucher grabfood, giao do an grab]
+    description: Grab food delivery service.
+
+  - id: brand.ahamove
+    name: Ahamove
+    entity_type: brand
+    knowledge_layer: domain
+    aliases: [ahamove, aha move, aha ship]
+    compact_aliases: [ahamove, ahaship]
+    taxonomy_ids: [category.logistics, category.last_mile]
+    neighboring_entity_ids: [product.ahamove_delivery, product.ahamove_truck]
+    neighboring_aspect_ids: [delivery_speed, delivery_fee, driver_quality, coverage]
+    domain_anchor_phrases: [dat ship ahamove, giao hang ahamove]
+    description: Ahamove logistics brand.
+
+  - id: product.ahamove_delivery
+    name: Ahamove Delivery
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [ship ahamove, giao hang ahamove, giao hoa toc ahamove]
+    taxonomy_ids: [category.logistics, category.last_mile]
+    neighboring_entity_ids: [brand.ahamove]
+    neighboring_aspect_ids: [delivery_speed, delivery_fee, package_safety]
+    domain_anchor_phrases: [don ship ahamove, giao ngay]
+    description: Ahamove core last-mile delivery service.
+
+  - id: product.ahamove_truck
+    name: Ahamove Truck
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [xe tai ahamove, van chuyen ahamove, giao hang bang xe tai]
+    taxonomy_ids: [category.logistics, category.last_mile, category.merchant_operations]
+    neighboring_entity_ids: [brand.ahamove]
+    neighboring_aspect_ids: [delivery_fee, coverage, package_safety]
+    domain_anchor_phrases: [chuyen do, cho hang, giao hang khoi luong lon]
+    description: Ahamove heavier-load delivery service.
+
+topics:
+  - topic_key: delivery_operations
+    label: Delivery Operations
+    topic_family: operations
+    main_path_policy: core
+    description: Pickup, routing, ETA, handoff, and parcel execution.
+    seed_phrases:
+      - giao hang
+      - lay hang
+      - giao cham
+      - tre don
+      - da giao
+      - dang giao
+    related_taxonomy_ids:
+      - category.last_mile
+      - feature.delivery_speed
+      - feature.package_safety
+    related_aspect_ids: [delivery_speed, package_safety]
+    related_issue_ids: [late_delivery, damaged_order, lost_order, safety_concern]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: merchant_and_order_quality
+    label: Merchant and Order Quality
+    topic_family: merchant_ops
+    main_path_policy: core
+    description: Order correctness, merchant packaging, and item completeness.
+    seed_phrases:
+      - sai mon
+      - thieu mon
+      - dong goi
+      - giao nham
+      - shop chuan bi don
+    related_taxonomy_ids:
+      - category.merchant_operations
+      - feature.order_accuracy
+    related_aspect_ids: [order_accuracy, package_safety]
+    related_issue_ids: [wrong_item, missing_item, damaged_order]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+
+  - topic_key: pricing_and_promotions
+    label: Pricing and Promotions
+    topic_family: pricing
+    main_path_policy: core
+    description: Delivery price, discounts, and voucher effectiveness.
+    seed_phrases:
+      - phi giao hang
+      - ship fee
+      - ma giam gia
+      - voucher
+      - freeship
+      - surcharge
+    related_taxonomy_ids:
+      - feature.delivery_fee
+      - feature.promo_value
+      - feature.payment
+    related_aspect_ids: [delivery_fee, promo_value, payment]
+    related_issue_ids: [high_fee, hidden_fee, promotion_failure, payment_problem]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+
+  - topic_key: courier_capacity
+    label: Courier Capacity and Quality
+    topic_family: supply
+    main_path_policy: core
+    description: Driver availability, acceptance rate, and courier behavior.
+    seed_phrases:
+      - khong co tai xe
+      - it shipper
+      - tai xe huy don
+      - tai xe than thien
+      - tai xe cham
+    related_taxonomy_ids:
+      - category.courier_network
+      - feature.driver_availability
+      - feature.driver_attitude
+      - feature.coverage
+    related_aspect_ids: [delivery_speed, driver_quality, coverage]
+    related_issue_ids: [driver_shortage, driver_attitude_problem, late_delivery]
+    compatible_entity_types: [brand, product, person, organization, location, concept]
+
+  - topic_key: app_and_payment
+    label: App and Payment Flow
+    topic_family: product_experience
+    main_path_policy: core
+    description: Booking UX, app stability, checkout, and refund flow.
+    seed_phrases:
+      - app loi
+      - khong dat duoc don
+      - thanh toan loi
+      - hoan tien
+      - crash app
+    related_taxonomy_ids:
+      - feature.app_experience
+      - feature.payment
+    related_aspect_ids: [app_experience, payment]
+    related_issue_ids: [app_instability, payment_problem, hidden_fee, promotion_failure]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: support_and_recovery
+    label: Support and Recovery
+    topic_family: support
+    main_path_policy: core
+    description: Escalation, claim handling, refunds, and incident recovery.
+    seed_phrases:
+      - support
+      - tong dai
+      - chat ho tro
+      - xu ly don loi
+      - khieu nai
+    related_taxonomy_ids:
+      - category.customer_support
+      - feature.support_resolution
+    related_aspect_ids: [support_resolution, trust_safety]
+    related_issue_ids: [support_problem, lost_order, driver_attitude_problem, fraud_concern]
+    compatible_entity_types: [brand, organization, retailer, concept]
+
+  - topic_key: trust_and_safety
+    label: Trust and Safety
+    topic_family: trust
+    main_path_policy: core
+    description: Scam, unsafe handling, and platform trust issues.
+    seed_phrases:
+      - lua dao
+      - scam
+      - khong an toan
+      - mat hang
+      - tai nan
+    related_taxonomy_ids:
+      - feature.trust_safety
+      - feature.package_safety
+    related_aspect_ids: [trust_safety, package_safety]
+    related_issue_ids: [fraud_concern, safety_concern, lost_order]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+  - topic_key: service_comparison
+    label: Service Comparison
+    topic_family: competition
+    main_path_policy: domain_primary
+    knowledge_layer: domain
+    description: Comparing on-demand logistics brands on fee, speed, and reliability.
+    seed_phrases:
+      - so sanh
+      - compare
+      - grab hay ahamove
+      - ben nao re hon
+      - ben nao nhanh hon
+    related_entity_ids:
+      - brand.grab
+      - brand.ahamove
+      - product.grab_express
+      - product.ahamove_delivery
+    related_taxonomy_ids:
+      - category.logistics
+      - category.ride_delivery
+    related_aspect_ids: [delivery_fee, delivery_speed, driver_quality, app_experience]
+    related_issue_ids: [high_fee, late_delivery, driver_attitude_problem]
+    compatible_entity_types: [brand, product, organization, concept]
+
+alias_contributions: []
+
+noise_terms:
+  - term: haha
+    reason: low_information_social_reaction
+  - term: hehe
+    reason: low_information_social_reaction
+  - term: huhu
+    reason: low_information_social_reaction
+  - term: ship cod
+    reason: transactional_low_context_phrase
