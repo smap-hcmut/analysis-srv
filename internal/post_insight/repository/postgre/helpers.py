@@ -1,5 +1,7 @@
 import uuid
 from datetime import datetime, timezone
+import math
+import re
 from typing import Any, Dict, Union
 
 from internal.post_insight.type import CreatePostInsightInput, UpdatePostInsightInput
@@ -34,11 +36,13 @@ def transform_to_post_insight(
 
     requires_attention = risk_level in ("HIGH", "CRITICAL")
 
+    content = data.get("content_text", "") or ""
+
     return {
         "id": _get_or_generate_id(data),
         "project_id": data.get("project_id", ""),
         "source_id": data.get("source_id"),  # Now available
-        "content": data.get("content_text", ""),
+        "content": content,
         "content_created_at": _parse_datetime(data.get("published_at")),
         "ingested_at": _parse_datetime(data.get("crawled_at")),
         "platform": (data.get("platform") or "UNKNOWN").lower(),
@@ -58,11 +62,12 @@ def transform_to_post_insight(
         "virality_score": data.get("virality_score", 0.0),
         "influence_score": data.get("influence_score", 0.0),
         "reach_estimate": data.get("view_count", 0),
-        "content_quality_score": 0.0,
+        "content_quality_score": _content_quality_score(data),
+        "business_relevance_score": _business_relevance_score(data),
         "is_spam": is_spam,
         "is_bot": False,
-        "language": None,
-        "language_confidence": 0.0,
+        "language": data.get("language") or _guess_language(content),
+        "language_confidence": data.get("language_confidence", 0.65 if content else 0.0),
         "toxicity_score": 0.0,
         "is_toxic": False,
         "primary_intent": primary_intent,
@@ -130,6 +135,10 @@ def _build_uap_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
     enrichment_summary = data.get("enrichment_summary")
     if enrichment_summary:
         metadata["enrichment"] = enrichment_summary
+    if val := data.get("business_relevance_score"):
+        metadata["business_relevance_score"] = val
+    if val := data.get("business_relevance_reasons"):
+        metadata["business_relevance_reasons"] = val
 
     return metadata
 
@@ -151,6 +160,82 @@ def _risk_level_to_score(risk_level: str) -> float:
         "LOW": 0.1,
     }
     return mapping.get(risk_level, 0.1)
+
+
+def _content_quality_score(data: Dict[str, Any]) -> float:
+    explicit = data.get("content_quality_score")
+    if isinstance(explicit, (int, float)) and explicit > 0:
+        return _clamp(float(explicit))
+
+    content = str(data.get("content_text") or "")
+    compact = re.sub(r"\s+", " ", content).strip()
+    if not compact:
+        return 0.0
+
+    primary_intent = str(data.get("primary_intent") or "").upper()
+    if data.get("is_spam") or primary_intent in {"SPAM", "SEEDING"}:
+        return 0.05
+
+    words = re.findall(r"[\wÀ-ỹ]+", compact.lower(), flags=re.UNICODE)
+    word_count = len(words)
+    if word_count == 0:
+        return 0.0
+
+    unique_ratio = len(set(words)) / max(word_count, 1)
+    length_score = min(len(compact) / 180.0, 1.0)
+    lexical_score = min(max(unique_ratio, 0.0), 1.0)
+
+    keywords = data.get("keywords") or []
+    keyword_score = min(len(keywords) * 0.035, 0.18) if isinstance(keywords, list) else 0.0
+
+    aspects = _extract_aspects(data.get("aspects_breakdown", {}))
+    aspect_score = 0.16 if aspects else 0.0
+
+    engagement_total = sum(
+        int(data.get(key) or 0)
+        for key in ("view_count", "like_count", "comment_count", "share_count", "save_count")
+    )
+    engagement_score = min(math.log10(engagement_total + 1) / 5.0, 1.0) * 0.12
+
+    intent_bonus = 0.0
+    if primary_intent in {"COMPLAINT", "CRISIS", "SUPPORT", "LEAD"}:
+        intent_bonus = 0.08
+
+    score = (
+        0.12
+        + length_score * 0.34
+        + lexical_score * 0.18
+        + keyword_score
+        + aspect_score
+        + engagement_score
+        + intent_bonus
+    )
+
+    if len(compact) < 20:
+        score *= 0.35
+    elif len(compact) < 40:
+        score *= 0.65
+
+    return round(_clamp(score), 4)
+
+
+def _business_relevance_score(data: Dict[str, Any]) -> float:
+    explicit = data.get("business_relevance_score")
+    if isinstance(explicit, (int, float)):
+        return round(_clamp(float(explicit)), 4)
+    return 0.0
+
+
+def _guess_language(content: str) -> str | None:
+    if not content:
+        return None
+    if re.search(r"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]", content, re.IGNORECASE):
+        return "vi"
+    return "unknown"
+
+
+def _clamp(value: float) -> float:
+    return max(0.0, min(1.0, value))
 
 
 def _parse_datetime(value: Any) -> Any:

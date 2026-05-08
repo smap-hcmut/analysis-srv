@@ -196,6 +196,15 @@ class UAPRecord:
         platform_meta = raw.get("platform_meta")
         if platform_meta:
             preserved_raw["platform_meta"] = platform_meta
+        crawl_keyword = raw.get("crawl_keyword", "")
+        if crawl_keyword:
+            preserved_raw["crawl_keyword"] = crawl_keyword
+        if content_raw.get("title"):
+            preserved_raw["content_title"] = content_raw.get("title")
+        if content_raw.get("subtitle"):
+            preserved_raw["content_subtitle"] = content_raw.get("subtitle")
+        if content_raw.get("keywords"):
+            preserved_raw["content_keywords"] = content_raw.get("keywords")
         task_id = identity.get("task_id", "")
         if task_id:
             preserved_raw["task_id"] = task_id

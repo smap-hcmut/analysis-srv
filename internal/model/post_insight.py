@@ -81,6 +81,7 @@ class PostInsight(Base):
 
     # Quality
     content_quality_score = Column(Float, nullable=False, server_default="0.0")
+    business_relevance_score = Column(Float, nullable=False, server_default="0.0")
     is_spam = Column(Boolean, nullable=False, server_default="false")
     is_bot = Column(Boolean, nullable=False, server_default="false")
     language = Column(String(10), nullable=True)

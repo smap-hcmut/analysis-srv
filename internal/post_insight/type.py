@@ -46,6 +46,11 @@ class CreatePostInsightInput:
     primary_intent: str = "DISCUSSION"
     intent_confidence: float = 0.0
     is_spam: bool = False
+    content_quality_score: float = 0.0
+    business_relevance_score: float = 0.0
+    business_relevance_reasons: List[str] = field(default_factory=list)
+    language: Optional[str] = None
+    language_confidence: float = 0.0
 
     # Scores
     engagement_score: float = 0.0

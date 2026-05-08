@@ -65,6 +65,7 @@ def _map_document(uap: UAPRecord, msg: InsightMessage) -> dict:
     # Content
     clean_text = (content.clean_text or content.text) if content else ""
     summary = content.summary if content else ""
+    context_summary = content.context_summary if content else ""
     if not summary:
         summary = truncate_summary(clean_text)
 
@@ -121,6 +122,7 @@ def _map_document(uap: UAPRecord, msg: InsightMessage) -> dict:
         "content": {
             "clean_text": clean_text,
             "summary": summary,
+            "context_summary": context_summary,
         },
         "nlp": {
             "sentiment": {
@@ -131,6 +133,8 @@ def _map_document(uap: UAPRecord, msg: InsightMessage) -> dict:
             "entities": entities,
         },
         "business": {
+            "relevance_score": round(biz.relevance_score, 4) if biz else 0.0,
+            "relevance_reasons": biz.relevance_reasons if biz else [],
             "impact": {
                 "engagement": engagement,
                 "impact_score": round(impact_score, 4),

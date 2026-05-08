@@ -33,6 +33,7 @@ from internal.builder.interface import IResultBuilderUseCase
 from internal.builder.type import BuildInput
 from internal.pipeline.type import NLPFact
 from internal.post_insight.type import CreatePostInsightInput
+from internal.relevance import calculate_business_relevance
 from internal.enrichment.type import EnrichmentBundle
 from internal.model.insight_message import EnrichmentSummary, NLPEntity
 from internal.post_insight.repository.postgre.helpers import _parse_datetime
@@ -190,6 +191,12 @@ class NLPBatchEnricher:
                 ):
                     self._run_impact_calculation(uap, result, full_text)
 
+                relevance_score, relevance_reasons = calculate_business_relevance(
+                    uap, result, full_text
+                )
+                result.business_relevance_score = relevance_score
+                result.business_relevance_reasons = relevance_reasons
+
                 result.processing_time_ms = int((time.perf_counter() - start) * 1000)
 
                 # Build NLPFact via result builder
@@ -267,6 +274,8 @@ class NLPBatchEnricher:
             primary_intent=r.primary_intent,
             intent_confidence=r.intent_confidence,
             is_spam=r.is_spam,
+            business_relevance_score=r.business_relevance_score,
+            business_relevance_reasons=r.business_relevance_reasons,
             engagement_score=r.engagement_score,
             virality_score=r.virality_score,
             influence_score=r.influence_score,

@@ -7,7 +7,7 @@
 
 metadata:
   name: smap-logistics-vn
-  version: "2026.05.05-logistics-v1"
+  version: "2026.05.07-logistics-v2"
   description: >
     Vietnam on-demand logistics ontology for social listening across courier,
     food delivery, and last-mile fulfillment conversations.
@@ -36,6 +36,18 @@ activation:
       weight: 2.0
     - phrase: ahamove
       weight: 2.5
+    - phrase: ahatruck
+      weight: 2.0
+    - phrase: sieu toc
+      weight: 1.8
+    - phrase: xe van
+      weight: 1.5
+    - phrase: xe tai
+      weight: 1.5
+    - phrase: cod
+      weight: 1.4
+    - phrase: boc xep
+      weight: 1.2
     - phrase: phi giao hang
       weight: 1.5
 
@@ -102,6 +114,12 @@ taxonomy_nodes:
   - id: feature.payment
     label: Payment
     node_type: feature
+  - id: feature.cash_on_delivery
+    label: Cash on Delivery
+    node_type: feature
+  - id: feature.loading_handling
+    label: Loading and Handling
+    node_type: feature
   - id: feature.support_resolution
     label: Support Resolution
     node_type: feature
@@ -128,6 +146,12 @@ aspect_categories:
       - giao dung gio
       - pickup time
       - dropoff time
+      - sieu toc
+      - lay hang ngay
+      - giao trong 1 gio
+      - giao trong 2h
+      - giao trong 4h
+      - giao trong ngay
     compatible_entity_types: [brand, product, organization, concept]
     linked_topic_keys: [delivery_operations, courier_capacity]
     related_issue_ids: [late_delivery, driver_shortage]
@@ -143,6 +167,10 @@ aspect_categories:
       - surcharge
       - gia ship
       - phi ung dung
+      - dong gia
+      - 25k
+      - phi diem dung
+      - tang gia
     compatible_entity_types: [brand, product, retailer, organization, concept]
     linked_topic_keys: [pricing_and_promotions]
     related_issue_ids: [high_fee, hidden_fee]
@@ -171,6 +199,9 @@ aspect_categories:
       - that lac
       - hu hang
       - nguyen ven
+      - hang de vo
+      - do de vo
+      - bao hiem hang hoa
     compatible_entity_types: [brand, product, retailer, organization, concept]
     linked_topic_keys: [delivery_operations, trust_and_safety]
     related_issue_ids: [damaged_order, lost_order, safety_concern]
@@ -199,6 +230,9 @@ aspect_categories:
       - crash app
       - treo app
       - kho dung
+      - theo doi lo trinh
+      - dat truoc
+      - khong dat duoc xe
     compatible_entity_types: [brand, product, organization, concept]
     linked_topic_keys: [app_and_payment]
     related_issue_ids: [app_instability]
@@ -213,6 +247,12 @@ aspect_categories:
       - the tin dung
       - hoan tien
       - thu tien 2 lan
+      - cod
+      - thu ho
+      - ung tien
+      - nhan tien mat
+      - nap tien
+      - rut tien
     compatible_entity_types: [brand, product, retailer, organization, concept]
     linked_topic_keys: [app_and_payment, pricing_and_promotions]
     related_issue_ids: [payment_problem, hidden_fee, promotion_failure]
@@ -227,6 +267,10 @@ aspect_categories:
       - support
       - chat ho tro
       - giai quyet
+      - khieu nai
+      - den bu
+      - boi thuong
+      - bang chung giao hang
     compatible_entity_types: [brand, organization, retailer, concept]
     linked_topic_keys: [support_and_recovery]
     related_issue_ids: [support_problem, lost_order]
@@ -253,6 +297,11 @@ aspect_categories:
       - khong phuc vu khu nay
       - it shipper
       - pham vi ho tro
+      - lien tinh
+      - noi thanh
+      - ngoai thanh
+      - gio cam tai
+      - khu vuc phuc vu
     compatible_entity_types: [brand, product, location, organization, concept]
     linked_topic_keys: [courier_capacity]
     related_issue_ids: [driver_shortage, late_delivery]
@@ -322,7 +371,7 @@ issue_categories:
   - id: hidden_fee
     label: Hidden Fee
     description: Users report unexplained or unexpected charges.
-    seed_phrases: [phi an, thu them, tinh sai tien, khong ro phi]
+    seed_phrases: [phi an, thu them, tinh sai tien, khong ro phi, phi boc xep, phi diem dung]
     compatible_entity_types: [brand, product, retailer, organization, concept]
     linked_topic_keys: [pricing_and_promotions, app_and_payment]
     related_aspect_ids: [delivery_fee, payment]
@@ -378,7 +427,7 @@ issue_categories:
   - id: payment_problem
     label: Payment Problem
     description: Failed payment, double charge, or refund issue.
-    seed_phrases: [thanh toan loi, tru tien 2 lan, khong hoan tien, loi vi]
+    seed_phrases: [thanh toan loi, tru tien 2 lan, khong hoan tien, loi vi, cod loi, thu ho sai, nap tien loi, rut tien loi]
     compatible_entity_types: [brand, product, retailer, organization, concept]
     linked_topic_keys: [app_and_payment, pricing_and_promotions]
     related_aspect_ids: [payment, app_experience]
@@ -394,7 +443,7 @@ issue_categories:
   - id: support_problem
     label: Support Problem
     description: Support is unreachable, slow, or ineffective.
-    seed_phrases: [khong duoc ho tro, cham xu ly, support khong tra loi, tong dai ban]
+    seed_phrases: [khong duoc ho tro, cham xu ly, support khong tra loi, tong dai ban, khieu nai lau, den bu cham]
     compatible_entity_types: [brand, organization, retailer, concept]
     linked_topic_keys: [support_and_recovery]
     related_aspect_ids: [support_resolution, trust_safety]
@@ -524,23 +573,54 @@ entities:
     name: Ahamove Delivery
     entity_type: product
     knowledge_layer: domain
-    aliases: [ship ahamove, giao hang ahamove, giao hoa toc ahamove]
+    aliases: [ship ahamove, giao hang ahamove, giao hoa toc ahamove, aha delivery, sieu toc ahamove, sieu toc tiet kiem, giao hang 2h, giao hang 4h, dong gia ahamove, tiet kiem ahamove]
     taxonomy_ids: [category.logistics, category.last_mile]
     neighboring_entity_ids: [brand.ahamove]
-    neighboring_aspect_ids: [delivery_speed, delivery_fee, package_safety]
-    domain_anchor_phrases: [don ship ahamove, giao ngay]
+    neighboring_aspect_ids: [delivery_speed, delivery_fee, package_safety, app_experience]
+    domain_anchor_phrases: [don ship ahamove, giao ngay, lay hang ngay, giao trong ngay]
     description: Ahamove core last-mile delivery service.
 
   - id: product.ahamove_truck
-    name: Ahamove Truck
+    name: AhaTruck
     entity_type: product
     knowledge_layer: domain
-    aliases: [xe tai ahamove, van chuyen ahamove, giao hang bang xe tai]
+    aliases: [ahatruck, aha truck, xe tai ahamove, van chuyen ahamove, giao hang bang xe tai, xe van ahamove, xe ba gac ahamove, xe ban tai ahamove, tai van ahamove, xe tai 500kg, xe tai 1000kg, xe tai 1500kg, xe tai 2000kg]
+    compact_aliases: [ahatruck]
     taxonomy_ids: [category.logistics, category.last_mile, category.merchant_operations]
     neighboring_entity_ids: [brand.ahamove]
-    neighboring_aspect_ids: [delivery_fee, coverage, package_safety]
-    domain_anchor_phrases: [chuyen do, cho hang, giao hang khoi luong lon]
-    description: Ahamove heavier-load delivery service.
+    neighboring_aspect_ids: [delivery_fee, coverage, package_safety, support_resolution]
+    domain_anchor_phrases: [chuyen do, cho hang, giao hang khoi luong lon, boc xep, gio cam tai]
+    description: Ahamove heavier-load delivery service including truck, van, pickup, and three-wheel options.
+
+  - id: product.ahamart
+    name: AhaMart
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [ahamart, aha mart, mua ho ahamove, di cho ahamove]
+    compact_aliases: [ahamart]
+    taxonomy_ids: [category.logistics, category.food_delivery, category.merchant_operations]
+    neighboring_entity_ids: [brand.ahamove, product.ahamove_delivery]
+    neighboring_aspect_ids: [delivery_speed, delivery_fee, order_accuracy, support_resolution]
+    domain_anchor_phrases: [mua ho, di cho, giao hang ahamart]
+    description: Ahamove assisted shopping and delivery service.
+
+  - id: concept.cash_on_delivery
+    name: cash on delivery
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [cod, thu ho, thu tien ho, nhan tien mat, ung tien]
+    taxonomy_ids: [feature.cash_on_delivery, feature.payment]
+    description: Cash handling and collection during delivery.
+
+  - id: concept.loading_handling
+    name: loading and handling
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [boc xep, len lau, xuong hang, hang cong kenh, hang de vo]
+    taxonomy_ids: [feature.loading_handling, category.last_mile]
+    description: Loading, unloading, fragile goods, and bulky delivery handling.
 
 topics:
   - topic_key: delivery_operations
@@ -632,9 +712,15 @@ topics:
       - thanh toan loi
       - hoan tien
       - crash app
+      - cod
+      - thu ho
+      - nap tien
+      - rut tien
+      - theo doi lo trinh
     related_taxonomy_ids:
       - feature.app_experience
       - feature.payment
+      - feature.cash_on_delivery
     related_aspect_ids: [app_experience, payment]
     related_issue_ids: [app_instability, payment_problem, hidden_fee, promotion_failure]
     compatible_entity_types: [brand, product, organization, concept]
@@ -675,6 +761,36 @@ topics:
     related_issue_ids: [fraud_concern, safety_concern, lost_order]
     compatible_entity_types: [brand, product, person, organization, concept]
 
+  - topic_key: fleet_and_bulky_transport
+    label: Fleet and Bulky Transport
+    topic_family: operations
+    main_path_policy: domain_primary
+    knowledge_layer: domain
+    description: Truck, van, three-wheel, pickup, bulky goods, loading, and restricted-hour delivery.
+    seed_phrases:
+      - xe tai
+      - ahatruck
+      - xe van
+      - xe ba gac
+      - xe ban tai
+      - boc xep
+      - len lau
+      - hang cong kenh
+      - gio cam tai
+    related_entity_ids:
+      - brand.ahamove
+      - product.ahamove_truck
+      - concept.loading_handling
+    related_taxonomy_ids:
+      - category.last_mile
+      - category.merchant_operations
+      - feature.loading_handling
+      - feature.coverage
+      - feature.package_safety
+    related_aspect_ids: [delivery_fee, coverage, package_safety, support_resolution]
+    related_issue_ids: [high_fee, late_delivery, damaged_order, support_problem, safety_concern]
+    compatible_entity_types: [brand, product, organization, location, concept]
+
   - topic_key: service_comparison
     label: Service Comparison
     topic_family: competition
@@ -692,6 +808,7 @@ topics:
       - brand.ahamove
       - product.grab_express
       - product.ahamove_delivery
+      - product.ahamove_truck
     related_taxonomy_ids:
       - category.logistics
       - category.ride_delivery

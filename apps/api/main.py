@@ -27,9 +27,10 @@ from pkg.postgre.type import PostgresConfig
 
 
 class APIDependencies:
-    def __init__(self, logger: Logger, db: PostgresDatabase):
+    def __init__(self, logger: Logger, db: PostgresDatabase, analytics_query_timeout_ms: int):
         self.logger = logger
         self.db = db
+        self.analytics_query_timeout_ms = analytics_query_timeout_ms
         self.ready = True
         self._ready_cache_value: bool = True
         self._ready_cache_until: float = 0.0
@@ -82,6 +83,11 @@ async def init_api_dependencies() -> APIDependencies:
     idle_in_tx_timeout_ms = int(
         _env_or_config("ANALYTICS_DATABASE_IDLE_TX_TIMEOUT_MS", config, ("database", "idle_in_transaction_timeout_ms"), 30_000)
     )
+    query_timeout_ms = int(_env_or_config("ANALYTICS_QUERY_TIMEOUT_MS", config, ("database", "query_timeout_ms"), 25_000))
+    if statement_timeout_ms > 0:
+        query_timeout_ms = min(query_timeout_ms, statement_timeout_ms)
+    if query_timeout_ms <= 0:
+        query_timeout_ms = 25_000
 
     if not database_url:
         raise RuntimeError("ANALYTICS_DATABASE_URL is required")
@@ -108,7 +114,11 @@ async def init_api_dependencies() -> APIDependencies:
     )
     if not await db.health_check():
         raise RuntimeError("analysis-api database health check failed")
-    return APIDependencies(logger=logger, db=db)
+    return APIDependencies(
+        logger=logger,
+        db=db,
+        analytics_query_timeout_ms=query_timeout_ms,
+    )
 
 
 @asynccontextmanager
@@ -117,7 +127,11 @@ async def lifespan(app: FastAPI):
     project_client = build_project_service_client()
     app.state.deps = deps
     app.state.project_client = project_client
-    app.state.analytics = AnalyticsService(db=deps.db, project_client=project_client)
+    app.state.analytics = AnalyticsService(
+        db=deps.db,
+        project_client=project_client,
+        query_timeout_ms=deps.analytics_query_timeout_ms,
+    )
     try:
         yield
     finally:

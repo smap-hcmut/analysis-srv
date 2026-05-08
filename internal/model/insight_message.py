@@ -44,6 +44,7 @@ class Content:
     text: str = ""
     clean_text: str = ""
     summary: str = ""
+    context_summary: str = ""
 
 
 @dataclass
@@ -113,6 +114,8 @@ class BusinessAlert:
 class Business:
     impact: BusinessImpact = field(default_factory=BusinessImpact)
     alerts: list[BusinessAlert] = field(default_factory=list)
+    relevance_score: float = 0.0
+    relevance_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -120,6 +123,7 @@ class RAGQualityGate:
     min_length_ok: bool = False
     has_aspect: bool = False
     not_spam: bool = True
+    business_relevance_ok: bool = False
 
 
 @dataclass

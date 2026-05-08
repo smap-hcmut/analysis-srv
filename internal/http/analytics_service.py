@@ -38,15 +38,40 @@ class CachedResponse:
 
 
 class AnalyticsService:
-    def __init__(self, db: PostgresDatabase, project_client: ProjectServiceClient):
+    def __init__(self, db: PostgresDatabase, project_client: ProjectServiceClient, query_timeout_ms: int = 25_000):
         self.db = db
         self.project_client = project_client
         self._response_cache: dict[tuple[Any, ...], CachedResponse] = {}
+        self._query_timeout_ms = max(1, int(query_timeout_ms))
+        # Keep analytics DB pressure bounded even when UI fires all dashboard
+        # endpoints at once (kpis/platforms/sentiment/keywords/posts).
+        self._db_concurrency_guard: asyncio.Semaphore = asyncio.Semaphore(8)
         # Negative cache for campaigns whose queries hit statement_timeout. Without
         # this, every UI refresh re-issues 7 expensive queries and burns 25s each
         # on the server, blocking the connection pool for the rest of the system.
         self._timeout_cache: dict[str, float] = {}
         self._timeout_cache_ttl: float = 60.0
+
+    def _resolve_query_timeout_ms(self, project_count: int, query_profile: str = "normal") -> int:
+        # Avoid long-running fan-out queries from saturating the Postgres pool.
+        # Bigger campaigns are more likely to hit expensive joins, so give them
+        # more time rather than fail earlier with a hard 30s cap.
+        timeout_ms = self._query_timeout_ms
+        if project_count >= 200:
+            timeout_ms = max(timeout_ms, 55_000)
+        elif project_count >= 100:
+            timeout_ms = max(timeout_ms, 45_000)
+        elif project_count >= 50:
+            timeout_ms = max(timeout_ms, 35_000)
+        elif project_count >= 25:
+            timeout_ms = max(timeout_ms, 30_000)
+        # Heap endpoint aggregates nested structures and can be unexpectedly
+        # expensive, allow a little extra time when explicitly called.
+        if query_profile == "heavy":
+            timeout_ms = int(timeout_ms * 1.15)
+
+        timeout_ms = max(8_000, min(timeout_ms, 70_000))
+        return timeout_ms
 
     def _is_timed_out(self, campaign_id: str) -> bool:
         until = self._timeout_cache.get(campaign_id)
@@ -106,6 +131,7 @@ class AnalyticsService:
                 "engagement": {"views": 0, "likes": 0, "comments": 0, "shares": 0},
             })
 
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
         summary_rows, spark_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids)
@@ -145,6 +171,8 @@ GROUP BY 1
 ORDER BY 1
 """
             ),
+            project_count=len(ctx.project_ids),
+            query_timeout_ms=query_timeout_ms,
         )
         t = summary_rows[0] if summary_rows else {}
         return self._cache_set(cache_key, {
@@ -204,6 +232,7 @@ ORDER BY 1
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"stats": [], "timeSeries": [], "months": []})
 
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
         platform_rows, ts_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids)
@@ -236,6 +265,8 @@ GROUP BY 1, 2
 ORDER BY 1
 """
             ),
+            project_count=len(ctx.project_ids),
+            query_timeout_ms=query_timeout_ms,
         )
 
         stats = []
@@ -309,6 +340,7 @@ ORDER BY 1
                 "total": 0,
             })
 
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
         summary_rows, timeline_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids)
@@ -336,6 +368,8 @@ GROUP BY 1, 2
 ORDER BY 1
 """
             ),
+            project_count=len(ctx.project_ids),
+            query_timeout_ms=query_timeout_ms,
         )
 
         summary = summary_rows[0] if summary_rows else {}
@@ -378,6 +412,7 @@ ORDER BY 1
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"keywords": [], "wordCloud": []})
 
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
         sql = (
             self._base_cte(ctx.project_ids)
             + """
@@ -396,7 +431,11 @@ ORDER BY COUNT(*) DESC
 LIMIT :limit
 """
         )
-        rows = await self._fetch_all(sql, {"limit": limit})
+        rows = await self._fetch_all(
+            sql,
+            {"limit": limit},
+            timeout_ms=query_timeout_ms,
+        )
         keywords = []
         for row in rows:
             sentiment = round(float(row["avg_sentiment"]))
@@ -485,7 +524,8 @@ ORDER BY {order_by}
 LIMIT :limit OFFSET :offset
 """
         )
-        rows = await self._fetch_all(sql, params)
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
+        rows = await self._fetch_all(sql, params, timeout_ms=query_timeout_ms)
         total = int(rows[0]["total_count"]) if rows else 0
         posts = []
         for row in rows:
@@ -549,7 +589,8 @@ WHERE platform IS NOT NULL
 GROUP BY project_id
 """
         )
-        rows = await self._fetch_all(sql)
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
+        rows = await self._fetch_all(sql, timeout_ms=query_timeout_ms)
         return self._cache_set(cache_key, {
             "stats": [
                 {
@@ -575,7 +616,8 @@ GROUP BY project_id
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"tree": None})
 
-        project_names, project_stats_rows, keyword_rows = await self._fetch_heap_parts(ctx)
+        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
+        project_names, project_stats_rows, keyword_rows = await self._fetch_heap_parts(ctx, query_timeout_ms=query_timeout_ms)
 
         project_stats = {str(row["project_id"]): row for row in project_stats_rows}
         keywords_by_project: dict[str, list[dict[str, Any]]] = {}
@@ -628,7 +670,7 @@ GROUP BY project_id
             }
         })
 
-    async def _fetch_heap_parts(self, ctx: AnalyticsContext):
+    async def _fetch_heap_parts(self, ctx: AnalyticsContext, query_timeout_ms: int):
         project_stats_rows, keyword_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids)
@@ -665,13 +707,24 @@ WHERE rn <= 10
 ORDER BY project_id, volume DESC
 """
             ),
+            project_count=len(ctx.project_ids),
+            query_timeout_ms=query_timeout_ms,
         )
         return ctx.project_names, project_stats_rows, keyword_rows
 
-    async def _fetch_many(self, *queries: str):
-        # Run independent queries concurrently so each endpoint pays max(query_time)
-        # instead of sum(query_time). Each query gets its own session/connection.
-        return list(await asyncio.gather(*(self._fetch_all(query) for query in queries)))
+    async def _fetch_many(self, *queries: str, project_count: int, query_timeout_ms: int):
+        # Keep query fan-out serialized per endpoint and bounded by an explicit
+        # semaphore. Concurrent fan-out can create DB pool storms during
+        # dashboard refresh bursts.
+        rows: list[list[dict[str, Any]]] = []
+        for query in queries:
+            rows.append(
+                await self._fetch_all(
+                    query,
+                    timeout_ms=query_timeout_ms or self._resolve_query_timeout_ms(project_count),
+                )
+            )
+        return rows
 
     def _is_statement_timeout(self, exc: BaseException) -> bool:
         # SQLAlchemy wraps the asyncpg error; sqlstate 57014 == query_canceled.
@@ -685,7 +738,7 @@ ORDER BY project_id, volume DESC
     async def _guarded(self, campaign_id: str, coro):
         """Run an analytics coroutine, mark the campaign as 'too heavy' on
         statement_timeout so later requests fail fast instead of spending
-        another 25s × N endpoints holding pool slots."""
+        another timeout window holding pool slots."""
         if self._is_timed_out(campaign_id):
             coro.close()
             raise APIError(504, "analytics query exceeded server time limit")
@@ -697,10 +750,21 @@ ORDER BY project_id, volume DESC
                 raise APIError(504, "analytics query exceeded server time limit") from exc
             raise
 
-    async def _fetch_all(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        async with self.db.get_session() as session:
-            result = await session.execute(text(query), params or {})
-            return [dict(row._mapping) for row in result.fetchall()]
+    async def _fetch_all(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        timeout_ms: int | None = None,
+    ) -> list[dict[str, Any]]:
+        if timeout_ms is None:
+            timeout_ms = self._query_timeout_ms
+        timeout_ms = max(1, int(timeout_ms))
+        async with self._db_concurrency_guard:
+            async with self.db.get_session() as session:
+                await session.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
+                await session.execute(text("SET LOCAL work_mem = '64MB'"))
+                result = await session.execute(text(query), params or {})
+                return [dict(row._mapping) for row in result.fetchall()]
 
     def _source_identity_expr(self, alias: str) -> str:
         """Canonical source identity expression used for dedup and grouping.
@@ -731,6 +795,7 @@ WITH latest_post_insight AS (
     pi.*
   FROM analysis.post_insight pi
   WHERE project_id IN ({quoted_ids})
+    AND pi.business_relevance_score >= 0.45
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
     {identity_expr},

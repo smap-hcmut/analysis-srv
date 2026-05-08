@@ -25,11 +25,14 @@ from internal.model.insight_message import (
     ProvenanceStep,
 )
 from internal.analytics.type import AnalyticsResult
+from internal.relevance import build_context_summary, has_direct_business_signal
 from ..type import BuildInput, BuildOutput
 from ..constant import (
     ENRICHED_VERSION,
     CITATION_SNIPPET_MAX_LENGTH,
     RAG_MIN_TEXT_LENGTH,
+    RAG_MIN_IMPACT_SCORE,
+    RAG_MIN_BUSINESS_RELEVANCE,
 )
 from .helpers import (
     build_snippet,
@@ -100,6 +103,7 @@ def _build_content(uap: UAPRecord, result: AnalyticsResult) -> Content:
         text=uap.content.text,
         clean_text=result.content_text or uap.content.text,
         summary="",
+        context_summary=build_context_summary(uap),
     )
 
 
@@ -166,7 +170,12 @@ def _build_business(uap: UAPRecord, result: AnalyticsResult) -> Business:
             )
         )
 
-    return Business(impact=impact, alerts=alerts)
+    return Business(
+        impact=impact,
+        alerts=alerts,
+        relevance_score=result.business_relevance_score,
+        relevance_reasons=result.business_relevance_reasons,
+    )
 
 
 def _build_rag(uap: UAPRecord, result: AnalyticsResult) -> RAG:
@@ -175,14 +184,22 @@ def _build_rag(uap: UAPRecord, result: AnalyticsResult) -> RAG:
         result.aspects_breakdown and result.aspects_breakdown.get("aspects")
     )
     is_not_spam = result.primary_intent not in ("SPAM", "SEEDING")
+    has_analysis_signal = _has_rag_analysis_signal(text, result, has_aspects)
+    business_relevance_ok = result.business_relevance_score >= RAG_MIN_BUSINESS_RELEVANCE
 
     quality_gate = RAGQualityGate(
         min_length_ok=len(text) >= RAG_MIN_TEXT_LENGTH,
         has_aspect=has_aspects,
         not_spam=is_not_spam,
+        business_relevance_ok=business_relevance_ok,
     )
 
-    should_index = quality_gate.min_length_ok and quality_gate.not_spam
+    should_index = (
+        quality_gate.min_length_ok
+        and quality_gate.not_spam
+        and has_analysis_signal
+        and business_relevance_ok
+    )
 
     citation = RAGCitation(
         source=uap.ingest.source.source_type,
@@ -203,6 +220,57 @@ def _build_rag(uap: UAPRecord, result: AnalyticsResult) -> RAG:
         citation=citation,
         vector_ref=vector_ref,
     )
+
+
+def _has_rag_analysis_signal(
+    text: str,
+    result: AnalyticsResult,
+    has_aspects: bool,
+) -> bool:
+    if has_aspects:
+        return True
+    if result.primary_intent in {"COMPLAINT", "CRISIS", "SUPPORT", "LEAD"}:
+        return True
+    if result.risk_level in {"MEDIUM", "HIGH", "CRITICAL"}:
+        return True
+    if result.impact_score >= RAG_MIN_IMPACT_SCORE:
+        return True
+    if len(result.keywords or []) >= 2:
+        return True
+    return _contains_business_signal(text)
+
+
+def _contains_business_signal(text: str) -> bool:
+    if has_direct_business_signal(text):
+        return True
+    lowered = (text or "").lower()
+    signals = (
+        "ahamove",
+        "aha move",
+        "ahatruck",
+        "giao hàng",
+        "giao hang",
+        "ship",
+        "shipper",
+        "tài xế",
+        "tai xe",
+        "đơn hàng",
+        "don hang",
+        "phí",
+        "phi",
+        "cod",
+        "thu hộ",
+        "thu ho",
+        "hủy đơn",
+        "huy don",
+        "ứng dụng",
+        "ung dung",
+        "tổng đài",
+        "tong dai",
+        "hỗ trợ",
+        "ho tro",
+    )
+    return any(signal in lowered for signal in signals)
 
 
 def _build_provenance(uap: UAPRecord, result: AnalyticsResult) -> Provenance:

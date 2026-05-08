@@ -92,6 +92,8 @@ class AnalyticsResult:
     keywords: list[str] = field(default_factory=list)
     sentiment_probabilities: dict[str, float] = field(default_factory=dict)
     impact_breakdown: dict[str, Any] = field(default_factory=dict)
+    business_relevance_score: float = 0.0
+    business_relevance_reasons: list[str] = field(default_factory=list)
 
     # Raw metrics
     view_count: int = 0
@@ -148,6 +150,8 @@ class AnalyticsResult:
             "keywords": self.keywords,
             "sentiment_probabilities": self.sentiment_probabilities,
             "impact_breakdown": self.impact_breakdown,
+            "business_relevance_score": self.business_relevance_score,
+            "business_relevance_reasons": self.business_relevance_reasons,
             "view_count": self.view_count,
             "like_count": self.like_count,
             "comment_count": self.comment_count,
