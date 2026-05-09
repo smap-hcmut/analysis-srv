@@ -47,6 +47,7 @@ class CrisisInput:
     project_id: str
     campaign_id: str
     bi_reports: object  # BIReportBundle
+    crisis_config: dict | None = None
 
 
 @dataclass

@@ -1,0 +1,410 @@
+# ==============================================================================
+# Vietnam Marketing Campaign ontology
+#
+# Schema: matches internal.ontology.type.OntologyRegistry.
+# Focus: real social-first campaign analysis, with Kotex Anh Trai Good Night as
+# the first demo overlay domain.
+# ==============================================================================
+
+metadata:
+  name: smap-marketing-campaign-vn
+  version: "2026.05.09-marketing-v1"
+  description: >
+    Vietnam marketing-campaign ontology for monitoring creative resonance,
+    influencer fit, UGC participation, brand lift, conversion intent, and
+    brand-safety risks.
+
+domain_id: marketing_campaign_vn
+
+activation:
+  primary_min_score: 2.5
+  primary_min_matched_records: 2
+  signals:
+    - phrase: chien dich marketing
+      weight: 2.0
+    - phrase: influencer marketing
+      weight: 2.0
+    - phrase: ugc
+      weight: 1.8
+    - phrase: tiktok
+      weight: 1.2
+    - phrase: viral campaign
+      weight: 1.8
+    - phrase: anh trai good night
+      weight: 3.0
+    - phrase: kotex
+      weight: 2.4
+    - phrase: quang hung masterd
+      weight: 2.0
+    - phrase: duong domic
+      weight: 2.0
+    - phrase: mv quang cao
+      weight: 1.8
+
+entity_types:
+  - brand
+  - product
+  - person
+  - organization
+  - location
+  - facility
+  - retailer
+  - concept
+
+taxonomy_nodes:
+  - id: category.marketing_campaign
+    label: Marketing Campaign
+    node_type: category
+  - id: category.fmcg
+    label: FMCG
+    node_type: category
+    parent_id: category.marketing_campaign
+  - id: category.influencer_marketing
+    label: Influencer Marketing
+    node_type: category
+    parent_id: category.marketing_campaign
+  - id: category.social_video
+    label: Social Video
+    node_type: category
+    parent_id: category.marketing_campaign
+  - id: feature.creative_hook
+    label: Creative Hook
+    node_type: feature
+  - id: feature.creator_fit
+    label: Creator Fit
+    node_type: feature
+  - id: feature.ugc_participation
+    label: UGC Participation
+    node_type: feature
+  - id: feature.brand_lift
+    label: Brand Lift
+    node_type: feature
+  - id: feature.conversion_intent
+    label: Conversion Intent
+    node_type: feature
+  - id: feature.cultural_fit
+    label: Cultural Fit
+    node_type: feature
+  - id: feature.brand_safety
+    label: Brand Safety
+    node_type: feature
+  - id: feature.media_efficiency
+    label: Media Efficiency
+    node_type: feature
+
+aspect_categories:
+  - id: creative_hook
+    label: Creative Hook
+    description: Reaction to the idea, music, tagline, memeability, and first-second hook.
+    seed_phrases: [y tuong, concept, hook, mv, bai hat, cau slogan, meme, de nho, bat tai]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [creative_resonance, social_video_performance]
+    related_issue_ids: [cringe_creative, campaign_fatigue]
+
+  - id: influencer_fit
+    label: Influencer Fit
+    description: Fit, credibility, fandom reaction, and creator-brand match.
+    seed_phrases: [kol, koc, idol, influencer, quang hung, duong domic, anh trai, fan, fandom, hop brand]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [influencer_fit]
+    related_issue_ids: [low_brand_fit, backlash]
+
+  - id: ugc_participation
+    label: UGC Participation
+    description: User remixes, TikTok trend, hashtag usage, and creator participation.
+    seed_phrases: [ugc, du trend, cover, remix, hashtag, challenge, stitch, duet, bat trend]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [ugc_and_trend_spread]
+    related_issue_ids: [campaign_fatigue, low_brand_fit]
+
+  - id: brand_lift
+    label: Brand Lift
+    description: Awareness, recall, brand love, and change in brand perception.
+    seed_phrases: [brand love, nho toi brand, thien cam, an tuong, noi bat, do nhan dien, buzz]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [brand_lift_and_buzz]
+    related_issue_ids: [backlash, misinformation]
+
+  - id: conversion_intent
+    label: Conversion Intent
+    description: Purchase intent, trial, basket interest, store availability, and promotion pull.
+    seed_phrases: [mua, dung thu, tim mua, sale, voucher, shopee, lazada, cua hang, mua o dau]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [conversion_and_retail]
+    related_issue_ids: [conversion_gap]
+
+  - id: cultural_relevance
+    label: Cultural Relevance
+    description: Cultural insight, gender sensitivity, youth relevance, and social context fit.
+    seed_phrases: [gen z, insight, van hoa, gan gui, tinh te, phu hop, nhay cam, nu gioi]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [cultural_fit]
+    related_issue_ids: [backlash, low_brand_fit]
+
+  - id: brand_safety
+    label: Brand Safety
+    description: Mockery, controversy, misinformation, unsafe creator context, and reputation risk.
+    seed_phrases: [phong bat, tranh cai, bi che, bi nem da, fake news, nhay cam, tay chay]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [brand_safety_watch]
+    related_issue_ids: [backlash, misinformation, cringe_creative]
+
+intent_categories:
+  - id: question
+    label: Question
+    description: Asking about the campaign, product, creator, or purchase path.
+    seed_phrases: [hoi, "?", ai hat, mua o dau, campaign gi, brand nao]
+  - id: complaint
+    label: Complaint
+    description: Negative reaction, criticism, boycott, or brand-safety complaint.
+    seed_phrases: [te, cringe, phan cam, khong hop, tay chay, nem da]
+  - id: commentary
+    label: Commentary
+    description: General reaction, marketing discussion, or campaign analysis.
+    seed_phrases: [theo minh, case study, phan tich, nhan xet, review]
+  - id: praise
+    label: Praise
+    description: Positive reaction or recommendation.
+    seed_phrases: [hay, de thuong, tinh te, thich, dinh, viral, dang khen]
+  - id: purchase_intent
+    label: Purchase Intent
+    description: Interest in buying, trying, or searching for the promoted product.
+    seed_phrases: [mua, dung thu, tim mua, dat hang, cho minh xin link]
+  - id: compare
+    label: Comparison
+    description: Comparing campaigns, brands, creators, or creative approaches.
+    seed_phrases: [so sanh, vs, giong, khac, hon, kem hon]
+
+issue_categories:
+  - id: backlash
+    label: Backlash
+    description: Negative public reaction, controversy, or boycott risk.
+    seed_phrases: [tranh cai, bi nem da, tay chay, phan cam, nhay cam, toxic]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [brand_safety_watch, cultural_fit]
+    related_aspect_ids: [brand_safety, cultural_relevance, influencer_fit]
+
+  - id: low_brand_fit
+    label: Low Brand Fit
+    description: Creator, music, message, or format feels disconnected from brand/product.
+    seed_phrases: [khong hop brand, lech brand, gan guong, khong lien quan, bi ep]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [influencer_fit, cultural_fit]
+    related_aspect_ids: [influencer_fit, cultural_relevance, ugc_participation]
+
+  - id: cringe_creative
+    label: Cringe Creative
+    description: Creative execution is perceived as forced, awkward, or embarrassing.
+    seed_phrases: [cringe, xau ho, sen, lo, kho nghe, kho xem, qua da]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [creative_resonance, social_video_performance]
+    related_aspect_ids: [creative_hook, brand_safety]
+
+  - id: misinformation
+    label: Misinformation
+    description: False claim, misunderstood product message, or rumor around the campaign.
+    seed_phrases: [fake news, sai thong tin, hieu lam, tin don, noi qua, misleading]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [brand_safety_watch]
+    related_aspect_ids: [brand_safety, brand_lift]
+
+  - id: campaign_fatigue
+    label: Campaign Fatigue
+    description: Users feel overexposed to the same ad, sound, creator, or hashtag.
+    seed_phrases: [qua nhieu, lap lai, bi spam, chan, dau dau, gap hoai, ngap feed]
+    compatible_entity_types: [brand, product, person, organization, concept]
+    linked_topic_keys: [ugc_and_trend_spread, social_video_performance]
+    related_aspect_ids: [creative_hook, ugc_participation]
+
+  - id: conversion_gap
+    label: Conversion Gap
+    description: High buzz does not translate to product interest, availability, or buying action.
+    seed_phrases: [khong mua, khong thay ban, het hang, khong co link, chi viral thoi]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+    linked_topic_keys: [conversion_and_retail]
+    related_aspect_ids: [conversion_intent]
+
+source_channels:
+  - id: tiktok
+    label: TikTok
+  - id: facebook
+    label: Facebook
+  - id: youtube
+    label: YouTube
+  - id: instagram
+    label: Instagram
+  - id: twitter
+    label: X (Twitter)
+  - id: web
+    label: Web / News
+
+entities:
+  - id: brand.kotex
+    name: Kotex
+    entity_type: brand
+    knowledge_layer: domain
+    aliases: [kotex, kotex vietnam, kotex viet nam]
+    taxonomy_ids: [category.fmcg]
+    neighboring_entity_ids: [concept.kotex_goodnight_campaign]
+    neighboring_aspect_ids: [brand_lift, conversion_intent, brand_safety]
+    domain_anchor_phrases: [kotex anh trai good night, anh trai goodnight]
+    description: Feminine-care brand monitored for social-first campaign performance.
+
+  - id: concept.kotex_goodnight_campaign
+    name: Kotex Anh Trai Good Night
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: domain
+    aliases: [anh trai good night, anh trai goodnight, good night kotex, kotex good night]
+    taxonomy_ids: [category.marketing_campaign, category.fmcg, category.influencer_marketing, category.social_video]
+    neighboring_entity_ids: [brand.kotex, person.quang_hung_masterd, person.duong_domic]
+    neighboring_aspect_ids: [creative_hook, influencer_fit, ugc_participation, brand_lift, cultural_relevance]
+    domain_anchor_phrases: [mv anh trai good night, kotex quang hung masterd, kotex duong domic]
+    description: 2025 Vietnam influencer-led campaign used as a real marketing demo domain.
+
+  - id: person.quang_hung_masterd
+    name: Quang Hung MasterD
+    entity_type: person
+    knowledge_layer: domain
+    aliases: [quang hung masterd, quang hung, qh masterd]
+    taxonomy_ids: [category.influencer_marketing]
+    neighboring_entity_ids: [concept.kotex_goodnight_campaign, brand.kotex]
+    neighboring_aspect_ids: [influencer_fit, ugc_participation, brand_lift]
+    domain_anchor_phrases: [quang hung kotex, quang hung good night]
+    description: Influencer/artist associated with the campaign.
+
+  - id: person.duong_domic
+    name: Duong Domic
+    entity_type: person
+    knowledge_layer: domain
+    aliases: [duong domic, duongdomic, duong domicile]
+    taxonomy_ids: [category.influencer_marketing]
+    neighboring_entity_ids: [concept.kotex_goodnight_campaign, brand.kotex]
+    neighboring_aspect_ids: [influencer_fit, ugc_participation, brand_lift]
+    domain_anchor_phrases: [duong domic kotex, duong domic good night]
+    description: Influencer/artist associated with the campaign.
+
+  - id: concept.influencer_marketing
+    name: Influencer Marketing
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [influencer marketing, kol, koc, creator marketing, idol marketing]
+    taxonomy_ids: [category.influencer_marketing]
+    description: Creator-led marketing concept.
+
+  - id: concept.ugc
+    name: User Generated Content
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [ugc, du trend, cover, remix, hashtag challenge, user generated content]
+    taxonomy_ids: [feature.ugc_participation, category.social_video]
+    description: User participation and remix behavior.
+
+topics:
+  - topic_key: creative_resonance
+    label: Creative Resonance
+    topic_family: creative
+    main_path_policy: core
+    description: Whether the creative idea, MV, sound, and message are memorable.
+    seed_phrases: [concept, mv, bai hat, hook, de nho, bat tai, slogan, viral]
+    related_entity_ids: [brand.kotex, concept.kotex_goodnight_campaign]
+    related_taxonomy_ids: [category.marketing_campaign, feature.creative_hook]
+    related_aspect_ids: [creative_hook]
+    related_issue_ids: [cringe_creative, campaign_fatigue]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+  - topic_key: influencer_fit
+    label: Influencer Fit
+    topic_family: creator
+    main_path_policy: domain_primary
+    description: Creator credibility, fandom reaction, and brand/category fit.
+    seed_phrases: [kol, koc, idol, influencer, quang hung, duong domic, fan, fandom, hop brand]
+    related_entity_ids: [brand.kotex, concept.kotex_goodnight_campaign, person.quang_hung_masterd, person.duong_domic, concept.influencer_marketing]
+    related_taxonomy_ids: [category.influencer_marketing, feature.creator_fit]
+    related_aspect_ids: [influencer_fit]
+    related_issue_ids: [low_brand_fit, backlash]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+  - topic_key: ugc_and_trend_spread
+    label: UGC and Trend Spread
+    topic_family: social_spread
+    main_path_policy: core
+    description: Hashtag spread, user remixes, covers, and TikTok participation.
+    seed_phrases: [ugc, du trend, cover, remix, hashtag, challenge, stitch, duet, tiktok]
+    related_entity_ids: [concept.kotex_goodnight_campaign, concept.ugc]
+    related_taxonomy_ids: [category.social_video, feature.ugc_participation]
+    related_aspect_ids: [ugc_participation]
+    related_issue_ids: [campaign_fatigue, low_brand_fit]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+  - topic_key: brand_lift_and_buzz
+    label: Brand Lift and Buzz
+    topic_family: brand
+    main_path_policy: core
+    description: Awareness, brand love, recall, and social buzz quality.
+    seed_phrases: [brand love, buzz, do phu song, nhan dien, thien cam, an tuong]
+    related_entity_ids: [brand.kotex, concept.kotex_goodnight_campaign]
+    related_taxonomy_ids: [feature.brand_lift, feature.media_efficiency]
+    related_aspect_ids: [brand_lift]
+    related_issue_ids: [backlash, misinformation]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: conversion_and_retail
+    label: Conversion and Retail Pull
+    topic_family: commerce
+    main_path_policy: core
+    description: Purchase intent, trial, product search, retail links, and availability.
+    seed_phrases: [mua, dung thu, tim mua, link mua, shopee, lazada, cua hang, voucher]
+    related_entity_ids: [brand.kotex, concept.kotex_goodnight_campaign]
+    related_taxonomy_ids: [feature.conversion_intent]
+    related_aspect_ids: [conversion_intent]
+    related_issue_ids: [conversion_gap]
+    compatible_entity_types: [brand, product, retailer, organization, concept]
+
+  - topic_key: cultural_fit
+    label: Cultural Fit
+    topic_family: culture
+    main_path_policy: core
+    description: Cultural relevance, gender sensitivity, youth language, and category nuance.
+    seed_phrases: [gen z, insight, tinh te, gan gui, phu hop, nhay cam, nu gioi]
+    related_entity_ids: [brand.kotex, concept.kotex_goodnight_campaign]
+    related_taxonomy_ids: [feature.cultural_fit]
+    related_aspect_ids: [cultural_relevance]
+    related_issue_ids: [backlash, low_brand_fit]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+  - topic_key: brand_safety_watch
+    label: Brand Safety Watch
+    topic_family: risk
+    main_path_policy: core
+    description: Mockery, misinformation, controversy, creator risk, and reputation watch.
+    seed_phrases: [tranh cai, nem da, tay chay, phong bat, fake news, nhay cam, bi che]
+    related_entity_ids: [brand.kotex, concept.kotex_goodnight_campaign, person.quang_hung_masterd, person.duong_domic]
+    related_taxonomy_ids: [feature.brand_safety]
+    related_aspect_ids: [brand_safety]
+    related_issue_ids: [backlash, misinformation, cringe_creative]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+  - topic_key: social_video_performance
+    label: Social Video Performance
+    topic_family: media
+    main_path_policy: core
+    description: Views, comments, shares, watchability, and short-video execution.
+    seed_phrases: [view, comment, share, luot xem, tuong tac, tiktok, reels, shorts]
+    related_entity_ids: [concept.kotex_goodnight_campaign, concept.ugc]
+    related_taxonomy_ids: [category.social_video, feature.media_efficiency]
+    related_aspect_ids: [creative_hook, ugc_participation]
+    related_issue_ids: [campaign_fatigue, cringe_creative]
+    compatible_entity_types: [brand, product, person, organization, concept]
+
+alias_contributions: []
+
+noise_terms:
+  - term: idol
+    reason: broad_creator_term_without_campaign_context
+  - term: fan
+    reason: broad_fandom_term_without_campaign_context
+  - term: viral
+    reason: broad_marketing_claim_without_entity_context

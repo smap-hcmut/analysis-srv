@@ -23,6 +23,7 @@ class CrisisUseCase(ICrisisUseCase):
             project_id=inp.project_id,
             campaign_id=inp.campaign_id,
             reports=inp.bi_reports,
+            crisis_config=inp.crisis_config,
         )
         logger.info(
             "crisis: assessment done",

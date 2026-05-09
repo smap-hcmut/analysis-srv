@@ -42,8 +42,40 @@ async def test_apply_crisis_runtime_rejects_invalid_status():
     with pytest.raises(BadRequestError):
         await client.apply_crisis_runtime(
             "proj-1",
-            status="watch",
+            status="escalating",
         )
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_apply_crisis_runtime_accepts_watch_level():
+    client = ProjectServiceClient(
+        base_url="http://project-srv.local",
+        internal_key="secret",
+    )
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {
+                "data": {
+                    "project_id": "proj-watch",
+                    "crisis_status": "WATCH",
+                    "crisis_level": "WATCH",
+                    "applied_crawl_mode": "CRISIS",
+                    "affected_datasource_count": 2,
+                }
+            },
+        )
+    )
+    client._client = fake
+
+    out = await client.apply_crisis_runtime("proj-watch", status="watch")
+
+    assert out.crisis_status == "WATCH"
+    assert out.crisis_level == "WATCH"
+    assert fake.last_json.get("status") == "WATCH"
+    assert fake.last_json.get("crisis_level") == "WATCH"
 
     await client.close()
 

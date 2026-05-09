@@ -73,3 +73,61 @@ def test_process_batch_negativizes_complaint_intent(monkeypatch):
 
     assert outputs[0].overall.label == "NEGATIVE"
     assert outputs[0].overall.score == -0.5
+
+
+def test_process_promotes_clear_positive_service_praise(monkeypatch):
+    import internal.sentiment_analysis.usecase.process as process_module
+
+    monkeypatch.setattr(
+        process_module,
+        "analyze_overall",
+        lambda text, phobert_model, config, logger: SentimentResult(
+            label="NEUTRAL",
+            score=0.0,
+            confidence=0.55,
+            probabilities={},
+            rating=3,
+        ),
+    )
+
+    output = process(
+        input_data=Input(
+            text="Ahamove giao hàng rất nhanh, tài xế thân thiện, giá hợp lý.",
+            intent="PRAISE",
+        ),
+        phobert_model=_UnusedModel(),
+        config=Config(),
+        logger=_NoopLogger(),
+    )
+
+    assert output.overall.label == "POSITIVE"
+    assert output.overall.score == 0.5
+
+
+def test_process_negative_signal_beats_surface_positive_words(monkeypatch):
+    import internal.sentiment_analysis.usecase.process as process_module
+
+    monkeypatch.setattr(
+        process_module,
+        "analyze_overall",
+        lambda text, phobert_model, config, logger: SentimentResult(
+            label="POSITIVE",
+            score=0.5,
+            confidence=0.55,
+            probabilities={},
+            rating=4,
+        ),
+    )
+
+    output = process(
+        input_data=Input(
+            text="Bạn nói rất đúng ạ, nhưng tài xế hỏi chuyện quá sâu và còn xin đểu tiền.",
+            intent="COMMENTARY",
+        ),
+        phobert_model=_UnusedModel(),
+        config=Config(),
+        logger=_NoopLogger(),
+    )
+
+    assert output.overall.label == "NEGATIVE"
+    assert output.overall.score == -0.5

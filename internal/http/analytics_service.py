@@ -23,6 +23,29 @@ PLATFORM_META: dict[str, dict[str, str]] = {
 }
 
 
+def public_sentiment_label(raw_label: Any, score: float | None = None) -> str:
+    """Map persisted sentiment to the public API label.
+
+    The NLP pipeline stores scores on a signed scale (-0.5/0/0.5 today), so
+    using 0..1 thresholds here hides every positive mention. Persisted labels
+    are the source of truth; score fallback is only for older rows.
+    """
+    label = str(raw_label or "").strip().upper()
+    if label == "POSITIVE":
+        return "positive"
+    if label == "NEGATIVE":
+        return "negative"
+    if label == "NEUTRAL":
+        return "neutral"
+
+    value = float(score or 0.0)
+    if value > 0.25:
+        return "positive"
+    if value < -0.25:
+        return "negative"
+    return "neutral"
+
+
 @dataclass
 class AnalyticsContext:
     campaign_id: str
@@ -49,7 +72,7 @@ class AnalyticsService:
         # Negative cache for campaigns whose queries hit statement_timeout. Without
         # this, every UI refresh re-issues 7 expensive queries and burns 25s each
         # on the server, blocking the connection pool for the rest of the system.
-        self._timeout_cache: dict[str, float] = {}
+        self._timeout_cache: dict[tuple[Any, ...], float] = {}
         self._timeout_cache_ttl: float = 60.0
 
     def _resolve_query_timeout_ms(self, project_count: int, query_profile: str = "normal") -> int:
@@ -73,17 +96,21 @@ class AnalyticsService:
         timeout_ms = max(8_000, min(timeout_ms, 70_000))
         return timeout_ms
 
-    def _is_timed_out(self, campaign_id: str) -> bool:
-        until = self._timeout_cache.get(campaign_id)
+    def _timeout_key(self, campaign_id: str, scope: tuple[Any, ...] | None = None) -> tuple[Any, ...]:
+        return (campaign_id, *(scope or ()))
+
+    def _is_timed_out(self, campaign_id: str, scope: tuple[Any, ...] | None = None) -> bool:
+        key = self._timeout_key(campaign_id, scope)
+        until = self._timeout_cache.get(key)
         if not until:
             return False
         if until <= time.time():
-            self._timeout_cache.pop(campaign_id, None)
+            self._timeout_cache.pop(key, None)
             return False
         return True
 
-    def _mark_timed_out(self, campaign_id: str) -> None:
-        self._timeout_cache[campaign_id] = time.time() + self._timeout_cache_ttl
+    def _mark_timed_out(self, campaign_id: str, scope: tuple[Any, ...] | None = None) -> None:
+        self._timeout_cache[self._timeout_key(campaign_id, scope)] = time.time() + self._timeout_cache_ttl
 
     def _cache_get(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         cached = self._response_cache.get(key)
@@ -111,7 +138,7 @@ class AnalyticsService:
         )
 
     async def get_kpis(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_kpis(campaign_id))
+        return await self._guarded(campaign_id, self._compute_kpis(campaign_id), ("kpis",))
 
     async def _compute_kpis(self, campaign_id: str) -> dict[str, Any]:
         cache_key = ("kpis", campaign_id)
@@ -220,7 +247,7 @@ ORDER BY 1
         })
 
     async def get_platforms(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_platforms(campaign_id))
+        return await self._guarded(campaign_id, self._compute_platforms(campaign_id), ("platforms",))
 
     async def _compute_platforms(self, campaign_id: str) -> dict[str, Any]:
         cache_key = ("platforms", campaign_id)
@@ -318,7 +345,7 @@ ORDER BY 1
         return self._cache_set(cache_key, {"stats": stats, "timeSeries": time_series, "months": months})
 
     async def get_sentiment(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id))
+        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id), ("sentiment",))
 
     async def _compute_sentiment(self, campaign_id: str) -> dict[str, Any]:
         cache_key = ("sentiment", campaign_id)
@@ -346,9 +373,9 @@ ORDER BY 1
                 self._base_cte(ctx.project_ids)
                 + """
 SELECT
-  COUNT(*) FILTER (WHERE overall_sentiment_score >= 0.7) AS positive_count,
-  COUNT(*) FILTER (WHERE overall_sentiment_score >= 0.4 AND overall_sentiment_score < 0.7) AS neutral_count,
-  COUNT(*) FILTER (WHERE overall_sentiment_score < 0.4) AS negative_count,
+  COUNT(*) FILTER (WHERE UPPER(COALESCE(overall_sentiment, '')) = 'POSITIVE') AS positive_count,
+  COUNT(*) FILTER (WHERE UPPER(COALESCE(overall_sentiment, '')) = 'NEUTRAL') AS neutral_count,
+  COUNT(*) FILTER (WHERE UPPER(COALESCE(overall_sentiment, '')) = 'NEGATIVE') AS negative_count,
   COALESCE(AVG(overall_sentiment_score) * 100, 0) AS avg_sentiment,
   COUNT(*) AS total
 FROM deduped_post_insight
@@ -400,7 +427,7 @@ ORDER BY 1
         })
 
     async def get_keywords(self, campaign_id: str, limit: int = 50) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit))
+        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit), ("keywords", limit))
 
     async def _compute_keywords(self, campaign_id: str, limit: int = 50) -> dict[str, Any]:
         cache_key = ("keywords", campaign_id, limit)
@@ -465,9 +492,16 @@ LIMIT :limit
         limit: int = 30,
         offset: int = 0,
     ) -> dict[str, Any]:
+        timeout_scope = (
+            "posts",
+            str(platform or "all").strip().lower(),
+            str(sentiment or "all").strip().lower(),
+            "time" if str(sort or "").strip().lower() == "time" else "engagement",
+        )
         return await self._guarded(
             campaign_id,
             self._compute_posts(campaign_id, platform, sentiment, sort, limit, offset),
+            timeout_scope,
         )
 
     async def _compute_posts(
@@ -479,7 +513,12 @@ LIMIT :limit
         limit: int = 30,
         offset: int = 0,
     ) -> dict[str, Any]:
-        cache_key = ("posts", campaign_id, platform, sentiment, sort, limit, offset)
+        platform_key = str(platform or "all").strip().lower()
+        sentiment_key = str(sentiment or "all").strip().lower()
+        sort_key = "time" if str(sort or "").strip().lower() == "time" else "engagement"
+        platform_filter = platform_key.upper() if platform_key.upper() in PLATFORM_META else "all"
+        sentiment_filter = sentiment_key if sentiment_key in {"positive", "negative", "neutral"} else "all"
+        cache_key = ("posts", campaign_id, platform_filter.lower(), sentiment_filter, sort_key, limit, offset)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -490,20 +529,26 @@ LIMIT :limit
 
         conditions = []
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        if platform != "all":
-            conditions.append("UPPER(platform) = :platform")
-            params["platform"] = platform.upper()
-        if sentiment == "positive":
-            conditions.append("overall_sentiment_score >= 0.7")
-        elif sentiment == "negative":
-            conditions.append("overall_sentiment_score < 0.4")
-        elif sentiment == "neutral":
-            conditions.append("overall_sentiment_score >= 0.4 AND overall_sentiment_score < 0.7")
+        pre_filters: list[str] = []
+        if platform_filter != "all":
+            platform_expr = "COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN')"
+            pre_filters.append(f"{platform_expr} = '{self._escape(platform_filter)}'")
+            conditions.append("COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') = :platform")
+            params["platform"] = platform_filter
+        if sentiment_filter == "positive":
+            pre_filters.append("UPPER(COALESCE(pi.overall_sentiment, '')) = 'POSITIVE'")
+            conditions.append("UPPER(COALESCE(overall_sentiment, '')) = 'POSITIVE'")
+        elif sentiment_filter == "negative":
+            pre_filters.append("UPPER(COALESCE(pi.overall_sentiment, '')) = 'NEGATIVE'")
+            conditions.append("UPPER(COALESCE(overall_sentiment, '')) = 'NEGATIVE'")
+        elif sentiment_filter == "neutral":
+            pre_filters.append("UPPER(COALESCE(pi.overall_sentiment, '')) = 'NEUTRAL'")
+            conditions.append("UPPER(COALESCE(overall_sentiment, '')) = 'NEUTRAL'")
         where = " AND ".join(conditions) if conditions else "1 = 1"
-        order_by = "content_created_at DESC NULLS LAST" if sort == "time" else "engagement_score DESC NULLS LAST"
+        order_by = "content_created_at DESC NULLS LAST" if sort_key == "time" else "engagement_score DESC NULLS LAST"
 
         sql = (
-            self._base_cte(ctx.project_ids)
+            self._base_cte(ctx.project_ids, pre_filters)
             + f"""
 SELECT
   id::text,
@@ -535,11 +580,7 @@ LIMIT :limit OFFSET :offset
                 uap = {}
             engagement = uap.get("engagement") or {}
             score = float(row["overall_sentiment_score"])
-            label = "neutral"
-            if score >= 0.7:
-                label = "positive"
-            elif score < 0.4:
-                label = "negative"
+            label = public_sentiment_label(row["overall_sentiment"], score)
             posts.append({
                 "id": str(row["id"]),
                 "platform": str(row["platform"] or "unknown"),
@@ -564,7 +605,7 @@ LIMIT :limit OFFSET :offset
         return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=10.0)
 
     async def get_project_stats(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id))
+        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id), ("project-stats",))
 
     async def _compute_project_stats(self, campaign_id: str) -> dict[str, Any]:
         cache_key = ("project-stats", campaign_id)
@@ -604,7 +645,7 @@ GROUP BY project_id
         })
 
     async def get_heap(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_heap(campaign_id))
+        return await self._guarded(campaign_id, self._compute_heap(campaign_id), ("heap",))
 
     async def _compute_heap(self, campaign_id: str) -> dict[str, Any]:
         cache_key = ("heap", campaign_id)
@@ -735,18 +776,18 @@ ORDER BY project_id, volume DESC
         msg = str(exc).lower()
         return "statement timeout" in msg or "querycancelederror" in type(exc).__name__.lower()
 
-    async def _guarded(self, campaign_id: str, coro):
+    async def _guarded(self, campaign_id: str, coro, timeout_scope: tuple[Any, ...] | None = None):
         """Run an analytics coroutine, mark the campaign as 'too heavy' on
         statement_timeout so later requests fail fast instead of spending
         another timeout window holding pool slots."""
-        if self._is_timed_out(campaign_id):
+        if self._is_timed_out(campaign_id, timeout_scope):
             coro.close()
             raise APIError(504, "analytics query exceeded server time limit")
         try:
             return await coro
         except Exception as exc:
             if self._is_statement_timeout(exc):
-                self._mark_timed_out(campaign_id)
+                self._mark_timed_out(campaign_id, timeout_scope)
                 raise APIError(504, "analytics query exceeded server time limit") from exc
             raise
 
@@ -783,9 +824,10 @@ ORDER BY project_id, volume DESC
             ")"
         )
 
-    def _base_cte(self, project_ids: list[str]) -> str:
+    def _base_cte(self, project_ids: list[str], pre_filters: list[str] | None = None) -> str:
         quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
         identity_expr = self._source_identity_expr("pi")
+        extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
         return f"""
 WITH latest_post_insight AS (
   SELECT DISTINCT ON (
@@ -796,6 +838,15 @@ WITH latest_post_insight AS (
   FROM analysis.post_insight pi
   WHERE project_id IN ({quoted_ids})
     AND pi.business_relevance_score >= 0.45
+{extra_where}
+    AND NOT (
+      LOWER(COALESCE(pi.content, '')) ~ '(^|[^a-z0-9])codm|(^|[^a-z0-9])cod([^a-z0-9]|$)'
+      AND LOWER(COALESCE(pi.content, '')) !~ '(ship cod|thu ho|thu hộ|don hang|đơn hàng|giao hang|giao hàng|shipper|khach bom|khách bom|bom hang|bom hàng|thu tien|thu tiền|nhan tien|nhận tiền|ung tien|ứng tiền|delivery|cash on delivery|collect on delivery)'
+    )
+    AND NOT (
+      LOWER(COALESCE(pi.content, '')) ~ '(grabe sayo|joy ?stick|warzone|free fire|apex movement|juego|jugador|jugadores|fps ultra|gr[aá]ficos)'
+      AND LOWER(COALESCE(pi.content, '')) !~ '(giao hang|giao hàng|shipper|don hang|đơn hàng|thu ho|thu hộ)'
+    )
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
     {identity_expr},

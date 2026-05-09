@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,8 +56,11 @@ class ConsumerServer(IConsumerServer):
         self._crisis_runtime_apply_enabled = self._env_enabled(
             os.getenv("ANALYTICS_ENABLE_CRISIS_RUNTIME_APPLY", "false")
         )
-        self._last_crisis_runtime_status: dict[str, str] = {}
+        self._crisis_alert_topic = os.getenv("ANALYTICS_CRISIS_ALERT_TOPIC", "analytics.crisis.alert")
+        self._last_crisis_runtime_status: dict[str, tuple[str, float]] = {}
         self._domain_pipeline_config_cache: dict[str, object] = {}
+        self._crisis_runtime_state_prefix = "smap:crisis:runtime-state"
+        self._crisis_runtime_lock_prefix = "smap:crisis:runtime-lock"
 
     async def start(self) -> None:
         try:
@@ -272,6 +276,12 @@ class ConsumerServer(IConsumerServer):
                 pipeline_config = self._resolve_pipeline_config_for_domain(
                     domain_config.domain_code
                 )
+                crisis_runtime_config = await self._get_crisis_runtime_config(project_id)
+                if crisis_runtime_config is not None:
+                    pipeline_config = dataclasses.replace(
+                        pipeline_config,
+                        crisis_config=crisis_runtime_config.crisis_config,
+                    )
 
                 for uap_record in uap_records:
                     uap_record.raw["_resolved_domain_overlay"] = (
@@ -318,7 +328,8 @@ class ConsumerServer(IConsumerServer):
                     f"timings={result.stage_timings}"
                 )
 
-                await self._maybe_apply_crisis_runtime(result)
+                await self._maybe_apply_crisis_runtime(result, crisis_runtime_config)
+                await self._maybe_publish_crisis_alert(result, crisis_runtime_config)
 
                 if result.nlp_facts:
                     enrich_nlp_facts_with_bundle(
@@ -457,9 +468,25 @@ class ConsumerServer(IConsumerServer):
             return "CRITICAL"
         if normalized == "warning":
             return "WARNING"
+        if normalized == "watch":
+            return "WATCH"
+        if normalized == "none":
+            return "NONE"
         return "NORMAL"
 
-    async def _maybe_apply_crisis_runtime(self, result) -> None:
+    async def _get_crisis_runtime_config(self, project_id: str):
+        if self.project_service_client is None:
+            return None
+        try:
+            return await self.project_service_client.get_crisis_runtime_config(project_id)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to fetch crisis runtime config; falling back to defaults",
+                extra={"project_id": project_id, "error": str(exc)},
+            )
+            return None
+
+    async def _maybe_apply_crisis_runtime(self, result, runtime_config=None) -> None:
         if not self._crisis_runtime_apply_enabled:
             return
         if self.project_service_client is None:
@@ -475,14 +502,18 @@ class ConsumerServer(IConsumerServer):
 
         crisis_level = str(getattr(assessment, "crisis_level", "none"))
         target_status = self._map_crisis_level_to_status(crisis_level)
-        last_status = self._last_crisis_runtime_status.get(project_id)
-
-        # Avoid noisy no-op calls on initial NORMAL state when no prior runtime
-        # transition has been applied for this project.
-        if last_status is None and target_status == "NORMAL":
-            return
+        cooldown_seconds = self._adaptive_cooldown_seconds(runtime_config)
+        last_status, last_updated_at = await self._get_crisis_runtime_state(project_id)
 
         if last_status == target_status:
+            return
+
+        now = time.time()
+        if last_updated_at is not None and now - last_updated_at < cooldown_seconds:
+            return
+
+        lock_token = await self._acquire_crisis_runtime_lock(project_id)
+        if lock_token is None:
             return
 
         run_id = str(getattr(assessment, "run_id", ""))
@@ -493,20 +524,28 @@ class ConsumerServer(IConsumerServer):
         event_ref = f"analysis-run:{run_id}" if run_id else ""
 
         try:
+            last_status, last_updated_at = await self._get_crisis_runtime_state(project_id)
+            if last_status == target_status:
+                return
+            if last_updated_at is not None and time.time() - last_updated_at < cooldown_seconds:
+                return
+
             output = await self.project_service_client.apply_crisis_runtime(
                 project_id,
-                status=target_status,
+                crisis_level=target_status,
                 reason=reason,
                 event_ref=event_ref,
             )
-            self._last_crisis_runtime_status[project_id] = target_status
+            await self._set_crisis_runtime_state(project_id, target_status)
             self.logger.info(
                 "Crisis runtime applied",
                 extra={
                     "project_id": output.project_id,
                     "crisis_status": output.crisis_status,
+                    "crisis_level": output.crisis_level,
                     "applied_crawl_mode": output.applied_crawl_mode,
                     "affected_datasources": output.affected_datasource_count,
+                    "noop_reason": output.noop_reason,
                 },
             )
         except Exception as exc:
@@ -518,6 +557,227 @@ class ConsumerServer(IConsumerServer):
                     "error": str(exc),
                 },
             )
+        finally:
+            await self._release_crisis_runtime_lock(project_id, lock_token)
+
+    async def _get_crisis_runtime_state(self, project_id: str) -> tuple[str | None, float | None]:
+        redis_entry = await self._get_redis_crisis_runtime_state(project_id)
+        if redis_entry is not None:
+            return redis_entry
+
+        local_entry = self._last_crisis_runtime_status.get(project_id)
+        if local_entry is None:
+            return None, None
+        return local_entry
+
+    async def _get_redis_crisis_runtime_state(self, project_id: str) -> tuple[str | None, float | None] | None:
+        redis = getattr(self.deps, "redis", None)
+        if redis is None:
+            return None
+        try:
+            value = await redis.get_json(self._crisis_runtime_state_key(project_id))
+        except Exception:
+            return None
+        if not isinstance(value, dict):
+            return None
+
+        status = str(value.get("status") or "").strip().upper() or None
+        updated_at_raw = value.get("updated_at")
+        try:
+            updated_at = float(updated_at_raw) if updated_at_raw is not None else None
+        except (TypeError, ValueError):
+            updated_at = None
+        return status, updated_at
+
+    async def _set_crisis_runtime_state(self, project_id: str, target_status: str) -> None:
+        now = time.time()
+        self._last_crisis_runtime_status[project_id] = (target_status, now)
+
+        redis = getattr(self.deps, "redis", None)
+        if redis is None:
+            return
+        try:
+            await redis.set(
+                self._crisis_runtime_state_key(project_id),
+                {"status": target_status, "updated_at": now},
+            )
+        except Exception:
+            return
+
+    async def _acquire_crisis_runtime_lock(self, project_id: str) -> str | None:
+        redis = getattr(self.deps, "redis", None)
+        client = getattr(redis, "client", None)
+        if client is None:
+            return ""
+        token = uuid.uuid4().hex
+        try:
+            acquired = await client.set(
+                self._crisis_runtime_lock_key(project_id),
+                token,
+                ex=45,
+                nx=True,
+            )
+            return token if acquired else None
+        except Exception:
+            return ""
+
+    async def _release_crisis_runtime_lock(self, project_id: str, token: str | None) -> None:
+        if not token:
+            return
+        redis = getattr(self.deps, "redis", None)
+        client = getattr(redis, "client", None)
+        if client is None:
+            return
+        key = self._crisis_runtime_lock_key(project_id)
+        try:
+            current = await client.get(key)
+            if current == token:
+                await client.delete(key)
+        except Exception:
+            return
+
+    def _crisis_runtime_state_key(self, project_id: str) -> str:
+        return f"{self._crisis_runtime_state_prefix}:{project_id}"
+
+    def _crisis_runtime_lock_key(self, project_id: str) -> str:
+        return f"{self._crisis_runtime_lock_prefix}:{project_id}"
+
+    @staticmethod
+    def _adaptive_cooldown_seconds(runtime_config=None) -> float:
+        crisis_config = getattr(runtime_config, "crisis_config", {}) if runtime_config else {}
+        response_policy = crisis_config.get("response_policy") if isinstance(crisis_config, dict) else {}
+        adaptive = response_policy.get("adaptive_crawl") if isinstance(response_policy, dict) else {}
+        minutes = adaptive.get("cooldown_minutes") if isinstance(adaptive, dict) else 30
+        try:
+            return max(float(minutes), 1.0) * 60.0
+        except (TypeError, ValueError):
+            return 30.0 * 60.0
+
+    async def _maybe_publish_crisis_alert(self, result, runtime_config=None) -> None:
+        if self.deps.kafka_producer is None or not self.deps.kafka_producer.is_running():
+            return
+
+        assessment = getattr(result, "crisis_assessment", None)
+        if assessment is None:
+            return
+
+        level = str(getattr(assessment, "crisis_level", "none")).lower()
+        if level == "none":
+            return
+
+        crisis_config = getattr(runtime_config, "crisis_config", {}) if runtime_config else {}
+        response_policy = crisis_config.get("response_policy") if isinstance(crisis_config, dict) else {}
+        notification_policy = response_policy.get("notification") if isinstance(response_policy, dict) else {}
+        if isinstance(notification_policy, dict) and notification_policy.get("enabled") is False:
+            return
+
+        trigger_level = str(
+            notification_policy.get("trigger_level") if isinstance(notification_policy, dict) else "WARNING"
+        ).lower() or "warning"
+        if self._level_rank(level) < self._level_rank(trigger_level):
+            return
+
+        project_id = str(getattr(assessment, "project_id", "")).strip()
+        if not project_id:
+            return
+
+        project_name = str(getattr(runtime_config, "project_name", "") or project_id)
+        owner_user_id = str(getattr(runtime_config, "owner_user_id", "") or "")
+        if not owner_user_id:
+            self.logger.warning(
+                "Skipping crisis alert without owner user",
+                extra={"project_id": project_id, "level": level},
+            )
+            return
+
+        signals = list(getattr(assessment, "signals", []) or [])
+        affected = []
+        sample_mentions = []
+        for signal in signals:
+            signal_type = str(getattr(signal, "signal_type", "") or "")
+            if signal_type:
+                affected.append(signal_type)
+            for ref in getattr(signal, "evidence_references", []) or []:
+                sample_mentions.append(str(ref))
+
+        score = float(getattr(assessment, "composite_crisis_score", 0.0) or 0.0)
+        threshold = self._alert_threshold_for_level(trigger_level)
+        repeat_cooldown_minutes = 60
+        ops_alert = level == "critical"
+        if isinstance(notification_policy, dict):
+            try:
+                repeat_cooldown_minutes = max(
+                    int(notification_policy.get("repeat_cooldown_minutes", repeat_cooldown_minutes)),
+                    1,
+                )
+            except (TypeError, ValueError):
+                repeat_cooldown_minutes = 60
+            ops_alert = bool(notification_policy.get("ops_alert_on_critical", True)) and level == "critical"
+
+        title = f"{project_name}: {level.upper()} brand risk"
+        message = f"SMAP detected {level} crisis signals for {project_name} (score {score:.2f})."
+        run_id = str(getattr(assessment, "run_id", "") or "")
+
+        payload = {
+            "alert_type": "CRISIS_ALERT",
+            "project_id": project_id,
+            "project_name": project_name,
+            "campaign_id": str(getattr(runtime_config, "campaign_id", "") or ""),
+            "user_id": owner_user_id,
+            "severity": "critical" if level == "critical" else "warning",
+            "level": level.upper(),
+            "metric": "composite_crisis_score",
+            "current_value": score,
+            "threshold": threshold,
+            "affected_aspects": affected[:8],
+            "sample_mentions": sample_mentions[:5],
+            "time_window": "current analysis batch",
+            "action_required": "Review negative drivers, align response owner, and monitor crawl acceleration.",
+            "run_id": run_id,
+            "title": title,
+            "message": message,
+            "repeat_cooldown_minutes": repeat_cooldown_minutes,
+            "ops_alert": ops_alert,
+            "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        }
+
+        try:
+            await self.deps.kafka_producer.send_json(
+                topic=self._crisis_alert_topic,
+                value=payload,
+                key=project_id,
+            )
+            self.logger.info(
+                "Crisis alert published",
+                extra={"project_id": project_id, "level": level, "topic": self._crisis_alert_topic},
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Crisis alert publish failed",
+                extra={"project_id": project_id, "level": level, "error": str(exc)},
+            )
+
+    @staticmethod
+    def _level_rank(level: str) -> int:
+        normalized = str(level).strip().lower()
+        if normalized == "critical":
+            return 4
+        if normalized == "warning":
+            return 3
+        if normalized == "watch":
+            return 2
+        if normalized == "normal":
+            return 1
+        return 0
+
+    @staticmethod
+    def _alert_threshold_for_level(level: str) -> float:
+        normalized = str(level).strip().lower()
+        if normalized == "critical":
+            return 5.0
+        if normalized == "watch":
+            return 0.8
+        return 2.5
 
     def _resolve_pipeline_config_for_domain(self, domain_code: str):
         if self.pipeline_config is None or self.registry is None:

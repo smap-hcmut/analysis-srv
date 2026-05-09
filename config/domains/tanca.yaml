@@ -1,0 +1,33 @@
+domain_code: "tanca"
+display_name: "Tanca HRM / CRM"
+
+ontology:
+  path: "config/ontology/hrm_crm_vn.yaml"
+  overlays: []
+
+runtime:
+  brand_names:
+    - "Tanca"
+    - "Tanca.vn"
+    - "Tanca HRM"
+    - "Tanca CRM"
+    - "Tanca Checkin"
+    - "Tanca Payroll"
+  topic_seeds:
+    - "phan mem nhan su"
+    - "phan mem HRM"
+    - "quan ly nhan su"
+    - "cham cong"
+    - "tinh luong"
+    - "ca lam"
+    - "don tu"
+    - "CRM"
+    - "quan ly khach hang"
+    - "pipeline ban hang"
+    - "bao cao nhan su"
+    - "mobile checkin"
+    - "may cham cong"
+  stop_entities: []
+
+contract:
+  domain_overlay: "domain-tanca-hrm-crm-vn"

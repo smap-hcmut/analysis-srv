@@ -299,15 +299,25 @@ def calibrate_overall_sentiment(
 ) -> SentimentResult:
     normalized_intent = (intent or "").strip().upper()
     normalized_text = normalize_text(text)
+    negative_signal = has_negative_signal(normalized_text)
+    positive_signal = has_positive_signal(normalized_text)
 
     if normalized_intent in {"COMPLAINT", "CRISIS"}:
         return override_sentiment(result, LABEL_NEGATIVE, SCORE_RATING_2, 2, 0.8)
 
+    if result.label != LABEL_NEGATIVE and negative_signal:
+        return override_sentiment(result, LABEL_NEGATIVE, SCORE_RATING_2, 2, 0.75)
+
+    if (
+        result.label != LABEL_POSITIVE
+        and positive_signal
+        and not negative_signal
+        and normalized_intent not in {"SUPPORT", "LEAD", "SPAM", "SEEDING"}
+    ):
+        return override_sentiment(result, LABEL_POSITIVE, SCORE_RATING_4, 4, 0.75)
+
     if normalized_intent in {"SUPPORT", "LEAD", "SPAM", "SEEDING"}:
         return override_sentiment(result, LABEL_NEUTRAL, SCORE_RATING_3, DEFAULT_RATING, 0.7)
-
-    if result.label != LABEL_NEGATIVE and has_negative_signal(normalized_text):
-        return override_sentiment(result, LABEL_NEGATIVE, SCORE_RATING_2, 2, 0.75)
 
     return result
 
@@ -327,15 +337,99 @@ def has_negative_signal(text: str) -> bool:
         "khong bat may",
         "khong phan hoi",
         "phan hoi cham",
+        "cham xu ly",
         "loi dang nhap",
         "vang ra",
+        "app loi",
+        "lag app",
+        "khong dat duoc",
+        "khong load",
         "lua dao",
+        "scam",
+        "gia mao",
         "ne gap",
         "thai do te",
+        "thai do kem",
         "that vong",
         "te qua",
+        "khong thich",
+        "xin deu",
+        "hoi chuyen qua sau",
+        "khong co tien",
+        "huy chuyen",
+        "huy don",
+        "tai nan",
+        "tranh chap",
+        "an gian",
+        "khon loi",
+        "tay chay",
+        "qua dang",
+        "khinh",
+        "bi chui",
+        "phong bat",
+        "che don",
+        "ket xe",
+        "be banh",
+        "mat hang",
+        "that lac",
+        "tre don",
+        "tre giao",
+        "qua lau",
+        "phi cao",
+        "qua dat",
+        "bat buoc",
+        "kho dung",
+        "gian lan",
+        "bom hang",
     )
     return any(phrase in text for phrase in negative_phrases)
+
+
+def has_positive_signal(text: str) -> bool:
+    positive_phrases = (
+        "rat co cam tinh",
+        "co cam tinh",
+        "rat hai long",
+        "hai long",
+        "rat thich",
+        "thich nhat",
+        "yeu thich",
+        "tuyet voi",
+        "qua tuyet",
+        "rat tot",
+        "tot qua",
+        "qua tot",
+        "rat hay",
+        "qua hay",
+        "hay qua",
+        "dung hen",
+        "giao nhanh",
+        "nhanh gon",
+        "than thien",
+        "de thuong",
+        "tan tam",
+        "nhiet tinh",
+        "lich su",
+        "dang khen",
+        "yen tam",
+        "cam on",
+        "cam on nhieu",
+        "de dung",
+        "muot",
+        "tiet kiem thoi gian",
+        "ho tro nhanh",
+        "xu ly nhanh",
+        "recommend",
+        "nen dung",
+        "nen mua",
+        "dang tien",
+        "gia hop ly",
+        "on ap",
+        "qua on",
+        "dinh",
+        "xuat sac",
+    )
+    return any(phrase in text for phrase in positive_phrases)
 
 
 def override_sentiment(

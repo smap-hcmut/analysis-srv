@@ -26,6 +26,8 @@ class LoggerConfig:
         # Validate log level
         if isinstance(self.level, str):
             try:
+                if self.level.upper() == "WARN":
+                    self.level = "WARNING"
                 # Convert string to enum
                 self.level = LogLevel(self.level.upper())
             except ValueError:

@@ -255,6 +255,10 @@ class Logger(ILogger):
         """Log warning message."""
         self._loguru.opt(depth=1).warning(message, **kwargs)
 
+    def warning(self, message: str, **kwargs) -> None:
+        """Log warning message."""
+        self.warn(message, **kwargs)
+
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
         self._loguru.opt(depth=1).error(message, **kwargs)

@@ -113,6 +113,7 @@ class PipelineConfig:
     enable_review: bool = False  # Phase 4+: low-confidence fact review queue
     enable_reporting: bool = False  # Phase 5
     enable_crisis: bool = False  # Phase 6
+    crisis_config: Optional[dict[str, Any]] = None
     services: PipelineServices = field(default_factory=PipelineServices)
 
 

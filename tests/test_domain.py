@@ -322,6 +322,26 @@ class TestDomainLoaderLoadFromDir:
         assert vinfast.domain_code == "vinfast"
         assert vinfast.contract_domain_overlay == "domain-vinfast-vn"
 
+    @pytest.mark.parametrize(
+        ("code", "overlay", "expected_entity"),
+        [
+            ("ahamove", "domain-ahamove-vn", "brand.ahamove"),
+            ("tanca", "domain-tanca-hrm-crm-vn", "brand.tanca"),
+            ("kotex_goodnight", "domain-kotex-goodnight-vn", "brand.kotex"),
+        ],
+    )
+    def test_real_demo_domains_load_ontology(self, code: str, overlay: str, expected_entity: str):
+        """Demo domains must be available and point at valid ontology files."""
+        registry = DomainLoader.load_from_dir(
+            "config/domains", fallback_code="_default"
+        )
+        cfg = registry.lookup(code)
+        assert cfg.domain_code == code
+        assert cfg.contract_domain_overlay == overlay
+
+        ontology = cfg.load_ontology_registry()
+        assert any(entity.id == expected_entity for entity in ontology.entities)
+
     def test_default_overlay_is_not_empty(self):
         """Critical: _default domain_overlay must NOT be empty (knowledge-srv hard gate)."""
         registry = DomainLoader.load_from_dir(

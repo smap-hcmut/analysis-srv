@@ -28,8 +28,19 @@ class CachedValue:
 class CrisisRuntimeApplyResult:
     project_id: str
     crisis_status: str
+    crisis_level: str
     applied_crawl_mode: str
     affected_datasource_count: int
+    noop_reason: str = ""
+
+
+@dataclass
+class ProjectCrisisRuntimeConfig:
+    project_id: str
+    project_name: str
+    campaign_id: str
+    owner_user_id: str
+    crisis_config: dict
 
 
 class ProjectServiceClient:
@@ -40,6 +51,7 @@ class ProjectServiceClient:
         self._client = httpx.AsyncClient(timeout=self.timeout_seconds)
         self._campaign_cache: dict[str, CachedValue] = {}
         self._project_cache: dict[str, CachedValue] = {}
+        self._crisis_config_cache: dict[str, CachedValue] = {}
         self._ttl_seconds = 300.0
 
     async def get_campaign_projects(self, campaign_id: str) -> CampaignProjects:
@@ -138,22 +150,65 @@ class ProjectServiceClient:
             return str(project["name"])
         return project_id
 
+    async def get_crisis_runtime_config(self, project_id: str) -> ProjectCrisisRuntimeConfig:
+        if not project_id:
+            raise BadRequestError("project_id is required")
+
+        cached = self._crisis_config_cache.get(project_id)
+        if cached and cached.expires_at > time.time():
+            return cached.value  # type: ignore[return-value]
+
+        url = f"{self.base_url}/api/v1/internal/projects/{project_id}/crisis-config"
+        headers = {"X-Internal-Key": self.internal_key}
+
+        try:
+            response = await self._client.get(url, headers=headers)
+        except httpx.HTTPError as exc:
+            raise UpstreamError(f"project crisis config unavailable: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise UpstreamError(
+                f"project crisis config failed ({response.status_code}): {response.text}"
+            )
+
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+
+        result = ProjectCrisisRuntimeConfig(
+            project_id=str(data.get("project_id") or project_id),
+            project_name=str(data.get("project_name") or project_id),
+            campaign_id=str(data.get("campaign_id") or ""),
+            owner_user_id=str(data.get("owner_user_id") or ""),
+            crisis_config=data.get("crisis_config") if isinstance(data.get("crisis_config"), dict) else {},
+        )
+        self._crisis_config_cache[project_id] = CachedValue(
+            value=result,
+            expires_at=time.time() + 60.0,
+        )
+        return result
+
     async def apply_crisis_runtime(
         self,
         project_id: str,
         *,
-        status: str,
+        status: str | None = None,
+        crisis_level: str | None = None,
         reason: str = "",
         event_ref: str = "",
     ) -> CrisisRuntimeApplyResult:
         if not project_id:
             raise BadRequestError("project_id is required")
-        if not status:
-            raise BadRequestError("status is required")
+        if not status and not crisis_level:
+            raise BadRequestError("status or crisis_level is required")
 
-        normalized_status = str(status).strip().upper()
-        if normalized_status not in {"NORMAL", "WARNING", "CRITICAL"}:
+        normalized_status = str(status or "").strip().upper()
+        normalized_level = str(crisis_level or status or "").strip().upper()
+        if normalized_status and normalized_status not in {"NORMAL", "WATCH", "WARNING", "CRITICAL"}:
             raise BadRequestError(f"invalid crisis status: {status}")
+        if normalized_level not in {"NONE", "NORMAL", "WATCH", "WARNING", "CRITICAL"}:
+            raise BadRequestError(f"invalid crisis level: {crisis_level}")
 
         url = f"{self.base_url}/api/v1/internal/projects/{project_id}/crisis-config/apply-runtime"
         headers = {
@@ -161,10 +216,12 @@ class ProjectServiceClient:
             "Content-Type": "application/json",
         }
         payload = {
-            "status": normalized_status,
+            "crisis_level": normalized_level,
             "reason": reason,
             "event_ref": event_ref,
         }
+        if normalized_status:
+            payload["status"] = normalized_status
 
         try:
             response = await self._client.post(url, headers=headers, json=payload)
@@ -181,8 +238,10 @@ class ProjectServiceClient:
         return CrisisRuntimeApplyResult(
             project_id=str(data.get("project_id") or project_id),
             crisis_status=str(data.get("crisis_status") or normalized_status),
+            crisis_level=str(data.get("crisis_level") or normalized_level),
             applied_crawl_mode=str(data.get("applied_crawl_mode") or ""),
             affected_datasource_count=int(data.get("affected_datasource_count") or 0),
+            noop_reason=str(data.get("noop_reason") or ""),
         )
 
     async def close(self) -> None:

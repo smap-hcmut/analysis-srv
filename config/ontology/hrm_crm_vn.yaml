@@ -1,0 +1,403 @@
+# ==============================================================================
+# Vietnam HRM / CRM SaaS ontology
+#
+# Schema: matches internal.ontology.type.OntologyRegistry.
+# Focus: Tanca and adjacent Vietnamese business-software conversations.
+# ==============================================================================
+
+metadata:
+  name: smap-hrm-crm-vn
+  version: "2026.05.09-hrm-crm-v1"
+  description: >
+    Vietnam HRM and CRM SaaS ontology for monitoring workforce management,
+    time attendance, payroll, customer management, and SMB adoption signals.
+
+domain_id: hrm_crm_vn
+
+activation:
+  primary_min_score: 2.5
+  primary_min_matched_records: 2
+  signals:
+    - phrase: tanca
+      weight: 2.8
+    - phrase: phan mem nhan su
+      weight: 2.0
+    - phrase: phan mem hrm
+      weight: 2.0
+    - phrase: cham cong
+      weight: 1.8
+    - phrase: tinh luong
+      weight: 1.8
+    - phrase: quan ly ca lam
+      weight: 1.6
+    - phrase: crm
+      weight: 1.6
+    - phrase: quan ly khach hang
+      weight: 1.6
+    - phrase: pipeline ban hang
+      weight: 1.4
+
+entity_types:
+  - brand
+  - product
+  - person
+  - organization
+  - location
+  - facility
+  - retailer
+  - concept
+
+taxonomy_nodes:
+  - id: category.business_software
+    label: Business Software
+    node_type: category
+  - id: category.hrm
+    label: Human Resource Management
+    node_type: category
+    parent_id: category.business_software
+  - id: category.crm
+    label: Customer Relationship Management
+    node_type: category
+    parent_id: category.business_software
+  - id: category.smb_operations
+    label: SMB Operations
+    node_type: category
+    parent_id: category.business_software
+  - id: feature.time_attendance
+    label: Time Attendance
+    node_type: feature
+  - id: feature.payroll
+    label: Payroll
+    node_type: feature
+  - id: feature.shift_leave
+    label: Shift and Leave
+    node_type: feature
+  - id: feature.employee_experience
+    label: Employee Experience
+    node_type: feature
+  - id: feature.crm_pipeline
+    label: CRM Pipeline
+    node_type: feature
+  - id: feature.reporting
+    label: Reporting and Analytics
+    node_type: feature
+  - id: feature.integration
+    label: Integration
+    node_type: feature
+  - id: feature.support
+    label: Support
+    node_type: feature
+  - id: feature.pricing
+    label: Pricing
+    node_type: feature
+
+aspect_categories:
+  - id: time_attendance
+    label: Time Attendance Accuracy
+    description: Check-in, GPS, face recognition, timesheet, and attendance accuracy.
+    seed_phrases: [cham cong, checkin, checkout, gps, nhan dien khuon mat, bang cong, ca lam, di tre, ve som]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [attendance_workflow, mobile_workforce]
+    related_issue_ids: [attendance_error, mobile_app_instability]
+
+  - id: payroll
+    label: Payroll and Compliance
+    description: Salary calculation, deductions, payslips, taxes, and compliance.
+    seed_phrases: [tinh luong, bang luong, phu cap, khau tru, bao hiem, thue tncn, cong no luong]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [payroll_compliance]
+    related_issue_ids: [payroll_error, data_sync_problem]
+
+  - id: shift_leave
+    label: Shift and Leave Management
+    description: Shift planning, leave approvals, roster changes, and manager workflow.
+    seed_phrases: [xep ca, doi ca, lich lam, nghi phep, don tu, phe duyet, tang ca]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [attendance_workflow]
+    related_issue_ids: [adoption_friction, data_sync_problem]
+
+  - id: employee_experience
+    label: Employee Experience
+    description: Ease of use for staff, managers, HR admins, and field teams.
+    seed_phrases: [de dung, kho dung, nhan vien dung app, mobile app, thao tac, onboarding, dao tao]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [mobile_workforce, adoption_and_training]
+    related_issue_ids: [adoption_friction, mobile_app_instability]
+
+  - id: crm_pipeline
+    label: CRM Pipeline
+    description: Lead capture, customer management, deal pipeline, tasks, and follow-up.
+    seed_phrases: [crm, lead, khach hang, pipeline, deal, co hoi ban hang, cham soc khach hang, follow up]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [crm_sales_ops]
+    related_issue_ids: [data_sync_problem, adoption_friction]
+
+  - id: reporting_integration
+    label: Reporting and Integration
+    description: Dashboards, exports, API, accounting integration, and data sync.
+    seed_phrases: [bao cao, dashboard, export excel, api, dong bo, misa, kiotviet, sapo, phan quyen]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [analytics_integration]
+    related_issue_ids: [data_sync_problem]
+
+  - id: pricing_support
+    label: Pricing and Support
+    description: Package value, implementation, onboarding, SLA, and support response.
+    seed_phrases: [gia, goi phi, trien khai, tu van, ho tro, support, cskh, onboarding]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [commercial_support]
+    related_issue_ids: [pricing_concern, support_slow]
+
+intent_categories:
+  - id: question
+    label: Question
+    description: Asking for product, pricing, implementation, or usage help.
+    seed_phrases: [hoi, "?", bao nhieu, lam sao, co ho tro, tu van]
+  - id: complaint
+    label: Complaint
+    description: Negative feedback about operations, app, support, or billing.
+    seed_phrases: [loi, cham, khong dung, buc xuc, khong hai long, te]
+  - id: commentary
+    label: Commentary
+    description: General SaaS, HR, sales, or operations discussion.
+    seed_phrases: [theo minh, review, cam nhan, kinh nghiem, so sanh]
+  - id: praise
+    label: Praise
+    description: Positive feedback or recommendation.
+    seed_phrases: [tot, de dung, hai long, ho tro nhanh, tien loi, nen dung]
+  - id: purchase_intent
+    label: Purchase Intent
+    description: Intent to trial, buy, request demo, or switch software.
+    seed_phrases: [demo, dung thu, bao gia, mua goi, chuyen sang, tu van]
+  - id: compare
+    label: Comparison
+    description: Comparing HRM, CRM, accounting, or sales tools.
+    seed_phrases: [so sanh, vs, hon, kem hon, khac gi, thay the]
+
+issue_categories:
+  - id: attendance_error
+    label: Attendance Error
+    description: Missing, duplicated, or inaccurate check-in/out and timesheet data.
+    seed_phrases: [cham cong sai, mat cong, sai gio, khong ghi nhan, gps sai, nhan dien loi]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [attendance_workflow, mobile_workforce]
+    related_aspect_ids: [time_attendance]
+
+  - id: payroll_error
+    label: Payroll Error
+    description: Salary or allowance calculation does not match policy.
+    seed_phrases: [tinh luong sai, sai phu cap, sai khau tru, bang luong loi, lech cong]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [payroll_compliance]
+    related_aspect_ids: [payroll, shift_leave]
+
+  - id: mobile_app_instability
+    label: Mobile App Instability
+    description: Mobile app crash, lag, login, GPS, camera, or notification problem.
+    seed_phrases: [app loi, app lag, vang app, khong dang nhap, khong checkin, thong bao loi]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [mobile_workforce]
+    related_aspect_ids: [time_attendance, employee_experience]
+
+  - id: data_sync_problem
+    label: Data Sync Problem
+    description: Data is stale, duplicated, missing, or inconsistent across systems.
+    seed_phrases: [dong bo loi, mat du lieu, trung du lieu, export sai, bao cao sai, api loi]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [analytics_integration, crm_sales_ops]
+    related_aspect_ids: [reporting_integration, crm_pipeline, payroll]
+
+  - id: adoption_friction
+    label: Adoption Friction
+    description: Staff or managers find the workflow hard to adopt.
+    seed_phrases: [kho dung, nhan vien khong dung, phuc tap, mat thoi gian, phai dao tao lai]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [adoption_and_training, mobile_workforce]
+    related_aspect_ids: [employee_experience, shift_leave, crm_pipeline]
+
+  - id: support_slow
+    label: Slow Support
+    description: Support, onboarding, or issue resolution is slow or ineffective.
+    seed_phrases: [ho tro cham, support cham, khong tra loi, xu ly lau, tu van cham]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [commercial_support]
+    related_aspect_ids: [pricing_support]
+
+  - id: pricing_concern
+    label: Pricing Concern
+    description: Price, implementation fee, package limits, or ROI concern.
+    seed_phrases: [gia cao, phi trien khai, dat, khong dang tien, goi phi, an phi]
+    compatible_entity_types: [brand, product, organization, concept]
+    linked_topic_keys: [commercial_support]
+    related_aspect_ids: [pricing_support]
+
+source_channels:
+  - id: tiktok
+    label: TikTok
+  - id: facebook
+    label: Facebook
+  - id: youtube
+    label: YouTube
+  - id: instagram
+    label: Instagram
+  - id: twitter
+    label: X (Twitter)
+  - id: web
+    label: Web / News
+
+entities:
+  - id: brand.tanca
+    name: Tanca
+    entity_type: brand
+    knowledge_layer: domain
+    aliases: [tanca, tanca.vn, tanca hrm, tanca crm]
+    compact_aliases: [tanca, tancavn]
+    taxonomy_ids: [category.business_software, category.hrm, category.crm]
+    neighboring_entity_ids: [product.tanca_hrm, product.tanca_crm]
+    neighboring_aspect_ids: [time_attendance, payroll, employee_experience, crm_pipeline, reporting_integration, pricing_support]
+    domain_anchor_phrases: [phan mem tanca, tanca cham cong, tanca hrm, tanca crm]
+    description: Vietnamese HRM and CRM SaaS brand.
+
+  - id: product.tanca_hrm
+    name: Tanca HRM
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [tanca hrm, phan mem nhan su tanca, tanca cham cong, tanca payroll]
+    taxonomy_ids: [category.hrm]
+    neighboring_entity_ids: [brand.tanca]
+    neighboring_aspect_ids: [time_attendance, payroll, shift_leave, employee_experience]
+    domain_anchor_phrases: [cham cong tanca, tinh luong tanca, xep ca tanca]
+    description: Tanca workforce management and HRM product surface.
+
+  - id: product.tanca_crm
+    name: Tanca CRM
+    entity_type: product
+    knowledge_layer: domain
+    aliases: [tanca crm, crm tanca, quan ly khach hang tanca]
+    taxonomy_ids: [category.crm]
+    neighboring_entity_ids: [brand.tanca]
+    neighboring_aspect_ids: [crm_pipeline, reporting_integration, pricing_support]
+    domain_anchor_phrases: [crm tanca, pipeline tanca, khach hang tanca]
+    description: Tanca customer and sales management product surface.
+
+  - id: concept.hrm
+    name: Human Resource Management
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [hrm, phan mem nhan su, quan ly nhan su, quan tri nhan su]
+    taxonomy_ids: [category.hrm]
+    description: HRM and workforce operations concept.
+
+  - id: concept.crm
+    name: Customer Relationship Management
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [crm, quan ly khach hang, cham soc khach hang, pipeline ban hang]
+    taxonomy_ids: [category.crm]
+    description: CRM and sales operations concept.
+
+  - id: concept.mobile_workforce
+    name: Mobile Workforce
+    entity_type: concept
+    entity_kind: concept
+    knowledge_layer: base
+    aliases: [nhan vien hien truong, mobile workforce, checkin di dong, gps checkin]
+    taxonomy_ids: [category.hrm, feature.time_attendance]
+    description: Mobile staff workflows for attendance and field operations.
+
+topics:
+  - topic_key: attendance_workflow
+    label: Attendance Workflow
+    topic_family: hr_operations
+    main_path_policy: core
+    description: Check-in/out, timesheet, roster, and leave workflow.
+    seed_phrases: [cham cong, checkin, ca lam, bang cong, nghi phep, tang ca, xep ca]
+    related_entity_ids: [brand.tanca, product.tanca_hrm, concept.hrm]
+    related_taxonomy_ids: [category.hrm, feature.time_attendance, feature.shift_leave]
+    related_aspect_ids: [time_attendance, shift_leave]
+    related_issue_ids: [attendance_error, adoption_friction, mobile_app_instability]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: payroll_compliance
+    label: Payroll and Compliance
+    topic_family: hr_operations
+    main_path_policy: core
+    description: Payroll calculation, allowances, insurance, and tax handling.
+    seed_phrases: [tinh luong, bang luong, phu cap, bao hiem, thue tncn, khau tru]
+    related_entity_ids: [brand.tanca, product.tanca_hrm, concept.hrm]
+    related_taxonomy_ids: [category.hrm, feature.payroll]
+    related_aspect_ids: [payroll]
+    related_issue_ids: [payroll_error, data_sync_problem]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: mobile_workforce
+    label: Mobile Workforce Experience
+    topic_family: product_experience
+    main_path_policy: core
+    description: Mobile app usability, GPS, camera, notifications, and staff adoption.
+    seed_phrases: [mobile app, app nhan vien, gps, nhan dien khuon mat, de dung, kho dung]
+    related_entity_ids: [brand.tanca, product.tanca_hrm, concept.mobile_workforce]
+    related_taxonomy_ids: [category.hrm, feature.employee_experience, feature.time_attendance]
+    related_aspect_ids: [employee_experience, time_attendance]
+    related_issue_ids: [mobile_app_instability, adoption_friction]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: crm_sales_ops
+    label: CRM and Sales Operations
+    topic_family: crm
+    main_path_policy: domain_primary
+    description: Lead, account, deal, task, and customer-care workflow.
+    seed_phrases: [crm, lead, khach hang, pipeline, deal, follow up, cham soc khach hang]
+    related_entity_ids: [brand.tanca, product.tanca_crm, concept.crm]
+    related_taxonomy_ids: [category.crm, feature.crm_pipeline]
+    related_aspect_ids: [crm_pipeline]
+    related_issue_ids: [data_sync_problem, adoption_friction]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: analytics_integration
+    label: Analytics and Integration
+    topic_family: data
+    main_path_policy: core
+    description: Reporting, export, API, permission, and accounting/POS integration.
+    seed_phrases: [bao cao, dashboard, export excel, api, dong bo, phan quyen, tich hop]
+    related_entity_ids: [brand.tanca, product.tanca_hrm, product.tanca_crm]
+    related_taxonomy_ids: [feature.reporting, feature.integration]
+    related_aspect_ids: [reporting_integration]
+    related_issue_ids: [data_sync_problem]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: adoption_and_training
+    label: Adoption and Training
+    topic_family: implementation
+    main_path_policy: core
+    description: Rollout, training, manager adoption, and workflow migration.
+    seed_phrases: [trien khai, onboarding, dao tao, nhan vien khong dung, quy trinh moi]
+    related_entity_ids: [brand.tanca, concept.hrm, concept.crm]
+    related_taxonomy_ids: [category.smb_operations, feature.employee_experience]
+    related_aspect_ids: [employee_experience, shift_leave, crm_pipeline]
+    related_issue_ids: [adoption_friction, support_slow]
+    compatible_entity_types: [brand, product, organization, concept]
+
+  - topic_key: commercial_support
+    label: Commercial Support
+    topic_family: commercial
+    main_path_policy: core
+    description: Pricing, demo, implementation service, support quality, and ROI.
+    seed_phrases: [bao gia, demo, tu van, goi phi, ho tro, support, gia, roi]
+    related_entity_ids: [brand.tanca, product.tanca_hrm, product.tanca_crm]
+    related_taxonomy_ids: [feature.pricing, feature.support]
+    related_aspect_ids: [pricing_support]
+    related_issue_ids: [pricing_concern, support_slow]
+    compatible_entity_types: [brand, product, organization, concept]
+
+alias_contributions: []
+
+noise_terms:
+  - term: ca
+    reason: ambiguous_short_token_shift_or_case
+  - term: hr
+    reason: broad_abbreviation_without_context
+  - term: sale
+    reason: broad_sales_term_without_context

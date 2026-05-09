@@ -98,6 +98,54 @@ LOGISTICS_TERMS = (
     "dang ky",
 )
 
+COD_LOGISTICS_CONTEXT_TERMS = (
+    "ship cod",
+    "cod giao hang",
+    "thu ho",
+    "thu hộ",
+    "don hang",
+    "đơn hàng",
+    "giao hang",
+    "giao hàng",
+    "shipper",
+    "khach bom",
+    "khách bom",
+    "bom hang",
+    "bom hàng",
+    "thu tien",
+    "thu tiền",
+    "nhan tien",
+    "nhận tiền",
+    "ung tien",
+    "ứng tiền",
+    "delivery",
+    "cash on delivery",
+    "collect on delivery",
+)
+
+COD_GAMING_MARKERS = (
+    "codm",
+    "call of duty",
+    "free fire",
+    "apex movement",
+    "cod movement",
+    "warzone",
+    "kill",
+    "emot",
+    "joystick",
+    "joy stick",
+    "juego",
+    "graficos",
+    "gráficos",
+    "fps",
+    "jugador",
+    "jugadores",
+    "gameplay",
+    "rank",
+    "headshot",
+    "buddy",
+)
+
 COMPETITOR_TERMS = (
     "lalamove",
     "grab",
@@ -171,6 +219,9 @@ def calculate_business_relevance(
     logistics_context = _contains_any(context_text, LOGISTICS_TERMS)
     competitor_direct = _contains_any(content_text, COMPETITOR_TERMS)
     competitor_context = _contains_any(context_text, COMPETITOR_TERMS)
+
+    if _looks_cod_gaming(content_text) and not brand_direct:
+        return 0.08, ["offtopic_cod_gaming"]
 
     if brand_direct:
         score += 0.50
@@ -300,7 +351,17 @@ def _norm(value: str | None) -> str:
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
-    return any(term in text for term in terms)
+    return any(_contains_term(text, term) for term in terms)
+
+
+def _contains_term(text: str, term: str) -> bool:
+    if not term:
+        return False
+    # Avoid short ASCII aliases matching inside unrelated foreign words, e.g.
+    # "grab" inside Tagalog "grabe" or "cod" inside "codm".
+    if re.fullmatch(r"[a-z0-9][a-z0-9 ]*[a-z0-9]", term):
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text))
+    return term in text
 
 
 def _is_generic_short(text: str) -> bool:
@@ -317,19 +378,33 @@ def _looks_offtopic_foreign(text: str) -> bool:
         return False
     if _contains_any(text, OFFTOPIC_FOREIGN_MARKERS):
         return True
-    has_vietnamese = bool(
-        re.search(
-            r"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]",
-            text,
-            re.IGNORECASE,
-        )
-    )
+    has_vietnamese = _has_vietnamese(text)
     latin_words = re.findall(r"[a-z]{3,}", text)
     if has_vietnamese or not latin_words:
         return False
     common_foreign = {"bhai", "kahani", "hai", "nahi", "story", "part", "please"}
     hits = sum(1 for word in latin_words if word in common_foreign)
     return hits >= 2
+
+
+def _looks_cod_gaming(text: str) -> bool:
+    if not text:
+        return False
+    if not re.search(r"\bcodm|\bcod\b", text):
+        return False
+    if _contains_any(text, COD_LOGISTICS_CONTEXT_TERMS):
+        return False
+    return _contains_any(text, COD_GAMING_MARKERS) or not _has_vietnamese(text)
+
+
+def _has_vietnamese(text: str) -> bool:
+    return bool(
+        re.search(
+            r"[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _dedupe(values: list[str]) -> list[str]:

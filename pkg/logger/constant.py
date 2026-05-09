@@ -4,7 +4,8 @@ from enum import Enum
 class LogLevel(str, Enum):
     DEBUG = "DEBUG"
     INFO = "INFO"
-    WARN = "WARN"
+    WARN = "WARNING"
+    WARNING = "WARNING"
     ERROR = "ERROR"
 
 

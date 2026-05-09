@@ -35,8 +35,8 @@ def detect_spam_signals(
         text_lower = text.lower()
         has_spam_keyword = any(keyword in text_lower for keyword in SPAM_KEYWORDS)
 
-        if has_phone or has_spam_keyword:
-            logger.warn(
+        if (has_phone or has_spam_keyword) and logger:
+            logger.debug(
                 "internal.text_preprocessing.usecase.helpers.detect_spam_signals: Spam signals detected",
                 extra={"has_phone": has_phone, "has_spam_keyword": has_spam_keyword},
             )

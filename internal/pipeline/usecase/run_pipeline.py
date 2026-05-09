@@ -273,6 +273,7 @@ def _stage_crisis(
         project_id=batch.project_id,
         campaign_id=batch.campaign_id,
         bi_reports=facts.bi_bundle,
+        crisis_config=config.crisis_config,
     )
     output = svc.assess(inp)
     return dataclasses.replace(facts, crisis_assessment=output.assessment)

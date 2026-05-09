@@ -1,0 +1,31 @@
+domain_code: "kotex_goodnight"
+display_name: "Kotex Anh Trai Good Night"
+
+ontology:
+  path: "config/ontology/marketing_campaign_vn.yaml"
+  overlays: []
+
+runtime:
+  brand_names:
+    - "Kotex"
+    - "Anh Trai Good Night"
+    - "Anh Trai Goodnight"
+    - "Good Night Kotex"
+    - "Quang Hung MasterD"
+    - "Duong Domic"
+  topic_seeds:
+    - "chien dich marketing"
+    - "influencer marketing"
+    - "MV quang cao"
+    - "UGC TikTok"
+    - "hashtag challenge"
+    - "brand love"
+    - "brand safety"
+    - "do phu song"
+    - "social buzz"
+    - "BSI"
+    - "viral campaign"
+  stop_entities: []
+
+contract:
+  domain_overlay: "domain-kotex-goodnight-vn"
