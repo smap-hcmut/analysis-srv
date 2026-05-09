@@ -197,23 +197,28 @@ async def ready(request: Request):
 
 
 @app.get("/api/v1/analytics/kpis")
-async def get_kpis(request: Request, campaignId: str):
-    return await request.app.state.analytics.get_kpis(campaignId)
+async def get_kpis(request: Request, campaignId: str, sourceKind: str = "all"):
+    return await request.app.state.analytics.get_kpis(campaignId, sourceKind)
 
 
 @app.get("/api/v1/analytics/platforms")
-async def get_platforms(request: Request, campaignId: str):
-    return await request.app.state.analytics.get_platforms(campaignId)
+async def get_platforms(request: Request, campaignId: str, sourceKind: str = "all"):
+    return await request.app.state.analytics.get_platforms(campaignId, sourceKind)
 
 
 @app.get("/api/v1/analytics/sentiment")
-async def get_sentiment(request: Request, campaignId: str):
-    return await request.app.state.analytics.get_sentiment(campaignId)
+async def get_sentiment(request: Request, campaignId: str, sourceKind: str = "all"):
+    return await request.app.state.analytics.get_sentiment(campaignId, sourceKind)
 
 
 @app.get("/api/v1/analytics/keywords")
-async def get_keywords(request: Request, campaignId: str, limit: int = Query(default=50, ge=1, le=100)):
-    return await request.app.state.analytics.get_keywords(campaignId, limit)
+async def get_keywords(
+    request: Request,
+    campaignId: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    sourceKind: str = "all",
+):
+    return await request.app.state.analytics.get_keywords(campaignId, limit, sourceKind)
 
 
 @app.get("/api/v1/analytics/posts")
@@ -225,18 +230,19 @@ async def get_posts(
     sort: str = "engagement",
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sourceKind: str = "all",
 ):
-    return await request.app.state.analytics.get_posts(campaignId, platform, sentiment, sort, limit, offset)
+    return await request.app.state.analytics.get_posts(campaignId, platform, sentiment, sort, limit, offset, sourceKind)
 
 
 @app.get("/api/v1/analytics/project-stats")
-async def get_project_stats(request: Request, campaignId: str):
-    return await request.app.state.analytics.get_project_stats(campaignId)
+async def get_project_stats(request: Request, campaignId: str, sourceKind: str = "all"):
+    return await request.app.state.analytics.get_project_stats(campaignId, sourceKind)
 
 
 @app.get("/api/v1/analytics/heap")
-async def get_heap(request: Request, campaignId: str):
-    return await request.app.state.analytics.get_heap(campaignId)
+async def get_heap(request: Request, campaignId: str, sourceKind: str = "all"):
+    return await request.app.state.analytics.get_heap(campaignId, sourceKind)
 
 
 def run():

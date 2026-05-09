@@ -139,11 +139,13 @@ class AnalyticsService:
             project_names=self.project_client.project_name_map(campaign),
         )
 
-    async def get_kpis(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_kpis(campaign_id), ("kpis",))
+    async def get_kpis(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        return await self._guarded(campaign_id, self._compute_kpis(campaign_id, source_kind), ("kpis", source_kind))
 
-    async def _compute_kpis(self, campaign_id: str) -> dict[str, Any]:
-        cache_key = ("kpis", campaign_id)
+    async def _compute_kpis(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        cache_key = ("kpis", campaign_id, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -161,9 +163,10 @@ class AnalyticsService:
             })
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
+        source_filters = self._source_kind_pre_filters(source_kind)
         summary_rows, spark_rows = await self._fetch_many(
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   COUNT(*) AS total_mentions,
@@ -186,7 +189,7 @@ FROM deduped_post_insight
 """
             ),
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   TO_CHAR(date_trunc('month', content_created_at), 'YYYY-MM') AS month,
@@ -248,11 +251,13 @@ ORDER BY 1
             },
         })
 
-    async def get_platforms(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_platforms(campaign_id), ("platforms",))
+    async def get_platforms(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        return await self._guarded(campaign_id, self._compute_platforms(campaign_id, source_kind), ("platforms", source_kind))
 
-    async def _compute_platforms(self, campaign_id: str) -> dict[str, Any]:
-        cache_key = ("platforms", campaign_id)
+    async def _compute_platforms(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        cache_key = ("platforms", campaign_id, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -262,9 +267,10 @@ ORDER BY 1
             return self._cache_set(cache_key, {"stats": [], "timeSeries": [], "months": []})
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
+        source_filters = self._source_kind_pre_filters(source_kind)
         platform_rows, ts_rows = await self._fetch_many(
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   UPPER(platform) AS platform,
@@ -281,7 +287,7 @@ ORDER BY COUNT(*) DESC
 """
             ),
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   TO_CHAR(date_trunc('month', content_created_at), 'YYYY-MM') AS month,
@@ -346,11 +352,13 @@ ORDER BY 1
 
         return self._cache_set(cache_key, {"stats": stats, "timeSeries": time_series, "months": months})
 
-    async def get_sentiment(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id), ("sentiment",))
+    async def get_sentiment(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id, source_kind), ("sentiment", source_kind))
 
-    async def _compute_sentiment(self, campaign_id: str) -> dict[str, Any]:
-        cache_key = ("sentiment", campaign_id)
+    async def _compute_sentiment(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        cache_key = ("sentiment", campaign_id, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -370,9 +378,10 @@ ORDER BY 1
             })
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
+        source_filters = self._source_kind_pre_filters(source_kind)
         summary_rows, timeline_rows = await self._fetch_many(
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   COUNT(*) FILTER (WHERE UPPER(COALESCE(overall_sentiment, '')) = 'POSITIVE') AS positive_count,
@@ -384,7 +393,7 @@ FROM deduped_post_insight
 """
             ),
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   TO_CHAR(date_trunc('month', content_created_at), 'YYYY-MM') AS month,
@@ -428,11 +437,13 @@ ORDER BY 1
             "total": int(summary.get("total", 0)),
         })
 
-    async def get_keywords(self, campaign_id: str, limit: int = 50) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit), ("keywords", limit))
+    async def get_keywords(self, campaign_id: str, limit: int = 50, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit, source_kind), ("keywords", limit, source_kind))
 
-    async def _compute_keywords(self, campaign_id: str, limit: int = 50) -> dict[str, Any]:
-        cache_key = ("keywords", campaign_id, limit)
+    async def _compute_keywords(self, campaign_id: str, limit: int = 50, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        cache_key = ("keywords", campaign_id, limit, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -442,8 +453,9 @@ ORDER BY 1
             return self._cache_set(cache_key, {"keywords": [], "wordCloud": []})
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
+        source_filters = self._source_kind_pre_filters(source_kind)
         sql = (
-            self._base_cte(ctx.project_ids)
+            self._base_cte(ctx.project_ids, source_filters)
             + """
 SELECT
   kw AS keyword,
@@ -493,16 +505,19 @@ LIMIT :limit
         sort: str = "engagement",
         limit: int = 30,
         offset: int = 0,
+        source_kind: str = "all",
     ) -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
         timeout_scope = (
             "posts",
             str(platform or "all").strip().lower(),
             str(sentiment or "all").strip().lower(),
             "time" if str(sort or "").strip().lower() == "time" else "engagement",
+            source_kind,
         )
         return await self._guarded(
             campaign_id,
-            self._compute_posts(campaign_id, platform, sentiment, sort, limit, offset),
+            self._compute_posts(campaign_id, platform, sentiment, sort, limit, offset, source_kind),
             timeout_scope,
         )
 
@@ -514,7 +529,9 @@ LIMIT :limit
         sort: str = "engagement",
         limit: int = 30,
         offset: int = 0,
+        source_kind: str = "all",
     ) -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
         limit = max(1, min(int(limit), 100))
         offset = max(0, int(offset))
         platform_key = str(platform or "all").strip().lower()
@@ -522,7 +539,7 @@ LIMIT :limit
         sort_key = "time" if str(sort or "").strip().lower() == "time" else "engagement"
         platform_filter = platform_key.upper() if platform_key.upper() in PLATFORM_META else "all"
         sentiment_filter = sentiment_key if sentiment_key in {"positive", "negative", "neutral"} else "all"
-        cache_key = ("posts", campaign_id, platform_filter.lower(), sentiment_filter, sort_key, limit, offset)
+        cache_key = ("posts", campaign_id, platform_filter.lower(), sentiment_filter, sort_key, limit, offset, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -539,6 +556,7 @@ LIMIT :limit
             platform_filter.lower(),
             sentiment_filter,
             sort_key,
+            source_kind,
             self._posts_window_size,
         )
         if use_window_cache:
@@ -556,7 +574,7 @@ LIMIT :limit
         query_limit = self._posts_window_size if use_window_cache else limit
         query_offset = 0 if use_window_cache else offset
         params: dict[str, Any] = {"limit": query_limit, "offset": query_offset}
-        pre_filters: list[str] = []
+        pre_filters: list[str] = self._source_kind_pre_filters(source_kind)
         if platform_filter != "all":
             platform_expr = "COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN')"
             pre_filters.append(f"{platform_expr} = '{self._escape(platform_filter)}'")
@@ -605,6 +623,9 @@ SELECT
   COALESCE(p.risk_level, 'LOW') AS risk_level,
   COALESCE(p.keywords, '{{}}') AS keywords,
   COALESCE(pi.uap_metadata::text, '{{}}') AS uap_metadata,
+  COALESCE(pi.uap_metadata #>> '{{platform_meta,smap,source_kind}}', '') AS source_kind,
+  COALESCE(pi.uap_metadata #>> '{{platform_meta,smap,data_source_id}}', '') AS data_source_id,
+  COALESCE(pi.uap_metadata #>> '{{platform_meta,smap,target_id}}', '') AS target_id,
   t.total_count
 FROM page_post_insight p
 JOIN analysis.post_insight pi ON pi.id = p.id
@@ -644,6 +665,9 @@ ORDER BY {final_order_by}
                 "keywords": as_list(row["keywords"]),
                 "riskLevel": str(row["risk_level"]),
                 "hashtags": [str(item) for item in (uap.get("hashtags") or [])],
+                "sourceKind": str(row["source_kind"] or "legacy"),
+                "dataSourceId": str(row["data_source_id"] or ""),
+                "targetId": str(row["target_id"] or ""),
             })
         if use_window_cache:
             self._cache_set(
@@ -658,11 +682,13 @@ ORDER BY {final_order_by}
             )
         return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=self._posts_cache_ttl)
 
-    async def get_project_stats(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id), ("project-stats",))
+    async def get_project_stats(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id, source_kind), ("project-stats", source_kind))
 
-    async def _compute_project_stats(self, campaign_id: str) -> dict[str, Any]:
-        cache_key = ("project-stats", campaign_id)
+    async def _compute_project_stats(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        cache_key = ("project-stats", campaign_id, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -672,7 +698,7 @@ ORDER BY {final_order_by}
             return self._cache_set(cache_key, {"stats": []})
 
         sql = (
-            self._base_cte(ctx.project_ids)
+            self._base_cte(ctx.project_ids, self._source_kind_pre_filters(source_kind))
             + """
 SELECT
   project_id::text AS project_id,
@@ -698,11 +724,13 @@ GROUP BY project_id
             ]
         })
 
-    async def get_heap(self, campaign_id: str) -> dict[str, Any]:
-        return await self._guarded(campaign_id, self._compute_heap(campaign_id), ("heap",))
+    async def get_heap(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        return await self._guarded(campaign_id, self._compute_heap(campaign_id, source_kind), ("heap", source_kind))
 
-    async def _compute_heap(self, campaign_id: str) -> dict[str, Any]:
-        cache_key = ("heap", campaign_id)
+    async def _compute_heap(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
+        source_kind = self._normalize_source_kind(source_kind)
+        cache_key = ("heap", campaign_id, source_kind)
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
@@ -712,7 +740,11 @@ GROUP BY project_id
             return self._cache_set(cache_key, {"tree": None})
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
-        project_names, project_stats_rows, keyword_rows = await self._fetch_heap_parts(ctx, query_timeout_ms=query_timeout_ms)
+        project_names, project_stats_rows, keyword_rows = await self._fetch_heap_parts(
+            ctx,
+            query_timeout_ms=query_timeout_ms,
+            source_kind=source_kind,
+        )
 
         project_stats = {str(row["project_id"]): row for row in project_stats_rows}
         keywords_by_project: dict[str, list[dict[str, Any]]] = {}
@@ -765,10 +797,11 @@ GROUP BY project_id
             }
         })
 
-    async def _fetch_heap_parts(self, ctx: AnalyticsContext, query_timeout_ms: int):
+    async def _fetch_heap_parts(self, ctx: AnalyticsContext, query_timeout_ms: int, source_kind: str = "all"):
+        source_filters = self._source_kind_pre_filters(source_kind)
         project_stats_rows, keyword_rows = await self._fetch_many(
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 SELECT
   project_id::text AS project_id,
@@ -780,7 +813,7 @@ GROUP BY project_id
 """
             ),
             (
-                self._base_cte(ctx.project_ids)
+                self._base_cte(ctx.project_ids, source_filters)
                 + """
 , ranked AS (
   SELECT
@@ -878,10 +911,43 @@ ORDER BY project_id, volume DESC
             ")"
         )
 
+    def _normalize_source_kind(self, value: str | None) -> str:
+        raw = str(value or "all").strip().lower()
+        aliases = {
+            "focused": "stalker",
+            "focused_page": "stalker",
+            "focused_profile": "stalker",
+            "stalkers": "stalker",
+            "profile": "stalker",
+            "profiles": "stalker",
+            "crawler": "keyword",
+            "crawling": "keyword",
+            "keyword_search": "keyword",
+            "search": "keyword",
+            "general": "keyword",
+            "legacy": "keyword",
+        }
+        raw = aliases.get(raw, raw)
+        return raw if raw in {"all", "stalker", "keyword"} else "all"
+
+    def _source_kind_pre_filters(self, source_kind: str) -> list[str]:
+        kind = self._normalize_source_kind(source_kind)
+        source_expr = "COALESCE(pi.uap_metadata #>> '{platform_meta,smap,source_kind}', '')"
+        if kind == "stalker":
+            return [f"{source_expr} IN ('focused_page', 'focused_profile')"]
+        if kind == "keyword":
+            return [f"({source_expr} = '' OR {source_expr} = 'keyword_search')"]
+        return []
+
+    def _apply_relevance_filter(self, pre_filters: list[str] | None = None) -> bool:
+        joined_filters = " ".join(pre_filters or [])
+        return "focused_page" not in joined_filters and "focused_profile" not in joined_filters
+
     def _base_cte(self, project_ids: list[str], pre_filters: list[str] | None = None) -> str:
         quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
         identity_expr = self._source_identity_expr("pi")
         extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
+        relevance_where = "    AND pi.business_relevance_score >= 0.45" if self._apply_relevance_filter(pre_filters) else ""
         return f"""
 WITH latest_post_insight AS (
   SELECT DISTINCT ON (
@@ -891,7 +957,7 @@ WITH latest_post_insight AS (
     pi.*
   FROM analysis.post_insight pi
   WHERE project_id IN ({quoted_ids})
-    AND pi.business_relevance_score >= 0.45
+{relevance_where}
 {extra_where}
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
@@ -926,7 +992,7 @@ WITH latest_post_insight AS (
     pi.keywords
   FROM analysis.post_insight pi
   WHERE project_id IN ({quoted_ids})
-    AND pi.business_relevance_score >= 0.45
+{"    AND pi.business_relevance_score >= 0.45" if self._apply_relevance_filter(pre_filters) else ""}
 {extra_where}
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
