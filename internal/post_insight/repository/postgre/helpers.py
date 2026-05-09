@@ -135,6 +135,11 @@ def _build_uap_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
     enrichment_summary = data.get("enrichment_summary")
     if enrichment_summary:
         metadata["enrichment"] = enrichment_summary
+    raw_context = data.get("raw_context")
+    if isinstance(raw_context, dict):
+        for key in ("platform_meta", "hierarchy", "domain_type_code", "crawl_keyword"):
+            if val := raw_context.get(key):
+                metadata[key] = val
     if val := data.get("business_relevance_score"):
         metadata["business_relevance_score"] = val
     if val := data.get("business_relevance_reasons"):

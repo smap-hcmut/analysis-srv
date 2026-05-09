@@ -31,6 +31,7 @@ class CreatePostInsightInput:
 
     hashtags: List[str] = field(default_factory=list)
     enrichment_summary: Optional[dict[str, Any]] = None
+    raw_context: Optional[dict[str, Any]] = None
 
     # Analysis Results
     overall_sentiment: str = "NEUTRAL"

@@ -257,6 +257,7 @@ class NLPBatchEnricher:
             author_username=r.author_username,
             follower_count=r.follower_count,
             author_is_verified=r.author_is_verified,
+            raw_context=r.raw_context,
             view_count=r.view_count,
             like_count=r.like_count,
             comment_count=r.comment_count,

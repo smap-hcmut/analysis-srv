@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 
 from internal.analytics.type import AnalyticsResult
+from internal.analytics.usecase.helpers import add_uap_metadata
 from internal.analytics.usecase.batch_enricher import (
     NLPBatchEnricher,
     enrich_nlp_facts_with_bundle,
 )
+from internal.analytics.type import Config as AnalyticsConfig
 from internal.enrichment.type import (
     EnrichmentBundle,
     EntityFact,
@@ -168,3 +170,54 @@ def test_enrichment_bundle_is_attached_to_output_and_post_insight():
         "issue_categories": ["service_quality"],
         "source_influence_tier": "micro",
     }
+
+
+def test_youtube_comment_original_url_is_built_from_parent_context():
+    uap = UAPRecord(
+        event_id="event-yt-comment",
+        ingest=UAPIngest(
+            project_id="proj-1",
+            source=UAPSource(source_id="UgxComment123", source_type="youtube"),
+        ),
+        content=UAPContent(
+            doc_id="yt_c_UgxComment123",
+            doc_type="comment",
+            text="Ship này quá hay",
+            url="",
+            published_at="2026-05-09T00:00:00Z",
+            author=UAPAuthor(author_id="author-yt", display_name="@demo"),
+        ),
+        raw={
+            "hierarchy": {"root_id": "yt_p_kuifyIKXOOM", "depth": 1},
+            "platform_meta": {
+                "youtube": {
+                    "parent_video_id": "kuifyIKXOOM",
+                    "parent_url": "https://www.youtube.com/watch?v=kuifyIKXOOM",
+                }
+            },
+        },
+    )
+    result = AnalyticsResult(
+        id="analytics-yt-comment",
+        project_id="proj-1",
+        source_id="UgxComment123",
+        platform="youtube",
+        published_at=datetime.now(timezone.utc),
+        analyzed_at=datetime.now(timezone.utc),
+    )
+
+    add_uap_metadata(result, uap, AnalyticsConfig())
+
+    assert result.permalink == "https://www.youtube.com/watch?v=kuifyIKXOOM&lc=UgxComment123"
+    assert result.raw_context["hierarchy"]["root_id"] == "yt_p_kuifyIKXOOM"
+
+    fact = NLPFact(
+        uap_id=uap.content.doc_id,
+        insight_message=InsightMessage(),
+        uap_record=uap,
+        analytics_result=result,
+    )
+    transformed = transform_to_post_insight(NLPBatchEnricher.to_post_insight_input(fact))
+
+    assert transformed["uap_metadata"]["url"] == "https://www.youtube.com/watch?v=kuifyIKXOOM&lc=UgxComment123"
+    assert transformed["uap_metadata"]["platform_meta"]["youtube"]["parent_video_id"] == "kuifyIKXOOM"

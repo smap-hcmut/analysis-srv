@@ -74,6 +74,8 @@ class AnalyticsService:
         # on the server, blocking the connection pool for the rest of the system.
         self._timeout_cache: dict[tuple[Any, ...], float] = {}
         self._timeout_cache_ttl: float = 60.0
+        self._posts_window_size: int = 240
+        self._posts_cache_ttl: float = 120.0
 
     def _resolve_query_timeout_ms(self, project_count: int, query_profile: str = "normal") -> int:
         # Avoid long-running fan-out queries from saturating the Postgres pool.
@@ -513,6 +515,8 @@ LIMIT :limit
         limit: int = 30,
         offset: int = 0,
     ) -> dict[str, Any]:
+        limit = max(1, min(int(limit), 100))
+        offset = max(0, int(offset))
         platform_key = str(platform or "all").strip().lower()
         sentiment_key = str(sentiment or "all").strip().lower()
         sort_key = "time" if str(sort or "").strip().lower() == "time" else "engagement"
@@ -527,8 +531,31 @@ LIMIT :limit
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"posts": [], "total": 0}, ttl_seconds=10.0)
 
+        requested_end = offset + limit
+        use_window_cache = requested_end <= self._posts_window_size
+        window_key = (
+            "posts-window",
+            campaign_id,
+            platform_filter.lower(),
+            sentiment_filter,
+            sort_key,
+            self._posts_window_size,
+        )
+        if use_window_cache:
+            cached_window = self._cache_get(window_key)
+            if cached_window is not None:
+                window_posts = list(cached_window.get("posts") or [])
+                total = int(cached_window.get("total") or 0)
+                return self._cache_set(
+                    cache_key,
+                    {"posts": window_posts[offset:requested_end], "total": total},
+                    ttl_seconds=self._posts_cache_ttl,
+                )
+
         conditions = []
-        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        query_limit = self._posts_window_size if use_window_cache else limit
+        query_offset = 0 if use_window_cache else offset
+        params: dict[str, Any] = {"limit": query_limit, "offset": query_offset}
         pre_filters: list[str] = []
         if platform_filter != "all":
             platform_expr = "COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN')"
@@ -546,27 +573,43 @@ LIMIT :limit
             conditions.append("UPPER(COALESCE(overall_sentiment, '')) = 'NEUTRAL'")
         where = " AND ".join(conditions) if conditions else "1 = 1"
         order_by = "content_created_at DESC NULLS LAST" if sort_key == "time" else "engagement_score DESC NULLS LAST"
+        final_order_by = "p.content_created_at DESC NULLS LAST" if sort_key == "time" else "p.engagement_score DESC NULLS LAST"
 
         sql = (
-            self._base_cte(ctx.project_ids, pre_filters)
+            self._posts_base_cte(ctx.project_ids, pre_filters)
             + f"""
+filtered_post_insight AS (
+  SELECT *
+  FROM latest_post_insight
+  WHERE {where}
+),
+total_post_insight AS (
+  SELECT COUNT(*) AS total_count
+  FROM filtered_post_insight
+),
+page_post_insight AS (
+  SELECT *
+  FROM filtered_post_insight
+  ORDER BY {order_by}
+  LIMIT :limit OFFSET :offset
+)
 SELECT
-  id::text,
-  LOWER(platform) AS platform,
-  COALESCE(content, '') AS content,
-  COALESCE(TO_CHAR(content_created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') AS content_created_at,
-  COALESCE(overall_sentiment, 'NEUTRAL') AS overall_sentiment,
-  COALESCE(overall_sentiment_score, 0) AS overall_sentiment_score,
-  COALESCE(engagement_score, 0) AS engagement_score,
-  COALESCE(reach_estimate, 0) AS reach_estimate,
-  COALESCE(risk_level, 'LOW') AS risk_level,
-  COALESCE(keywords, '{{}}') AS keywords,
-  COALESCE(uap_metadata::text, '{{}}') AS uap_metadata,
-  COUNT(*) OVER() AS total_count
-FROM deduped_post_insight
-WHERE {where}
-ORDER BY {order_by}
-LIMIT :limit OFFSET :offset
+  p.id::text,
+  LOWER(p.platform) AS platform,
+  COALESCE(pi.content, '') AS content,
+  COALESCE(TO_CHAR(p.content_created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '') AS content_created_at,
+  COALESCE(p.overall_sentiment, 'NEUTRAL') AS overall_sentiment,
+  COALESCE(p.overall_sentiment_score, 0) AS overall_sentiment_score,
+  COALESCE(p.engagement_score, 0) AS engagement_score,
+  COALESCE(p.reach_estimate, 0) AS reach_estimate,
+  COALESCE(p.risk_level, 'LOW') AS risk_level,
+  COALESCE(p.keywords, '{{}}') AS keywords,
+  COALESCE(pi.uap_metadata::text, '{{}}') AS uap_metadata,
+  t.total_count
+FROM page_post_insight p
+JOIN analysis.post_insight pi ON pi.id = p.id
+CROSS JOIN total_post_insight t
+ORDER BY {final_order_by}
 """
         )
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
@@ -602,7 +645,18 @@ LIMIT :limit OFFSET :offset
                 "riskLevel": str(row["risk_level"]),
                 "hashtags": [str(item) for item in (uap.get("hashtags") or [])],
             })
-        return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=10.0)
+        if use_window_cache:
+            self._cache_set(
+                window_key,
+                {"posts": posts, "total": total},
+                ttl_seconds=self._posts_cache_ttl,
+            )
+            return self._cache_set(
+                cache_key,
+                {"posts": posts[offset:requested_end], "total": total},
+                ttl_seconds=self._posts_cache_ttl,
+            )
+        return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=self._posts_cache_ttl)
 
     async def get_project_stats(self, campaign_id: str) -> dict[str, Any]:
         return await self._guarded(campaign_id, self._compute_project_stats(campaign_id), ("project-stats",))
@@ -839,14 +893,6 @@ WITH latest_post_insight AS (
   WHERE project_id IN ({quoted_ids})
     AND pi.business_relevance_score >= 0.45
 {extra_where}
-    AND NOT (
-      LOWER(COALESCE(pi.content, '')) ~ '(^|[^a-z0-9])codm|(^|[^a-z0-9])cod([^a-z0-9]|$)'
-      AND LOWER(COALESCE(pi.content, '')) !~ '(ship cod|thu ho|thu hộ|don hang|đơn hàng|giao hang|giao hàng|shipper|khach bom|khách bom|bom hang|bom hàng|thu tien|thu tiền|nhan tien|nhận tiền|ung tien|ứng tiền|delivery|cash on delivery|collect on delivery)'
-    )
-    AND NOT (
-      LOWER(COALESCE(pi.content, '')) ~ '(grabe sayo|joy ?stick|warzone|free fire|apex movement|juego|jugador|jugadores|fps ultra|gr[aá]ficos)'
-      AND LOWER(COALESCE(pi.content, '')) !~ '(giao hang|giao hàng|shipper|don hang|đơn hàng|thu ho|thu hộ)'
-    )
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
     {identity_expr},
@@ -857,6 +903,38 @@ WITH latest_post_insight AS (
   SELECT *
   FROM latest_post_insight
 )
+"""
+
+    def _posts_base_cte(self, project_ids: list[str], pre_filters: list[str] | None = None) -> str:
+        quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
+        identity_expr = self._source_identity_expr("pi")
+        extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
+        return f"""
+WITH latest_post_insight AS (
+  SELECT DISTINCT ON (
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr}
+  )
+    pi.id,
+    pi.platform,
+    pi.content_created_at,
+    pi.overall_sentiment,
+    pi.overall_sentiment_score,
+    pi.engagement_score,
+    pi.reach_estimate,
+    pi.risk_level,
+    pi.keywords
+  FROM analysis.post_insight pi
+  WHERE project_id IN ({quoted_ids})
+    AND pi.business_relevance_score >= 0.45
+{extra_where}
+  ORDER BY
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr},
+    COALESCE(pi.updated_at, pi.analyzed_at, pi.ingested_at, pi.created_at) DESC NULLS LAST,
+    pi.created_at DESC NULLS LAST,
+    pi.id DESC
+),
 """
 
     def _escape(self, value: str) -> str:

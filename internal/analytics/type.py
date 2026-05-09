@@ -122,6 +122,7 @@ class AnalyticsResult:
     author_username: Optional[str] = None
     author_avatar_url: Optional[str] = None
     author_is_verified: bool = False
+    raw_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -173,6 +174,7 @@ class AnalyticsResult:
             "author_username": self.author_username,
             "author_avatar_url": self.author_avatar_url,
             "author_is_verified": self.author_is_verified,
+            "raw_context": self.raw_context,
             "processing_status": self.processing_status,
         }
 
