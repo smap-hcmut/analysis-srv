@@ -103,6 +103,7 @@ def _build_uap_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
         "author": "author_id",
         "author_display_name": "author_name",
         "author_username": "author_username",
+        "author_avatar": "author_avatar_url",
         "author_followers": "follower_count",
         "author_is_verified": "author_is_verified",
     }
@@ -127,6 +128,10 @@ def _build_uap_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
 
     for meta_key, data_key in [
         ("url", "permalink"),
+        ("permalink", "permalink"),
+        ("original_url", "permalink"),
+        ("source_url", "permalink"),
+        ("web_url", "permalink"),
         ("hashtags", "hashtags"),
     ]:
         if val := data.get(data_key):
@@ -137,15 +142,43 @@ def _build_uap_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
         metadata["enrichment"] = enrichment_summary
     raw_context = data.get("raw_context")
     if isinstance(raw_context, dict):
-        for key in ("platform_meta", "hierarchy", "domain_type_code", "crawl_keyword"):
+        for key in ("platform_meta", "hierarchy", "domain_type_code", "crawl_keyword", "doc_type"):
             if val := raw_context.get(key):
                 metadata[key] = val
+        if doc_type := raw_context.get("doc_type"):
+            metadata["content_type"] = doc_type
+        hierarchy = raw_context.get("hierarchy")
+        if isinstance(hierarchy, dict):
+            if root_id := hierarchy.get("root_id"):
+                metadata["root_id"] = root_id
+            if parent_id := hierarchy.get("parent_id"):
+                metadata["parent_id"] = parent_id
+        parent_url = _extract_parent_post_url(raw_context)
+        if parent_url:
+            metadata["parent_post_url"] = parent_url
+            if str(raw_context.get("doc_type") or "").lower() == "comment":
+                metadata["comment_url"] = data.get("permalink") or parent_url
     if val := data.get("business_relevance_score"):
         metadata["business_relevance_score"] = val
     if val := data.get("business_relevance_reasons"):
         metadata["business_relevance_reasons"] = val
 
     return metadata
+
+
+def _extract_parent_post_url(raw_context: Dict[str, Any]) -> str:
+    platform_meta = raw_context.get("platform_meta")
+    if not isinstance(platform_meta, dict):
+        return ""
+    youtube_meta = platform_meta.get("youtube")
+    if isinstance(youtube_meta, dict):
+        parent_url = youtube_meta.get("parent_url")
+        if isinstance(parent_url, str) and parent_url.startswith(("http://", "https://")):
+            return parent_url
+        video_id = youtube_meta.get("parent_video_id")
+        if isinstance(video_id, str) and video_id:
+            return f"https://www.youtube.com/watch?v={video_id}"
+    return ""
 
 
 def _extract_aspects(aspects_breakdown: Any) -> list:

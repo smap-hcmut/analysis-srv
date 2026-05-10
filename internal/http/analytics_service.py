@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -46,6 +47,48 @@ def public_sentiment_label(raw_label: Any, score: float | None = None) -> str:
     return "neutral"
 
 
+def extract_source_url(metadata: dict[str, Any]) -> str:
+    """Return the best available platform permalink from crawler metadata."""
+    direct_keys = (
+        "url",
+        "post_url",
+        "original_url",
+        "source_url",
+        "web_url",
+        "parent_post_url",
+        "comment_url",
+        "share_url",
+        "permalink_url",
+    )
+    for key in direct_keys:
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+
+    platform_meta = metadata.get("platform_meta") if isinstance(metadata.get("platform_meta"), dict) else {}
+    for platform_key in ("youtube", "tiktok", "facebook"):
+        platform_data = platform_meta.get(platform_key) if isinstance(platform_meta.get(platform_key), dict) else {}
+        for key in ("comment_url", "parent_url", "video_url", "post_url", "permalink_url", "url"):
+            value = str(platform_data.get(key) or "").strip()
+            if value:
+                return value
+
+    youtube = platform_meta.get("youtube") if isinstance(platform_meta.get("youtube"), dict) else {}
+    video_id = str(youtube.get("video_id") or metadata.get("video_id") or "").strip()
+    if video_id:
+        comment_id = str(metadata.get("comment_id") or metadata.get("source_id") or "").strip()
+        suffix = f"&lc={comment_id}" if comment_id.startswith("Ug") else ""
+        return f"https://www.youtube.com/watch?v={video_id}{suffix}"
+
+    tiktok = platform_meta.get("tiktok") if isinstance(platform_meta.get("tiktok"), dict) else {}
+    tiktok_video_id = str(tiktok.get("video_id") or metadata.get("video_id") or "").strip()
+    author = str(metadata.get("author_username") or tiktok.get("author_username") or "").strip().lstrip("@")
+    if tiktok_video_id and author:
+        return f"https://www.tiktok.com/@{author}/video/{tiktok_video_id}"
+
+    return ""
+
+
 @dataclass
 class AnalyticsContext:
     campaign_id: str
@@ -54,10 +97,44 @@ class AnalyticsContext:
     project_names: dict[str, str]
 
 
+@dataclass(frozen=True)
+class AnalyticsScope:
+    source_kind: str = "all"
+    project_ids: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
+    content_type: str = "all"
+
+    def cache_key(self, include_content_type: bool = False) -> tuple[Any, ...]:
+        base: tuple[Any, ...] = (self.source_kind, self.project_ids, self.keywords)
+        if include_content_type:
+            return (*base, self.content_type)
+        return base
+
+
 @dataclass
 class CachedResponse:
     value: dict[str, Any]
     expires_at: float
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 class AnalyticsService:
@@ -65,6 +142,9 @@ class AnalyticsService:
         self.db = db
         self.project_client = project_client
         self._response_cache: dict[tuple[Any, ...], CachedResponse] = {}
+        self._response_cache_ttl: float = max(5.0, _env_float("ANALYTICS_RESPONSE_CACHE_TTL_SECONDS", 180.0))
+        self._context_cache_ttl: float = max(30.0, _env_float("ANALYTICS_CONTEXT_CACHE_TTL_SECONDS", 300.0))
+        self._response_cache_max_entries: int = max(64, _env_int("ANALYTICS_RESPONSE_CACHE_MAX_ENTRIES", 512))
         self._query_timeout_ms = max(1, int(query_timeout_ms))
         # Keep analytics DB pressure bounded even when UI fires all dashboard
         # endpoints at once (kpis/platforms/sentiment/keywords/posts).
@@ -76,6 +156,18 @@ class AnalyticsService:
         self._timeout_cache_ttl: float = 60.0
         self._posts_window_size: int = 240
         self._posts_cache_ttl: float = 120.0
+        self._use_latest_mart = str(os.getenv("ANALYTICS_USE_LATEST_MART", "true")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self._source_quality_gate = str(os.getenv("ANALYTICS_SOURCE_QUALITY_GATE", "true")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
 
     def _resolve_query_timeout_ms(self, project_count: int, query_profile: str = "normal") -> int:
         # Avoid long-running fan-out queries from saturating the Postgres pool.
@@ -122,35 +214,95 @@ class AnalyticsService:
             return None
         return copy.deepcopy(cached.value)
 
-    def _cache_set(self, key: tuple[Any, ...], value: dict[str, Any], ttl_seconds: float = 30.0) -> dict[str, Any]:
+    def _cache_set(self, key: tuple[Any, ...], value: dict[str, Any], ttl_seconds: float | None = None) -> dict[str, Any]:
+        ttl = self._response_cache_ttl if ttl_seconds is None else ttl_seconds
         self._response_cache[key] = CachedResponse(
             value=copy.deepcopy(value),
-            expires_at=time.time() + ttl_seconds,
+            expires_at=time.time() + ttl,
         )
+        self._prune_response_cache()
         return value
 
-    async def build_context(self, campaign_id: str) -> AnalyticsContext:
+    def _prune_response_cache(self) -> None:
+        if len(self._response_cache) <= self._response_cache_max_entries:
+            return
+        now = time.time()
+        for key, cached in list(self._response_cache.items()):
+            if cached.expires_at <= now:
+                self._response_cache.pop(key, None)
+        while len(self._response_cache) > self._response_cache_max_entries:
+            oldest_key = min(self._response_cache, key=lambda key: self._response_cache[key].expires_at)
+            self._response_cache.pop(oldest_key, None)
+
+    async def build_context(self, campaign_id: str, requested_project_ids: tuple[str, ...] = ()) -> AnalyticsContext:
         self._validate_uuid(campaign_id)
+        for project_id in requested_project_ids:
+            self._validate_uuid(project_id)
+        cache_key = ("context", campaign_id, requested_project_ids)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return AnalyticsContext(
+                campaign_id=str(cached.get("campaign_id") or campaign_id),
+                campaign_name=str(cached.get("campaign_name") or ""),
+                project_ids=[str(project_id) for project_id in cached.get("project_ids") or []],
+                project_names={str(key): str(value) for key, value in dict(cached.get("project_names") or {}).items()},
+            )
+
         campaign = await self.project_client.get_campaign_projects(campaign_id)
-        return AnalyticsContext(
+        if requested_project_ids:
+            requested = set(requested_project_ids)
+            project_ids = [project_id for project_id in campaign.project_ids if project_id in requested]
+        else:
+            project_ids = campaign.project_ids
+        context = AnalyticsContext(
             campaign_id=campaign.id,
             campaign_name=campaign.name,
-            project_ids=campaign.project_ids,
+            project_ids=project_ids,
             project_names=self.project_client.project_name_map(campaign),
         )
+        self._cache_set(
+            cache_key,
+            {
+                "campaign_id": context.campaign_id,
+                "campaign_name": context.campaign_name,
+                "project_ids": context.project_ids,
+                "project_names": context.project_names,
+            },
+            ttl_seconds=self._context_cache_ttl,
+        )
+        return context
 
-    async def get_kpis(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        return await self._guarded(campaign_id, self._compute_kpis(campaign_id, source_kind), ("kpis", source_kind))
+    def build_scope(
+        self,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+        content_type: str = "all",
+    ) -> AnalyticsScope:
+        return AnalyticsScope(
+            source_kind=self._normalize_source_kind(source_kind),
+            project_ids=self._normalize_uuid_csv(project_ids),
+            keywords=self._normalize_keyword_csv(keywords),
+            content_type=self._normalize_content_type(content_type),
+        )
 
-    async def _compute_kpis(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        cache_key = ("kpis", campaign_id, source_kind)
+    async def get_kpis(
+        self,
+        campaign_id: str,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(campaign_id, self._compute_kpis(campaign_id, scope), ("kpis", *scope.cache_key()))
+
+    async def _compute_kpis(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+        cache_key = ("kpis", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {
                 "metrics": [
@@ -163,7 +315,7 @@ class AnalyticsService:
             })
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
-        source_filters = self._source_kind_pre_filters(source_kind)
+        source_filters = self._scope_pre_filters(scope)
         summary_rows, spark_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids, source_filters)
@@ -251,23 +403,28 @@ ORDER BY 1
             },
         })
 
-    async def get_platforms(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        return await self._guarded(campaign_id, self._compute_platforms(campaign_id, source_kind), ("platforms", source_kind))
+    async def get_platforms(
+        self,
+        campaign_id: str,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(campaign_id, self._compute_platforms(campaign_id, scope), ("platforms", *scope.cache_key()))
 
-    async def _compute_platforms(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        cache_key = ("platforms", campaign_id, source_kind)
+    async def _compute_platforms(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+        cache_key = ("platforms", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"stats": [], "timeSeries": [], "months": []})
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
-        source_filters = self._source_kind_pre_filters(source_kind)
+        source_filters = self._scope_pre_filters(scope)
         platform_rows, ts_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids, source_filters)
@@ -352,18 +509,23 @@ ORDER BY 1
 
         return self._cache_set(cache_key, {"stats": stats, "timeSeries": time_series, "months": months})
 
-    async def get_sentiment(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id, source_kind), ("sentiment", source_kind))
+    async def get_sentiment(
+        self,
+        campaign_id: str,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id, scope), ("sentiment", *scope.cache_key()))
 
-    async def _compute_sentiment(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        cache_key = ("sentiment", campaign_id, source_kind)
+    async def _compute_sentiment(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+        cache_key = ("sentiment", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {
                 "donut": [
@@ -378,7 +540,7 @@ ORDER BY 1
             })
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
-        source_filters = self._source_kind_pre_filters(source_kind)
+        source_filters = self._scope_pre_filters(scope)
         summary_rows, timeline_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids, source_filters)
@@ -437,23 +599,29 @@ ORDER BY 1
             "total": int(summary.get("total", 0)),
         })
 
-    async def get_keywords(self, campaign_id: str, limit: int = 50, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit, source_kind), ("keywords", limit, source_kind))
+    async def get_keywords(
+        self,
+        campaign_id: str,
+        limit: int = 50,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit, scope), ("keywords", limit, *scope.cache_key()))
 
-    async def _compute_keywords(self, campaign_id: str, limit: int = 50, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        cache_key = ("keywords", campaign_id, limit, source_kind)
+    async def _compute_keywords(self, campaign_id: str, limit: int = 50, scope: AnalyticsScope = AnalyticsScope()) -> dict[str, Any]:
+        cache_key = ("keywords", campaign_id, limit, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"keywords": [], "wordCloud": []})
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
-        source_filters = self._source_kind_pre_filters(source_kind)
+        source_filters = self._scope_pre_filters(scope)
         sql = (
             self._base_cte(ctx.project_ids, source_filters)
             + """
@@ -506,18 +674,21 @@ LIMIT :limit
         limit: int = 30,
         offset: int = 0,
         source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+        content_type: str = "all",
     ) -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
+        scope = self.build_scope(source_kind, project_ids, keywords, content_type)
         timeout_scope = (
             "posts",
             str(platform or "all").strip().lower(),
             str(sentiment or "all").strip().lower(),
             "time" if str(sort or "").strip().lower() == "time" else "engagement",
-            source_kind,
+            *scope.cache_key(include_content_type=True),
         )
         return await self._guarded(
             campaign_id,
-            self._compute_posts(campaign_id, platform, sentiment, sort, limit, offset, source_kind),
+            self._compute_posts(campaign_id, platform, sentiment, sort, limit, offset, scope),
             timeout_scope,
         )
 
@@ -529,9 +700,8 @@ LIMIT :limit
         sort: str = "engagement",
         limit: int = 30,
         offset: int = 0,
-        source_kind: str = "all",
+        scope: AnalyticsScope = AnalyticsScope(),
     ) -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
         limit = max(1, min(int(limit), 100))
         offset = max(0, int(offset))
         platform_key = str(platform or "all").strip().lower()
@@ -539,12 +709,12 @@ LIMIT :limit
         sort_key = "time" if str(sort or "").strip().lower() == "time" else "engagement"
         platform_filter = platform_key.upper() if platform_key.upper() in PLATFORM_META else "all"
         sentiment_filter = sentiment_key if sentiment_key in {"positive", "negative", "neutral"} else "all"
-        cache_key = ("posts", campaign_id, platform_filter.lower(), sentiment_filter, sort_key, limit, offset, source_kind)
+        cache_key = ("posts", campaign_id, platform_filter.lower(), sentiment_filter, sort_key, limit, offset, *scope.cache_key(include_content_type=True))
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"posts": [], "total": 0}, ttl_seconds=10.0)
 
@@ -556,7 +726,7 @@ LIMIT :limit
             platform_filter.lower(),
             sentiment_filter,
             sort_key,
-            source_kind,
+            *scope.cache_key(include_content_type=True),
             self._posts_window_size,
         )
         if use_window_cache:
@@ -574,7 +744,7 @@ LIMIT :limit
         query_limit = self._posts_window_size if use_window_cache else limit
         query_offset = 0 if use_window_cache else offset
         params: dict[str, Any] = {"limit": query_limit, "offset": query_offset}
-        pre_filters: list[str] = self._source_kind_pre_filters(source_kind)
+        pre_filters: list[str] = self._scope_pre_filters(scope, include_content_type=True)
         if platform_filter != "all":
             platform_expr = "COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN')"
             pre_filters.append(f"{platform_expr} = '{self._escape(platform_filter)}'")
@@ -626,6 +796,9 @@ SELECT
   COALESCE(pi.uap_metadata #>> '{{platform_meta,smap,source_kind}}', '') AS source_kind,
   COALESCE(pi.uap_metadata #>> '{{platform_meta,smap,data_source_id}}', '') AS data_source_id,
   COALESCE(pi.uap_metadata #>> '{{platform_meta,smap,target_id}}', '') AS target_id,
+  {self._content_type_expr("pi")} AS content_type,
+  COALESCE(pi.uap_metadata #>> '{{hierarchy,root_id}}', '') AS root_id,
+  COALESCE(pi.uap_metadata #>> '{{hierarchy,parent_id}}', '') AS parent_id,
   t.total_count
 FROM page_post_insight p
 JOIN analysis.post_insight pi ON pi.id = p.id
@@ -654,7 +827,7 @@ ORDER BY {final_order_by}
                 "authorVerified": bool(uap.get("author_is_verified") or False),
                 "content": str(row["content"] or ""),
                 "time": str(row["content_created_at"] or ""),
-                "url": str(uap.get("url") or ""),
+                "url": extract_source_url(uap),
                 "sentiment": label,
                 "sentimentScore": score,
                 "engagement": int(float(row["engagement_score"])),
@@ -668,6 +841,9 @@ ORDER BY {final_order_by}
                 "sourceKind": str(row["source_kind"] or "legacy"),
                 "dataSourceId": str(row["data_source_id"] or ""),
                 "targetId": str(row["target_id"] or ""),
+                "contentType": str(row["content_type"] or "mention"),
+                "rootId": str(row["root_id"] or ""),
+                "parentId": str(row["parent_id"] or ""),
             })
         if use_window_cache:
             self._cache_set(
@@ -682,23 +858,28 @@ ORDER BY {final_order_by}
             )
         return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=self._posts_cache_ttl)
 
-    async def get_project_stats(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id, source_kind), ("project-stats", source_kind))
+    async def get_project_stats(
+        self,
+        campaign_id: str,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id, scope), ("project-stats", *scope.cache_key()))
 
-    async def _compute_project_stats(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        cache_key = ("project-stats", campaign_id, source_kind)
+    async def _compute_project_stats(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+        cache_key = ("project-stats", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"stats": []})
 
         sql = (
-            self._base_cte(ctx.project_ids, self._source_kind_pre_filters(source_kind))
+            self._base_cte(ctx.project_ids, self._scope_pre_filters(scope))
             + """
 SELECT
   project_id::text AS project_id,
@@ -724,18 +905,23 @@ GROUP BY project_id
             ]
         })
 
-    async def get_heap(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        return await self._guarded(campaign_id, self._compute_heap(campaign_id, source_kind), ("heap", source_kind))
+    async def get_heap(
+        self,
+        campaign_id: str,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(campaign_id, self._compute_heap(campaign_id, scope), ("heap", *scope.cache_key()))
 
-    async def _compute_heap(self, campaign_id: str, source_kind: str = "all") -> dict[str, Any]:
-        source_kind = self._normalize_source_kind(source_kind)
-        cache_key = ("heap", campaign_id, source_kind)
+    async def _compute_heap(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+        cache_key = ("heap", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
-        ctx = await self.build_context(campaign_id)
+        ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"tree": None})
 
@@ -743,7 +929,7 @@ GROUP BY project_id
         project_names, project_stats_rows, keyword_rows = await self._fetch_heap_parts(
             ctx,
             query_timeout_ms=query_timeout_ms,
-            source_kind=source_kind,
+            scope=scope,
         )
 
         project_stats = {str(row["project_id"]): row for row in project_stats_rows}
@@ -797,8 +983,8 @@ GROUP BY project_id
             }
         })
 
-    async def _fetch_heap_parts(self, ctx: AnalyticsContext, query_timeout_ms: int, source_kind: str = "all"):
-        source_filters = self._source_kind_pre_filters(source_kind)
+    async def _fetch_heap_parts(self, ctx: AnalyticsContext, query_timeout_ms: int, scope: AnalyticsScope = AnalyticsScope()):
+        source_filters = self._scope_pre_filters(scope)
         project_stats_rows, keyword_rows = await self._fetch_many(
             (
                 self._base_cte(ctx.project_ids, source_filters)
@@ -930,24 +1116,213 @@ ORDER BY project_id, volume DESC
         raw = aliases.get(raw, raw)
         return raw if raw in {"all", "stalker", "keyword"} else "all"
 
-    def _source_kind_pre_filters(self, source_kind: str) -> list[str]:
+    def _normalize_uuid_csv(self, value: str | None) -> tuple[str, ...]:
+        if not value:
+            return ()
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in str(value).split(","):
+            candidate = item.strip()
+            if not candidate or candidate in seen:
+                continue
+            self._validate_uuid(candidate)
+            seen.add(candidate)
+            normalized.append(candidate)
+        return tuple(normalized[:100])
+
+    def _normalize_keyword_csv(self, value: str | None) -> tuple[str, ...]:
+        if not value:
+            return ()
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in str(value).split(","):
+            candidate = " ".join(item.strip().lower().split())
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            normalized.append(candidate)
+        return tuple(normalized[:20])
+
+    def _normalize_content_type(self, value: str | None) -> str:
+        raw = str(value or "all").strip().lower()
+        aliases = {
+            "mentions": "all",
+            "mention": "all",
+            "posts": "post",
+            "videos": "post",
+            "video": "post",
+            "comments": "comment",
+            "replies": "reply",
+        }
+        raw = aliases.get(raw, raw)
+        return raw if raw in {"all", "post", "comment", "reply"} else "all"
+
+    def _source_kind_pre_filters(self, source_kind: str, alias: str = "pi") -> list[str]:
         kind = self._normalize_source_kind(source_kind)
-        source_expr = "COALESCE(pi.uap_metadata #>> '{platform_meta,smap,source_kind}', '')"
+        source_expr = f"COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,source_kind}}', '')"
         if kind == "stalker":
             return [f"{source_expr} IN ('focused_page', 'focused_profile')"]
         if kind == "keyword":
             return [f"({source_expr} = '' OR {source_expr} = 'keyword_search')"]
         return []
 
+    def _keyword_filter_expr(self, keywords: tuple[str, ...], alias: str = "pi") -> str | None:
+        if not keywords:
+            return None
+        escaped_keywords = [self._escape(keyword.lower()) for keyword in keywords]
+        values = ", ".join(f"'{keyword}'" for keyword in escaped_keywords)
+        like_conditions = " OR ".join(
+            f"LOWER(COALESCE({alias}.content, '')) LIKE '%{keyword}%'" for keyword in escaped_keywords
+        )
+        return (
+            "("
+            f"EXISTS (SELECT 1 FROM unnest(COALESCE({alias}.keywords, '{{}}')) AS scope_kw "
+            f"WHERE LOWER(scope_kw) IN ({values}))"
+            f" OR LOWER(COALESCE({alias}.uap_metadata #>> '{{crawl_keyword}}', '')) IN ({values})"
+            f" OR {like_conditions}"
+            ")"
+        )
+
+    def _content_type_expr(self, alias: str = "pi") -> str:
+        depth_expr = f"COALESCE({alias}.uap_metadata #>> '{{hierarchy,depth}}', '')"
+        doc_expr = f"LOWER(COALESCE({alias}.uap_metadata->>'doc_type', {alias}.uap_metadata->>'uap_type', ''))"
+        url_expr = f"COALESCE({alias}.uap_metadata->>'url', '')"
+        source_expr = f"COALESCE({alias}.source_id, '')"
+        platform_expr = f"UPPER(COALESCE({alias}.platform, ''))"
+        return (
+            "CASE "
+            f"WHEN {depth_expr} ~ '^[2-9]' OR {doc_expr} = 'reply' THEN 'reply' "
+            f"WHEN {depth_expr} = '1' OR {doc_expr} = 'comment' "
+            f"OR ({platform_expr} = 'YOUTUBE' AND ({url_expr} LIKE '%&lc=%' OR {url_expr} LIKE '%?lc=%' OR {source_expr} LIKE 'Ug%')) THEN 'comment' "
+            f"WHEN {depth_expr} = '0' OR {doc_expr} IN ('post', 'video', 'news', 'feedback') THEN 'post' "
+            "ELSE 'mention' END"
+        )
+
+    def _content_type_filter_expr(self, content_type: str, alias: str = "pi") -> str | None:
+        kind = self._normalize_content_type(content_type)
+        if kind == "all":
+            return None
+        return f"{self._content_type_expr(alias)} = '{kind}'"
+
+    def _scope_pre_filters(
+        self,
+        scope: AnalyticsScope,
+        include_content_type: bool = False,
+        alias: str = "pi",
+    ) -> list[str]:
+        filters = self._source_kind_pre_filters(scope.source_kind, alias)
+        keyword_filter = self._keyword_filter_expr(scope.keywords, alias)
+        if keyword_filter:
+            filters.append(keyword_filter)
+        if include_content_type:
+            content_filter = self._content_type_filter_expr(scope.content_type, alias)
+            if content_filter:
+                filters.append(content_filter)
+        return filters
+
     def _apply_relevance_filter(self, pre_filters: list[str] | None = None) -> bool:
         joined_filters = " ".join(pre_filters or [])
         return "focused_page" not in joined_filters and "focused_profile" not in joined_filters
+
+    def _analytics_source_table(self) -> str:
+        return "analysis.latest_post_insight" if self._use_latest_mart else "analysis.post_insight"
+
+    def _has_source_url_expr(self, alias: str = "pi") -> str:
+        return (
+            "("
+            f"COALESCE({alias}.uap_metadata->>'url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'post_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'original_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'source_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'web_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'parent_post_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'comment_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'share_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata->>'permalink_url', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata #>> '{{platform_meta,youtube,parent_url}}', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata #>> '{{platform_meta,youtube,video_url}}', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata #>> '{{platform_meta,tiktok,video_url}}', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata #>> '{{platform_meta,facebook,post_url}}', '') <> '' "
+            f"OR COALESCE({alias}.uap_metadata #>> '{{platform_meta,facebook,permalink_url}}', '') <> ''"
+            ")"
+        )
+
+    def _business_signal_expr(self, alias: str = "pi") -> str:
+        return (
+            f"COALESCE({alias}.content, '') ~* "
+            "'(ahamove|grab|lalamove|be|xanh sm|giao hàng|shipper|tài xế|đơn hàng|đặt xe|vận chuyển|thu hộ|cod|tanca|hrm|crm|nhân sự|chấm công|bảng lương|tiền lương|sales|marketing|chiến dịch|thương hiệu|dịch vụ|khách hàng|tổng đài|hỗ trợ)'"
+        )
+
+    def _service_intent_expr(self, alias: str = "pi") -> str:
+        return (
+            f"COALESCE({alias}.content, '') ~* "
+            "'(trải nghiệm|review|đánh giá|phản hồi|phàn nàn|khiếu nại|bức xúc|hài lòng|không hài lòng|lỗi|tệ|ổn|chậm|trễ|delay|hủy|huỷ|hoàn tiền|refund|đối soát|đơn hàng|đơn|book|đặt|app|ứng dụng|tài xế|shipper|driver|đối tác|chạy|thu nhập|kiếm|lương|phạt|thưởng|đăng ký|hỗ trợ|tổng đài|khách hàng|cước|giá cước|cod|thu hộ|giao hàng|vận chuyển|dịch vụ)'"
+        )
+
+    def _marketplace_noise_expr(self, alias: str = "pi") -> str:
+        return (
+            f"COALESCE({alias}.content, '') ~* "
+            "'(zalo|inbox|(^|[^[:alnum:]_])ib([^[:alnum:]_]|$)|chốt đơn|menu|shop|có sẵn|hàng có sẵn|hàng_có_sẵn|đồng giá|sỉ|lẻ|mỹ phẩm|serum|son|trái cây|bánh|chậu|cây|lồng đèn|túi|áo khoác|ship toàn quốc|ship từ|phí ship|ngoại ô xa phí|bao check|bán hàng|cần ra đi|em mời khách|(^|[^[:alnum:]_])[0-9]{2,4}k([^[:alnum:]_]|$))'"
+        )
+
+    def _hard_noise_expr(self, alias: str = "pi") -> str:
+        return (
+            f"COALESCE({alias}.content, '') ~* "
+            "'(youtube\\.com/shopcollection|bộ đồ nghề|zalo|chuyên bán|menu trái cây|bánh cuốn|serum|cọ gấu|hàng có sẵn|hàng_có_sẵn|định danh chủ|cà mau.*đăng ký|đăng ký.*cà mau|(^|[^0-9])0[0-9]{8,10}([^0-9]|$))'"
+        )
+
+    def _quality_guard_expr(self, alias: str = "pi") -> str:
+        marketplace_noise_expr = self._marketplace_noise_expr(alias)
+        hard_noise_expr = self._hard_noise_expr(alias)
+        service_intent_expr = self._service_intent_expr(alias)
+        return f"(NOT {hard_noise_expr} AND (NOT {marketplace_noise_expr} OR {service_intent_expr}))"
+
+    def _source_quality_filter_expr(self, alias: str = "pi") -> str:
+        """Keep default dashboard reads focused on traceable, project-related data.
+
+        Older indexed rows can have a soft business relevance score but no URL,
+        crawl keyword, ontology keyword, or focused-source marker. URL alone is
+        not enough because unrelated viral posts can still carry permalinks.
+        Stalker/focused rows remain visible even without permalinks.
+        """
+        source_expr = f"COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,source_kind}}', '')"
+        has_url_expr = self._has_source_url_expr(alias)
+        business_signal_expr = self._business_signal_expr(alias)
+        service_intent_expr = self._service_intent_expr(alias)
+        quality_guard_expr = self._quality_guard_expr(alias)
+        candidate_expr = (
+            "("
+            f"(COALESCE({alias}.uap_metadata #>> '{{crawl_keyword}}', '') <> '' AND {business_signal_expr}) "
+            f"OR (COALESCE(array_length({alias}.keywords, 1), 0) > 0 AND {business_signal_expr}) "
+            f"OR ({has_url_expr} AND ({business_signal_expr} OR {alias}.business_relevance_score >= 0.72))"
+            ")"
+        )
+        return (
+            "("
+            f"{source_expr} IN ('focused_page', 'focused_profile') "
+            f"OR ({candidate_expr} AND {quality_guard_expr})"
+            ")"
+        )
 
     def _base_cte(self, project_ids: list[str], pre_filters: list[str] | None = None) -> str:
         quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
         identity_expr = self._source_identity_expr("pi")
         extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
-        relevance_where = "    AND pi.business_relevance_score >= 0.45" if self._apply_relevance_filter(pre_filters) else ""
+        apply_relevance = self._apply_relevance_filter(pre_filters)
+        relevance_where = "    AND pi.business_relevance_score >= 0.45" if apply_relevance else ""
+        quality_where = (
+            f"    AND {self._source_quality_filter_expr('pi')}" if self._source_quality_gate and apply_relevance else ""
+        )
+        source_table = self._analytics_source_table()
+        if self._use_latest_mart:
+            return f"""
+WITH deduped_post_insight AS (
+  SELECT *
+  FROM {source_table} pi
+  WHERE project_id IN ({quoted_ids})
+{extra_where}
+)
+"""
         return f"""
 WITH latest_post_insight AS (
   SELECT DISTINCT ON (
@@ -958,6 +1333,7 @@ WITH latest_post_insight AS (
   FROM analysis.post_insight pi
   WHERE project_id IN ({quoted_ids})
 {relevance_where}
+{quality_where}
 {extra_where}
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
@@ -975,6 +1351,30 @@ WITH latest_post_insight AS (
         quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
         identity_expr = self._source_identity_expr("pi")
         extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
+        apply_relevance = self._apply_relevance_filter(pre_filters)
+        relevance_where = "    AND pi.business_relevance_score >= 0.45" if apply_relevance else ""
+        quality_where = (
+            f"    AND {self._source_quality_filter_expr('pi')}" if self._source_quality_gate and apply_relevance else ""
+        )
+        source_table = self._analytics_source_table()
+        if self._use_latest_mart:
+            return f"""
+WITH latest_post_insight AS (
+  SELECT
+    pi.id,
+    pi.platform,
+    pi.content_created_at,
+    pi.overall_sentiment,
+    pi.overall_sentiment_score,
+    pi.engagement_score,
+    pi.reach_estimate,
+    pi.risk_level,
+    pi.keywords
+  FROM {source_table} pi
+  WHERE project_id IN ({quoted_ids})
+{extra_where}
+),
+"""
         return f"""
 WITH latest_post_insight AS (
   SELECT DISTINCT ON (
@@ -992,7 +1392,8 @@ WITH latest_post_insight AS (
     pi.keywords
   FROM analysis.post_insight pi
   WHERE project_id IN ({quoted_ids})
-{"    AND pi.business_relevance_score >= 0.45" if self._apply_relevance_filter(pre_filters) else ""}
+{relevance_where}
+{quality_where}
 {extra_where}
   ORDER BY
     COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),

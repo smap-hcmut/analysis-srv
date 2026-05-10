@@ -28,6 +28,11 @@ class _FakeAsyncClient:
         self.last_json = json or {}
         return self.response
 
+    async def get(self, url, headers=None):
+        self.last_url = url
+        self.last_headers = headers or {}
+        return self.response
+
     async def aclose(self):
         return None
 
@@ -129,3 +134,42 @@ async def test_apply_crisis_runtime_raises_upstream_error_on_http_failure():
 
     with pytest.raises(UpstreamError):
         await client.apply_crisis_runtime("proj-err", status="WARNING")
+
+
+@pytest.mark.asyncio
+async def test_get_ontology_runtime_config_success():
+    client = ProjectServiceClient(
+        base_url="http://project-srv.local",
+        internal_key="secret",
+    )
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {
+                "data": {
+                    "project_id": "proj-ontology",
+                    "ontology_rules": {
+                        "enabled": True,
+                        "rules": [
+                            {
+                                "id": "fee",
+                                "label": "Fee complaints",
+                                "target_kind": "ISSUE",
+                                "target_key": "high_fee",
+                                "phrases": ["phí cao"],
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+    )
+    client._client = fake
+
+    out = await client.get_ontology_runtime_config("proj-ontology")
+
+    assert out.project_id == "proj-ontology"
+    assert out.ontology_rules["enabled"] is True
+    assert out.ontology_rules["rules"][0]["target_key"] == "high_fee"
+    assert fake.last_url.endswith("/api/v1/internal/projects/proj-ontology/ontology-rules")
+    assert fake.last_headers.get("X-Internal-Key") == "secret"

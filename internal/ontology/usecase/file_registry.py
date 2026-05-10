@@ -31,6 +31,7 @@ from internal.ontology.type import (
     CategoryDefinition,
     TopicDefinition,
 )
+from internal.ontology.usecase.user_rules import ProjectOntologyRule, ProjectOntologyRules
 
 if TYPE_CHECKING:
     pass
@@ -63,6 +64,9 @@ class FileOntologyRegistry:
     """
 
     ontology: OntologyRegistry
+    user_rules: ProjectOntologyRules = field(
+        default_factory=ProjectOntologyRules, repr=False, compare=False
+    )
     _alias_cache: dict[str, EntitySeed] | None = field(
         default=None, repr=False, compare=False
     )
@@ -100,6 +104,13 @@ class FileOntologyRegistry:
             len(registry.source_channels),
         )
         return cls(ontology=registry)
+
+    def with_user_rules(self, payload: dict | None) -> "FileOntologyRegistry":
+        """Return a lightweight project-scoped view with marketing signal rules."""
+        return FileOntologyRegistry(
+            ontology=self.ontology,
+            user_rules=ProjectOntologyRules.from_payload(payload or {}),
+        )
 
     @classmethod
     def from_config(cls, ontology_config: object) -> "FileOntologyRegistry":
@@ -235,15 +246,17 @@ class FileOntologyRegistry:
 
     def aspect_seed_phrases(self) -> dict[str, list[str]]:
         """Return aspect_id → seed_phrases mapping for lexical matching."""
-        return {
+        seeds = {
             cat.id: list(cat.seed_phrases) for cat in self.ontology.aspect_categories
         }
+        return self._merge_user_phrase_rules(seeds, "ASPECT")
 
     def issue_seed_phrases(self) -> dict[str, list[str]]:
         """Return issue_id → seed_phrases mapping for lexical matching."""
-        return {
+        seeds = {
             cat.id: list(cat.seed_phrases) for cat in self.ontology.issue_categories
         }
+        return self._merge_user_phrase_rules(seeds, "ISSUE")
 
     def intent_seed_phrases(self) -> dict[str, list[str]]:
         """Return intent_id → seed_phrases mapping for lexical matching."""
@@ -255,9 +268,29 @@ class FileOntologyRegistry:
 
     def topic_seed_phrases(self) -> dict[str, list[str]]:
         """Return topic_key → seed_phrases mapping."""
-        return {
+        seeds = {
             topic.topic_key: list(topic.seed_phrases) for topic in self.ontology.topics
         }
+        return self._merge_user_phrase_rules(seeds, "TOPIC")
+
+    def user_signal_rules(self, target_kind: str) -> tuple[ProjectOntologyRule, ...]:
+        return self.user_rules.for_kind(target_kind)
+
+    def _merge_user_phrase_rules(
+        self,
+        seeds: dict[str, list[str]],
+        target_kind: str,
+    ) -> dict[str, list[str]]:
+        for rule in self.user_signal_rules(target_kind):
+            if not rule.phrases:
+                continue
+            bucket = seeds.setdefault(rule.target_key, [])
+            existing = {item.casefold() for item in bucket}
+            for phrase in rule.phrases:
+                if phrase.casefold() not in existing:
+                    bucket.append(phrase)
+                    existing.add(phrase.casefold())
+        return seeds
 
     def __repr__(self) -> str:
         o = self.ontology

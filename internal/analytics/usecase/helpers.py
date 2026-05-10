@@ -116,6 +116,8 @@ def add_uap_metadata(
             result.author_is_verified = uap.content.author.is_verified
 
     raw_context = _extract_raw_context(uap)
+    if uap.content and uap.content.doc_type:
+        raw_context["doc_type"] = uap.content.doc_type
     if raw_context:
         result.raw_context = raw_context
 

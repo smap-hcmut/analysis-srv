@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import yaml
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from internal.http.analytics_service import AnalyticsService
 from internal.http.errors import APIError
@@ -27,10 +29,17 @@ from pkg.postgre.type import PostgresConfig
 
 
 class APIDependencies:
-    def __init__(self, logger: Logger, db: PostgresDatabase, analytics_query_timeout_ms: int):
+    def __init__(
+        self,
+        logger: Logger,
+        db: PostgresDatabase,
+        analytics_query_timeout_ms: int,
+        mart_refresh_seconds: int,
+    ):
         self.logger = logger
         self.db = db
         self.analytics_query_timeout_ms = analytics_query_timeout_ms
+        self.mart_refresh_seconds = mart_refresh_seconds
         self.ready = True
         self._ready_cache_value: bool = True
         self._ready_cache_until: float = 0.0
@@ -84,10 +93,15 @@ async def init_api_dependencies() -> APIDependencies:
         _env_or_config("ANALYTICS_DATABASE_IDLE_TX_TIMEOUT_MS", config, ("database", "idle_in_transaction_timeout_ms"), 30_000)
     )
     query_timeout_ms = int(_env_or_config("ANALYTICS_QUERY_TIMEOUT_MS", config, ("database", "query_timeout_ms"), 25_000))
+    mart_refresh_seconds = int(
+        _env_or_config("ANALYTICS_MART_REFRESH_SECONDS", config, ("database", "mart_refresh_seconds"), 300)
+    )
     if statement_timeout_ms > 0:
         query_timeout_ms = min(query_timeout_ms, statement_timeout_ms)
     if query_timeout_ms <= 0:
         query_timeout_ms = 25_000
+    if mart_refresh_seconds < 0:
+        mart_refresh_seconds = 0
 
     if not database_url:
         raise RuntimeError("ANALYTICS_DATABASE_URL is required")
@@ -118,13 +132,48 @@ async def init_api_dependencies() -> APIDependencies:
         logger=logger,
         db=db,
         analytics_query_timeout_ms=query_timeout_ms,
+        mart_refresh_seconds=mart_refresh_seconds,
     )
+
+
+async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
+    """Refresh the dashboard mart without blocking app startup or requests."""
+    if not deps.db.engine:
+        return
+
+    async with deps.db.engine.connect() as raw_conn:
+        conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
+        lock_acquired = False
+        try:
+            lock_result = await conn.execute(text("SELECT pg_try_advisory_lock(2026051007)"))
+            lock_acquired = bool(lock_result.scalar())
+            if not lock_acquired:
+                return
+
+            await conn.execute(text("SET statement_timeout = '180s'"))
+            await conn.execute(text("SELECT analysis.refresh_latest_post_insight()"))
+        except Exception as exc:  # pragma: no cover - operational guardrail
+            deps.logger.warning(f"analysis-api mart refresh skipped: {exc}")
+        finally:
+            if lock_acquired:
+                with suppress(Exception):
+                    await conn.execute(text("SELECT pg_advisory_unlock(2026051007)"))
+
+
+async def _latest_post_insight_mart_loop(deps: APIDependencies) -> None:
+    if deps.mart_refresh_seconds <= 0:
+        return
+    await asyncio.sleep(min(deps.mart_refresh_seconds, 30))
+    while True:
+        await _refresh_latest_post_insight_mart(deps)
+        await asyncio.sleep(deps.mart_refresh_seconds)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     deps = await init_api_dependencies()
     project_client = build_project_service_client()
+    mart_task = asyncio.create_task(_latest_post_insight_mart_loop(deps))
     app.state.deps = deps
     app.state.project_client = project_client
     app.state.analytics = AnalyticsService(
@@ -135,6 +184,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        mart_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await mart_task
         await project_client.close()
         if getattr(deps, "db", None):
             await deps.db.close()
@@ -197,18 +249,36 @@ async def ready(request: Request):
 
 
 @app.get("/api/v1/analytics/kpis")
-async def get_kpis(request: Request, campaignId: str, sourceKind: str = "all"):
-    return await request.app.state.analytics.get_kpis(campaignId, sourceKind)
+async def get_kpis(
+    request: Request,
+    campaignId: str,
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+):
+    return await request.app.state.analytics.get_kpis(campaignId, sourceKind, projectIds, keywords)
 
 
 @app.get("/api/v1/analytics/platforms")
-async def get_platforms(request: Request, campaignId: str, sourceKind: str = "all"):
-    return await request.app.state.analytics.get_platforms(campaignId, sourceKind)
+async def get_platforms(
+    request: Request,
+    campaignId: str,
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+):
+    return await request.app.state.analytics.get_platforms(campaignId, sourceKind, projectIds, keywords)
 
 
 @app.get("/api/v1/analytics/sentiment")
-async def get_sentiment(request: Request, campaignId: str, sourceKind: str = "all"):
-    return await request.app.state.analytics.get_sentiment(campaignId, sourceKind)
+async def get_sentiment(
+    request: Request,
+    campaignId: str,
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+):
+    return await request.app.state.analytics.get_sentiment(campaignId, sourceKind, projectIds, keywords)
 
 
 @app.get("/api/v1/analytics/keywords")
@@ -217,8 +287,10 @@ async def get_keywords(
     campaignId: str,
     limit: int = Query(default=50, ge=1, le=100),
     sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
 ):
-    return await request.app.state.analytics.get_keywords(campaignId, limit, sourceKind)
+    return await request.app.state.analytics.get_keywords(campaignId, limit, sourceKind, projectIds, keywords)
 
 
 @app.get("/api/v1/analytics/posts")
@@ -231,18 +303,44 @@ async def get_posts(
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+    contentType: str = "all",
 ):
-    return await request.app.state.analytics.get_posts(campaignId, platform, sentiment, sort, limit, offset, sourceKind)
+    return await request.app.state.analytics.get_posts(
+        campaignId,
+        platform,
+        sentiment,
+        sort,
+        limit,
+        offset,
+        sourceKind,
+        projectIds,
+        keywords,
+        contentType,
+    )
 
 
 @app.get("/api/v1/analytics/project-stats")
-async def get_project_stats(request: Request, campaignId: str, sourceKind: str = "all"):
-    return await request.app.state.analytics.get_project_stats(campaignId, sourceKind)
+async def get_project_stats(
+    request: Request,
+    campaignId: str,
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+):
+    return await request.app.state.analytics.get_project_stats(campaignId, sourceKind, projectIds, keywords)
 
 
 @app.get("/api/v1/analytics/heap")
-async def get_heap(request: Request, campaignId: str, sourceKind: str = "all"):
-    return await request.app.state.analytics.get_heap(campaignId, sourceKind)
+async def get_heap(
+    request: Request,
+    campaignId: str,
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+):
+    return await request.app.state.analytics.get_heap(campaignId, sourceKind, projectIds, keywords)
 
 
 def run():
@@ -250,7 +348,16 @@ def run():
 
     host = os.getenv("ANALYTICS_API_HOST", "0.0.0.0")
     port = int(os.getenv("ANALYTICS_API_PORT", "8080"))
-    uvicorn.run("apps.api.main:app", host=host, port=port, reload=False)
+    uvicorn_log_level = os.getenv("ANALYTICS_UVICORN_LOG_LEVEL", "warning").strip().lower() or "warning"
+    access_log_enabled = os.getenv("ANALYTICS_UVICORN_ACCESS_LOG", "false").strip().lower() in {"1", "true", "yes", "on"}
+    uvicorn.run(
+        "apps.api.main:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level=uvicorn_log_level,
+        access_log=access_log_enabled,
+    )
 
 
 if __name__ == "__main__":

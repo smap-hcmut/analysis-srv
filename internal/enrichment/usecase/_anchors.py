@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Any
 
 from internal.enrichment.usecase._semantic_models import (
     AnchorType,
@@ -252,6 +253,8 @@ def extract_lexical_anchors(
     *,
     aspect_seeds: SeedSet | None = None,
     issue_seeds: SeedSet | None = None,
+    aspect_rules: Iterable[Any] | None = None,
+    issue_rules: Iterable[Any] | None = None,
 ) -> list[SemanticAnchor]:
     anchors: list[SemanticAnchor] = []
     anchors.extend(
@@ -260,7 +263,13 @@ def extract_lexical_anchors(
         )
     )
     anchors.extend(
+        _anchors_from_user_rules(segment, aspect_rules or (), AnchorType.ASPECT, 0.84)
+    )
+    anchors.extend(
         _anchors_from_seeds(segment, issue_seeds or ISSUE_SEEDS, AnchorType.ISSUE, 0.76)
+    )
+    anchors.extend(
+        _anchors_from_user_rules(segment, issue_rules or (), AnchorType.ISSUE, 0.86)
     )
     anchors.extend(_anchors_from_scores(segment, POSITIVE_CUES, positive=True))
     anchors.extend(_anchors_from_scores(segment, NEGATIVE_CUES, positive=False))
@@ -368,6 +377,41 @@ def _anchors_from_seeds(
         for variant in variants:
             anchors.extend(
                 _cue_anchors(segment, (variant,), anchor_type, confidence, label=label)
+            )
+    return anchors
+
+
+def _anchors_from_user_rules(
+    segment: SemanticSegment,
+    rules: Iterable[Any],
+    anchor_type: AnchorType,
+    confidence: float,
+) -> list[SemanticAnchor]:
+    anchors: list[SemanticAnchor] = []
+    for rule in rules:
+        evidence_fn = getattr(rule, "evidence", None)
+        if not callable(evidence_fn):
+            continue
+        for start, end, text in evidence_fn(segment.text):
+            absolute_start = segment.start + int(start)
+            absolute_end = segment.start + int(end)
+            anchors.append(
+                SemanticAnchor(
+                    anchor_type=anchor_type,
+                    label=str(getattr(rule, "target_key", "") or getattr(rule, "label", "")),
+                    normalized_text=normalize_alias(str(text)) or str(text).casefold(),
+                    start=absolute_start,
+                    end=absolute_end,
+                    text=str(text),
+                    source="project_ontology_rule",
+                    confidence=min(0.96, confidence + (float(getattr(rule, "weight", 1)) - 1.0) / 500.0),
+                    segment_id=segment.segment_id,
+                    metadata={
+                        "rule_id": str(getattr(rule, "id", "")),
+                        "rule_label": str(getattr(rule, "label", "")),
+                        "match_mode": str(getattr(rule, "match_mode", "")),
+                    },
+                )
             )
     return anchors
 

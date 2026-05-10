@@ -121,9 +121,13 @@ class SimplifiedSemanticInferenceEnricher:
             self._issue_seeds = self._build_seeds_from_ontology(
                 ontology_registry.issue_seed_phrases()
             )
+            self._aspect_rules = tuple(ontology_registry.user_signal_rules("ASPECT"))
+            self._issue_rules = tuple(ontology_registry.user_signal_rules("ISSUE"))
         else:
             self._aspect_seeds = ASPECT_SEEDS
             self._issue_seeds = ISSUE_SEEDS
+            self._aspect_rules = ()
+            self._issue_rules = ()
 
     @staticmethod
     def _build_seeds_from_ontology(
@@ -261,6 +265,8 @@ class SimplifiedSemanticInferenceEnricher:
                 segment,
                 aspect_seeds=self._aspect_seeds,
                 issue_seeds=self._issue_seeds,
+                aspect_rules=self._aspect_rules,
+                issue_rules=self._issue_rules,
             )
             anchors.sort(
                 key=lambda item: (item.start, item.end, item.anchor_type.value)

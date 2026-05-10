@@ -4,9 +4,13 @@ Topic: analytics.batch.completed
 One message per run containing the full documents[] array.
 """
 
-from internal.model.uap import UAPRecord
-from internal.model.insight_message import InsightMessage
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
 from internal.contract_publisher.type import RunContext
+from internal.model.insight_message import InsightMessage
+from internal.model.uap import UAPRecord
+
 from .helpers import (
     normalize_platform_upper,
     detect_media_type,
@@ -144,11 +148,114 @@ def _map_document(uap: UAPRecord, msg: InsightMessage) -> dict:
         "rag": rag_bool,
     }
 
-    # Optional fields [v1.2] — only add if present in InsightMessage
-    # These are populated in Phase 4+ when core-analysis enrichers are ported
-    # For now they remain absent (omitted per backward compat rules)
+    source = _map_source(uap)
+    if source:
+        result["source"] = source
 
     return result
+
+
+def _map_source(uap: UAPRecord) -> dict[str, Any]:
+    content = uap.content
+    raw = uap.raw if isinstance(uap.raw, dict) else {}
+    hierarchy = raw.get("hierarchy") if isinstance(raw.get("hierarchy"), dict) else {}
+    platform_meta = (
+        raw.get("platform_meta") if isinstance(raw.get("platform_meta"), dict) else {}
+    )
+
+    original_url = _resolve_original_url(uap)
+    parent_post_url = _platform_parent_url(uap, platform_meta, hierarchy)
+    source: dict[str, Any] = {
+        "url": content.url if content and _is_http_url(content.url) else "",
+        "original_url": original_url,
+        "permalink": original_url,
+        "source_url": original_url,
+        "web_url": original_url,
+        "parent_post_url": parent_post_url,
+        "content_type": (content.doc_type or "").lower() if content else "",
+        "root_id": str(hierarchy.get("root_id") or ""),
+        "parent_id": str(hierarchy.get("parent_id") or ""),
+        "platform_meta": platform_meta,
+        "hierarchy": hierarchy,
+    }
+    if content and (content.doc_type or "").lower() == "comment":
+        source["comment_url"] = original_url
+
+    if content and content.author:
+        source.update(
+            {
+                "author": content.author.author_id or "",
+                "author_display_name": content.author.display_name or "",
+                "author_username": content.author.username or "",
+                "author_avatar": content.author.avatar_url or "",
+            }
+        )
+
+    return {k: v for k, v in source.items() if v not in ("", None, {}, [])}
+
+
+def _is_http_url(value: Any) -> bool:
+    return isinstance(value, str) and (
+        value.startswith("https://") or value.startswith("http://")
+    )
+
+
+def _with_query_param(url: str, key: str, value: str) -> str:
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query[key] = value
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _platform_parent_url(
+    uap: UAPRecord,
+    platform_meta: dict[str, Any],
+    hierarchy: dict[str, Any],
+) -> str:
+    platform = ""
+    if uap.ingest and uap.ingest.source:
+        platform = str(uap.ingest.source.source_type or "").strip().lower()
+
+    if platform == "youtube":
+        youtube_meta = (
+            platform_meta.get("youtube")
+            if isinstance(platform_meta.get("youtube"), dict)
+            else {}
+        )
+        parent_url = str(youtube_meta.get("parent_url") or "").strip()
+        video_id = str(youtube_meta.get("parent_video_id") or "").strip()
+        root_id = str(hierarchy.get("root_id") or "").strip()
+        if not video_id and root_id.startswith("yt_p_"):
+            video_id = root_id.removeprefix("yt_p_")
+        if not parent_url and video_id:
+            parent_url = f"https://www.youtube.com/watch?v={video_id}"
+        if _is_http_url(parent_url):
+            return parent_url
+    return ""
+
+
+def _resolve_original_url(uap: UAPRecord) -> str:
+    fallback_url = uap.content.url if uap.content else None
+    if _is_http_url(fallback_url):
+        return str(fallback_url)
+
+    raw = uap.raw if isinstance(uap.raw, dict) else {}
+    platform_meta = (
+        raw.get("platform_meta") if isinstance(raw.get("platform_meta"), dict) else {}
+    )
+    hierarchy = raw.get("hierarchy") if isinstance(raw.get("hierarchy"), dict) else {}
+    parent_url = _platform_parent_url(uap, platform_meta, hierarchy)
+
+    doc_type = str(uap.content.doc_type if uap.content else "").strip().lower()
+    source_id = ""
+    if uap.ingest and uap.ingest.source:
+        source_id = str(uap.ingest.source.source_id or "").strip()
+
+    if _is_http_url(parent_url):
+        if doc_type == "comment" and source_id:
+            return _with_query_param(parent_url, "lc", source_id)
+        return parent_url
+    return ""
 
 
 __all__ = ["build_batch_completed_payload"]

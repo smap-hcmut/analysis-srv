@@ -43,6 +43,12 @@ class ProjectCrisisRuntimeConfig:
     crisis_config: dict
 
 
+@dataclass
+class ProjectOntologyRuntimeConfig:
+    project_id: str
+    ontology_rules: dict
+
+
 class ProjectServiceClient:
     def __init__(self, base_url: str, internal_key: str, timeout_seconds: float = 10.0):
         self.base_url = base_url.rstrip("/")
@@ -52,6 +58,7 @@ class ProjectServiceClient:
         self._campaign_cache: dict[str, CachedValue] = {}
         self._project_cache: dict[str, CachedValue] = {}
         self._crisis_config_cache: dict[str, CachedValue] = {}
+        self._ontology_rules_cache: dict[str, CachedValue] = {}
         self._ttl_seconds = 300.0
 
     async def get_campaign_projects(self, campaign_id: str) -> CampaignProjects:
@@ -95,6 +102,42 @@ class ProjectServiceClient:
         self._campaign_cache[campaign_id] = CachedValue(
             value=result,
             expires_at=time.time() + self._ttl_seconds,
+        )
+        return result
+
+    async def get_ontology_runtime_config(self, project_id: str) -> ProjectOntologyRuntimeConfig:
+        if not project_id:
+            raise BadRequestError("project_id is required")
+
+        cached = self._ontology_rules_cache.get(project_id)
+        if cached and cached.expires_at > time.time():
+            return cached.value  # type: ignore[return-value]
+
+        url = f"{self.base_url}/api/v1/internal/projects/{project_id}/ontology-rules"
+        headers = {"X-Internal-Key": self.internal_key}
+
+        try:
+            response = await self._client.get(url, headers=headers)
+        except httpx.HTTPError as exc:
+            raise UpstreamError(f"project ontology rules unavailable: {exc}") from exc
+
+        if response.status_code >= 400:
+            raise UpstreamError(
+                f"project ontology rules failed ({response.status_code}): {response.text}"
+            )
+
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+        rules = data.get("ontology_rules")
+        result = ProjectOntologyRuntimeConfig(
+            project_id=str(data.get("project_id") or project_id),
+            ontology_rules=rules if isinstance(rules, dict) else {},
+        )
+        self._ontology_rules_cache[project_id] = CachedValue(
+            value=result,
+            expires_at=time.time() + 60.0,
         )
         return result
 

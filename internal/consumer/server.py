@@ -79,9 +79,9 @@ class ConsumerServer(IConsumerServer):
             self.contract_publisher = self.registry.contract_publisher
             self.post_insight_usecase = self.registry.post_insight_usecase
 
-            if self._crisis_runtime_apply_enabled:
-                try:
-                    self.project_service_client = build_project_service_client()
+            try:
+                self.project_service_client = build_project_service_client()
+                if self._crisis_runtime_apply_enabled:
                     self.logger.info(
                         "Crisis runtime auto-apply enabled",
                         extra={
@@ -89,12 +89,18 @@ class ConsumerServer(IConsumerServer):
                             "mode": "project_service_internal_api",
                         },
                     )
-                except Exception as exc:
+            except Exception as exc:
+                if self._crisis_runtime_apply_enabled:
                     self.logger.error(
                         "Failed to initialize crisis runtime client; feature disabled",
                         extra={"error": str(exc)},
                     )
                     self._crisis_runtime_apply_enabled = False
+                else:
+                    self.logger.warning(
+                        "Project runtime config client unavailable; using static ontology",
+                        extra={"error": str(exc)},
+                    )
 
             # Get Kafka consumer config from dependencies
             kafka_consumer_config = self.deps.kafka_consumer_config
@@ -281,6 +287,12 @@ class ConsumerServer(IConsumerServer):
                     pipeline_config = dataclasses.replace(
                         pipeline_config,
                         crisis_config=crisis_runtime_config.crisis_config,
+                    )
+                ontology_runtime_config = await self._get_ontology_runtime_config(project_id)
+                if ontology_runtime_config is not None:
+                    pipeline_config = self._with_project_ontology_rules(
+                        pipeline_config,
+                        ontology_runtime_config.ontology_rules,
                     )
 
                 for uap_record in uap_records:
@@ -485,6 +497,56 @@ class ConsumerServer(IConsumerServer):
                 extra={"project_id": project_id, "error": str(exc)},
             )
             return None
+
+    async def _get_ontology_runtime_config(self, project_id: str):
+        if self.project_service_client is None:
+            return None
+        try:
+            return await self.project_service_client.get_ontology_runtime_config(project_id)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to fetch project ontology rules; using domain ontology only",
+                extra={"project_id": project_id, "error": str(exc)},
+            )
+            return None
+
+    def _with_project_ontology_rules(self, pipeline_config, ontology_rules: dict):
+        if not isinstance(ontology_rules, dict):
+            return pipeline_config
+        if ontology_rules.get("enabled") is False:
+            return pipeline_config
+        rules = ontology_rules.get("rules")
+        if not isinstance(rules, list) or not rules:
+            return pipeline_config
+
+        try:
+            base_registry = pipeline_config.services.ontology_registry
+            if base_registry is None or not hasattr(base_registry, "with_user_rules"):
+                return pipeline_config
+            ontology_registry = base_registry.with_user_rules(ontology_rules)
+            enrichment_cfg = EnricherConfig(
+                entity_enabled=self.deps.config.enrichment.entity_enabled,
+                semantic_enabled=self.deps.config.enrichment.semantic_enabled,
+                topic_enabled=self.deps.config.enrichment.topic_enabled,
+                source_influence_enabled=self.deps.config.enrichment.source_influence_enabled,
+                semantic_full_enabled=self.deps.config.enrichment.semantic_full_enabled,
+            )
+            enrichment_uc = EnrichmentUseCase(
+                config=enrichment_cfg,
+                ontology_registry=ontology_registry,
+            )
+            services = dataclasses.replace(
+                pipeline_config.services,
+                ontology_registry=ontology_registry,
+                enrichment=enrichment_uc,
+            )
+            return dataclasses.replace(pipeline_config, services=services)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to apply project ontology rules; using domain ontology only",
+                extra={"error": str(exc)},
+            )
+            return pipeline_config
 
     async def _maybe_apply_crisis_runtime(self, result, runtime_config=None) -> None:
         if not self._crisis_runtime_apply_enabled:

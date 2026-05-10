@@ -298,8 +298,10 @@ class SimplifiedTopicCandidateEnricher:
         self._topic_artifacts: list[TopicArtifactFact] = []
         self._ontology_registry = ontology_registry
         self._topic_seeds: dict[str, list[str]] = {}
+        self._topic_rules: tuple[Any, ...] = ()
         if ontology_registry is not None:
             self._topic_seeds = ontology_registry.topic_seed_phrases()
+            self._topic_rules = tuple(ontology_registry.user_signal_rules("TOPIC"))
 
     def prepare(
         self,
@@ -327,7 +329,11 @@ class SimplifiedTopicCandidateEnricher:
         unmatched_mentions: list[Any] = []
         ontology_topic_counts: dict[str, int] = defaultdict(int)
 
-        if self._topic_seeds:
+        if self._topic_rules:
+            for mention in mentions:
+                if not self._match_project_topic_rules(mention, ontology_topic_counts):
+                    unmatched_mentions.append(mention)
+        elif self._topic_seeds:
             for mention in mentions:
                 text_lower = mention.raw_text.lower()
                 matched = False
@@ -369,6 +375,47 @@ class SimplifiedTopicCandidateEnricher:
                     unmatched_mentions.append(mention)
         else:
             unmatched_mentions = list(mentions)
+
+        if self._topic_rules and self._topic_seeds and unmatched_mentions:
+            seed_candidates = unmatched_mentions
+            unmatched_mentions = []
+            for mention in seed_candidates:
+                text_lower = mention.raw_text.lower()
+                matched = False
+                for topic_key, seed_phrases in self._topic_seeds.items():
+                    for phrase in seed_phrases:
+                        if phrase.lower() in text_lower:
+                            topic_label = topic_key
+                            if self._ontology_registry:
+                                for t in self._ontology_registry.topics:
+                                    if t.topic_key == topic_key:
+                                        topic_label = t.label
+                                        break
+                            self._topic_facts_by_mention[mention.mention_id].append(
+                                TopicFact(
+                                    mention_id=mention.mention_id,
+                                    source_uap_id=mention.source_uap_id,
+                                    topic_key=topic_key,
+                                    topic_label=topic_label,
+                                    reporting_status="reportable",
+                                    confidence=0.75,
+                                    segment_id=None,
+                                    provenance=FactProvenance(
+                                        source_uap_id=mention.source_uap_id,
+                                        mention_id=mention.mention_id,
+                                        provider_version=self.provider_version,
+                                        rule_version="topic-ontology-seed-v1",
+                                        evidence_text=phrase,
+                                    ),
+                                )
+                            )
+                            ontology_topic_counts[topic_key] += 1
+                            matched = True
+                            break
+                    if matched:
+                        break
+                if not matched:
+                    unmatched_mentions.append(mention)
 
         # Build artifacts for ontology-matched topics
         for topic_key, count in ontology_topic_counts.items():
@@ -476,3 +523,42 @@ class SimplifiedTopicCandidateEnricher:
     def artifacts(self) -> list[TopicArtifactFact]:
         """Return TopicArtifactFacts built during prepare()."""
         return list(self._topic_artifacts)
+
+    def _match_project_topic_rules(
+        self,
+        mention: Any,
+        topic_counts: dict[str, int],
+    ) -> bool:
+        for rule in self._topic_rules:
+            evidence_fn = getattr(rule, "evidence", None)
+            if not callable(evidence_fn):
+                continue
+            evidence = evidence_fn(mention.raw_text)
+            if not evidence:
+                continue
+            topic_key = str(getattr(rule, "target_key", "") or "").strip()
+            if not topic_key:
+                continue
+            topic_label = str(getattr(rule, "label", "") or topic_key)
+            evidence_text = str(evidence[0][2]) if evidence else topic_label
+            self._topic_facts_by_mention[mention.mention_id].append(
+                TopicFact(
+                    mention_id=mention.mention_id,
+                    source_uap_id=mention.source_uap_id,
+                    topic_key=topic_key,
+                    topic_label=topic_label,
+                    reporting_status="reportable",
+                    confidence=0.84,
+                    segment_id=None,
+                    provenance=FactProvenance(
+                        source_uap_id=mention.source_uap_id,
+                        mention_id=mention.mention_id,
+                        provider_version=self.provider_version,
+                        rule_version="topic-project-rule-v1",
+                        evidence_text=evidence_text,
+                    ),
+                )
+            )
+            topic_counts[topic_key] += 1
+            return True
+        return False
