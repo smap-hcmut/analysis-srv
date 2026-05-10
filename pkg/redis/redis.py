@@ -1,5 +1,7 @@
+import asyncio
 import json
-from typing import Optional
+import time
+from typing import Awaitable, Callable, Optional
 
 import redis.asyncio as aioredis
 from loguru import logger
@@ -16,6 +18,10 @@ class RedisCache:
     Supports JSON serialization, TTL, and connection pooling.
     """
 
+    _RETRY_ATTEMPTS = 3
+    _RETRY_DELAYS_SECONDS = (0.05, 0.15, 0.3)
+    _ERROR_LOG_COOLDOWN_SECONDS = 60
+
     def __init__(self, config: RedisConfig):
         """Initialize Redis cache manager.
 
@@ -25,6 +31,7 @@ class RedisCache:
         self.config = config
         self.client = None
         self.pool = None
+        self._error_throttle: dict[str, float] = {}
         self._initialize_client()
 
     def _initialize_client(self) -> None:
@@ -68,11 +75,7 @@ class RedisCache:
         Returns:
             Value as string, or None if not found
         """
-        try:
-            return await self.client.get(key)
-        except Exception as e:
-            logger.error(f"Redis GET error for key '{key}': {e}")
-            return None
+        return await self._execute_with_retry("GET", key, lambda: self.client.get(key), None)
 
     async def get_json(self, key: str) -> Optional[object]:
         """Get value by key and deserialize from JSON.
@@ -90,7 +93,7 @@ class RedisCache:
         try:
             return json.loads(value)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error for key '{key}': {e}")
+            self._log_error("JSON", key, e, retrying=False, is_transient=False)
             return None
 
     async def set(self, key: str, value: object, ttl: Optional[int] = None) -> bool:
@@ -104,18 +107,14 @@ class RedisCache:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            # Serialize to JSON if not string
-            if not isinstance(value, str):
-                value = json.dumps(value)
 
+        async def operation() -> bool:
+            payload = json.dumps(value) if not isinstance(value, str) else value
             if ttl:
-                return await self.client.setex(key, ttl, value)
-            else:
-                return await self.client.set(key, value)
-        except Exception as e:
-            logger.error(f"Redis SET error for key '{key}': {e}")
-            return False
+                return await self.client.setex(key, ttl, payload)
+            return await self.client.set(key, payload)
+
+        return await self._execute_with_retry("SET", key, operation, False)
 
     async def delete(self, key: str) -> bool:
         """Delete key.
@@ -126,12 +125,14 @@ class RedisCache:
         Returns:
             True if key was deleted, False otherwise
         """
-        try:
-            result = await self.client.delete(key)
-            return result > 0
-        except Exception as e:
-            logger.error(f"Redis DELETE error for key '{key}': {e}")
-            return False
+        async def operation() -> bool:
+            return self._to_bool(await self.client.delete(key))
+        return await self._execute_with_retry(
+            "DELETE",
+            key,
+            operation,
+            False,
+        )
 
     async def exists(self, key: str) -> bool:
         """Check if key exists.
@@ -142,12 +143,14 @@ class RedisCache:
         Returns:
             True if key exists, False otherwise
         """
-        try:
-            result = await self.client.exists(key)
-            return result > 0
-        except Exception as e:
-            logger.error(f"Redis EXISTS error for key '{key}': {e}")
-            return False
+        async def operation() -> bool:
+            return self._to_bool(await self.client.exists(key))
+        return await self._execute_with_retry(
+            "EXISTS",
+            key,
+            operation,
+            False,
+        )
 
     async def expire(self, key: str, ttl: int) -> bool:
         """Set expiration time for key.
@@ -159,11 +162,14 @@ class RedisCache:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            return await self.client.expire(key, ttl)
-        except Exception as e:
-            logger.error(f"Redis EXPIRE error for key '{key}': {e}")
-            return False
+        async def operation() -> bool:
+            return self._to_bool(await self.client.expire(key, ttl))
+        return await self._execute_with_retry(
+            "EXPIRE",
+            key,
+            operation,
+            False,
+        )
 
     async def ttl(self, key: str) -> int:
         """Get remaining TTL for key.
@@ -174,11 +180,7 @@ class RedisCache:
         Returns:
             Remaining TTL in seconds, -1 if no expiry, -2 if key doesn't exist
         """
-        try:
-            return await self.client.ttl(key)
-        except Exception as e:
-            logger.error(f"Redis TTL error for key '{key}': {e}")
-            return -2
+        return await self._execute_with_retry("TTL", key, lambda: self.client.ttl(key), -2)
 
     async def incr(self, key: str, amount: int = 1) -> Optional[int]:
         """Increment key by amount.
@@ -190,11 +192,7 @@ class RedisCache:
         Returns:
             New value after increment, or None on error
         """
-        try:
-            return await self.client.incrby(key, amount)
-        except Exception as e:
-            logger.error(f"Redis INCR error for key '{key}': {e}")
-            return None
+        return await self._execute_with_retry("INCR", key, lambda: self.client.incrby(key, amount), None)
 
     async def decr(self, key: str, amount: int = 1) -> Optional[int]:
         """Decrement key by amount.
@@ -206,11 +204,7 @@ class RedisCache:
         Returns:
             New value after decrement, or None on error
         """
-        try:
-            return await self.client.decrby(key, amount)
-        except Exception as e:
-            logger.error(f"Redis DECR error for key '{key}': {e}")
-            return None
+        return await self._execute_with_retry("DECR", key, lambda: self.client.decrby(key, amount), None)
 
     async def mget(self, keys: list[str]) -> list[Optional[str]]:
         """Get multiple values by keys.
@@ -221,11 +215,8 @@ class RedisCache:
         Returns:
             List of values (None for missing keys)
         """
-        try:
-            return await self.client.mget(keys)
-        except Exception as e:
-            logger.error(f"Redis MGET error: {e}")
-            return [None] * len(keys)
+        key = ",".join(keys[:5]) if keys else "<empty>"
+        return await self._execute_with_retry("MGET", key, lambda: self.client.mget(keys), [None] * len(keys))
 
     async def mset(self, mapping: dict[str, object]) -> bool:
         """Set multiple key-value pairs.
@@ -236,19 +227,15 @@ class RedisCache:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            # Serialize values to JSON if needed
-            serialized = {}
-            for key, value in mapping.items():
-                if not isinstance(value, str):
-                    serialized[key] = json.dumps(value)
-                else:
-                    serialized[key] = value
+        first_key = next(iter(mapping.keys()), "<empty>")
 
+        async def operation() -> bool:
+            serialized = {}
+            for item_key, item_value in mapping.items():
+                serialized[item_key] = json.dumps(item_value) if not isinstance(item_value, str) else item_value
             return await self.client.mset(serialized)
-        except Exception as e:
-            logger.error(f"Redis MSET error: {e}")
-            return False
+
+        return await self._execute_with_retry("MSET", first_key, operation, False)
 
     async def health_check(self) -> bool:
         """Check Redis connectivity.
@@ -256,11 +243,14 @@ class RedisCache:
         Returns:
             True if Redis is healthy, False otherwise
         """
-        try:
-            return await self.client.ping()
-        except Exception as e:
-            logger.error(f"Redis health check failed: {e}")
-            return False
+        return bool(
+            await self._execute_with_retry(
+                "PING",
+                "server",
+                self.client.ping,
+                False,
+            )
+        )
 
     async def close(self) -> None:
         """Close Redis connection and cleanup resources."""
@@ -282,11 +272,62 @@ class RedisCache:
             >>> info = await cache.get_info()
             >>> print(f"Redis version: {info.get('redis_version')}")
         """
-        try:
-            return await self.client.info()
-        except Exception as e:
-            logger.error(f"Redis INFO error: {e}")
-            return {}
+        return await self._execute_with_retry("INFO", "server", self.client.info, {})
+
+    async def _execute_with_retry(
+        self,
+        operation: str,
+        key: str,
+        fn: Callable[[], Awaitable],
+        fallback,
+    ):
+        last_error: Exception | None = None
+        for attempt in range(1, self._RETRY_ATTEMPTS + 1):
+            try:
+                return await fn()
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                last_error = exc
+                retriable = self._is_retriable_error(exc)
+                if not retriable or attempt == self._RETRY_ATTEMPTS:
+                    self._log_error(operation, key, exc, retrying=False, is_transient=retriable)
+                    return fallback
+                self._log_error(operation, key, exc, retrying=True, is_transient=True)
+                await asyncio.sleep(self._RETRY_DELAYS_SECONDS[attempt - 1])
+
+        if last_error is not None:
+            self._log_error(operation, key, last_error, retrying=False, is_transient=self._is_retriable_error(last_error))
+        return fallback
+
+    def _to_bool(self, value) -> bool:
+        return bool(value)
+
+    def _is_retriable_error(self, error: Exception) -> bool:
+        message = str(error).lower()
+        transient_signals = (
+            "loading redis is loading the dataset in memory",
+            "connect: connection refused",
+            "connection refused",
+            "connection timed out",
+            "timeout",
+            "read: connection reset",
+            "connection reset",
+            "temporary failure",
+            "i/o timeout",
+            "dial tcp",
+        )
+        return any(signal in message for signal in transient_signals)
+
+    def _log_error(self, operation: str, key: str, error: Exception, *, retrying: bool, is_transient: bool) -> None:
+        event_key = f"{operation}:{key}"
+        now = time.time()
+        if now < self._error_throttle.get(event_key, 0.0):
+            return
+
+        self._error_throttle[event_key] = now + self._ERROR_LOG_COOLDOWN_SECONDS
+        if retrying or is_transient:
+            logger.warning(f"Redis {operation} retrying for key '{key}': {error}")
+        else:
+            logger.error(f"Redis {operation} error for key '{key}': {error}")
 
 
 __all__ = [
