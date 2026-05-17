@@ -11,6 +11,7 @@ import yaml
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from internal.http.analytics_service import AnalyticsService
@@ -35,15 +36,18 @@ class APIDependencies:
         db: PostgresDatabase,
         analytics_query_timeout_ms: int,
         mart_refresh_seconds: int,
+        mart_refresh_timeout_ms: int,
     ):
         self.logger = logger
         self.db = db
         self.analytics_query_timeout_ms = analytics_query_timeout_ms
         self.mart_refresh_seconds = mart_refresh_seconds
+        self.mart_refresh_timeout_ms = mart_refresh_timeout_ms
         self.ready = True
         self._ready_cache_value: bool = True
         self._ready_cache_until: float = 0.0
         self._ready_cache_ttl: float = 5.0
+        self._mart_refresh_failed_until: float = 0.0
 
     async def ready_check(self) -> bool:
         now = time.time()
@@ -96,12 +100,17 @@ async def init_api_dependencies() -> APIDependencies:
     mart_refresh_seconds = int(
         _env_or_config("ANALYTICS_MART_REFRESH_SECONDS", config, ("database", "mart_refresh_seconds"), 300)
     )
+    mart_refresh_timeout_ms = int(
+        _env_or_config("ANALYTICS_MART_REFRESH_TIMEOUT_MS", config, ("database", "mart_refresh_timeout_ms"), 240_000)
+    )
     if statement_timeout_ms > 0:
         query_timeout_ms = min(query_timeout_ms, statement_timeout_ms)
     if query_timeout_ms <= 0:
         query_timeout_ms = 25_000
     if mart_refresh_seconds < 0:
         mart_refresh_seconds = 0
+    if mart_refresh_timeout_ms <= 0:
+        mart_refresh_timeout_ms = 240_000
 
     if not database_url:
         raise RuntimeError("ANALYTICS_DATABASE_URL is required")
@@ -133,12 +142,16 @@ async def init_api_dependencies() -> APIDependencies:
         db=db,
         analytics_query_timeout_ms=query_timeout_ms,
         mart_refresh_seconds=mart_refresh_seconds,
+        mart_refresh_timeout_ms=mart_refresh_timeout_ms,
     )
 
 
 async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
     """Refresh the dashboard mart without blocking app startup or requests."""
     if not deps.db.engine:
+        return
+    now = time.time()
+    if now < deps._mart_refresh_failed_until:
         return
 
     async with deps.db.engine.connect() as raw_conn:
@@ -150,9 +163,10 @@ async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
             if not lock_acquired:
                 return
 
-            await conn.execute(text("SET statement_timeout = '180s'"))
+            await conn.execute(text(f"SET statement_timeout = {int(deps.mart_refresh_timeout_ms)}"))
             await conn.execute(text("SELECT analysis.refresh_latest_post_insight()"))
         except Exception as exc:  # pragma: no cover - operational guardrail
+            deps._mart_refresh_failed_until = time.time() + max(300, min(1800, deps.mart_refresh_seconds * 3 or 900))
             deps.logger.warning(f"analysis-api mart refresh skipped: {exc}")
         finally:
             if lock_acquired:
@@ -163,7 +177,7 @@ async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
 async def _latest_post_insight_mart_loop(deps: APIDependencies) -> None:
     if deps.mart_refresh_seconds <= 0:
         return
-    await asyncio.sleep(min(deps.mart_refresh_seconds, 30))
+    await asyncio.sleep(deps.mart_refresh_seconds)
     while True:
         await _refresh_latest_post_insight_mart(deps)
         await asyncio.sleep(deps.mart_refresh_seconds)
@@ -193,6 +207,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="analysis-api", lifespan=lifespan)
+
+
+class HiddenCrawlTargetRequest(BaseModel):
+    target_id: str
+    data_source_id: str = ""
+    reason: str = "stalker_flush"
+    hidden_by: str = "ingest-srv"
+
+
+def _require_internal_key(request: Request) -> JSONResponse | None:
+    expected = os.getenv("INTERNAL_KEY") or os.getenv("INTERNAL_INTERNAL_KEY")
+    if not expected:
+        return JSONResponse(status_code=503, content={"error": "internal key is not configured"})
+    received = request.headers.get("x-internal-key") or request.headers.get("x-smap-internal-key")
+    if received != expected:
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    return None
 
 
 class _ProbeAccessLogFilter(logging.Filter):
@@ -341,6 +372,20 @@ async def get_heap(
     keywords: str = "",
 ):
     return await request.app.state.analytics.get_heap(campaignId, sourceKind, projectIds, keywords)
+
+
+@app.post("/api/v1/internal/analytics/hidden-crawl-targets")
+async def hide_crawl_target(request: Request, payload: HiddenCrawlTargetRequest):
+    auth_error = _require_internal_key(request)
+    if auth_error is not None:
+        return auth_error
+    result = await request.app.state.analytics.hide_crawl_target(
+        payload.target_id,
+        payload.data_source_id,
+        payload.reason,
+        payload.hidden_by,
+    )
+    return result
 
 
 def run():

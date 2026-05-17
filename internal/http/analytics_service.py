@@ -1080,6 +1080,91 @@ ORDER BY project_id, volume DESC
                 result = await session.execute(text(query), params or {})
                 return [dict(row._mapping) for row in result.fetchall()]
 
+    async def hide_crawl_target(
+        self,
+        target_id: str,
+        data_source_id: str = "",
+        reason: str = "stalker_flush",
+        hidden_by: str = "ingest-srv",
+    ) -> dict[str, Any]:
+        self._validate_uuid(target_id)
+        if data_source_id:
+            self._validate_uuid(data_source_id)
+        async with self.db.get_session() as session:
+            result = await session.execute(
+                text(
+                    """
+UPDATE analysis.post_insight
+SET uap_metadata = jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            COALESCE(uap_metadata, '{}'::jsonb),
+            '{platform_meta,smap,visibility}',
+            to_jsonb('flushed'::text),
+            true
+          ),
+          '{platform_meta,smap,deleted_at}',
+          to_jsonb(NOW()::text),
+          true
+        ),
+        '{platform_meta,smap,deleted_reason}',
+        to_jsonb(CAST(:reason AS text)),
+        true
+      ),
+      '{platform_meta,smap,deleted_by}',
+      to_jsonb(CAST(:hidden_by AS text)),
+      true
+    ),
+    updated_at = NOW()
+WHERE uap_metadata @> CAST(:target_filter AS jsonb)
+"""
+                ),
+                {
+                    "target_filter": json.dumps({"platform_meta": {"smap": {"target_id": target_id}}}),
+                    "reason": reason or "stalker_flush",
+                    "hidden_by": hidden_by or "ingest-srv",
+                },
+            )
+            await session.commit()
+        hidden_rows = int(result.rowcount or 0)
+        refreshed = await self._refresh_latest_mart_once() if hidden_rows > 0 else False
+        self._response_cache.clear()
+        self._timeout_cache.clear()
+        return {
+            "status": "ok",
+            "target_id": target_id,
+            "data_source_id": data_source_id,
+            "hidden_rows": hidden_rows,
+            "mart_refreshed": refreshed,
+        }
+
+    async def _refresh_latest_mart_once(self) -> bool:
+        if not self.db.engine:
+            return False
+
+        async with self.db.engine.connect() as raw_conn:
+            conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
+            lock_acquired = False
+            try:
+                lock_result = await conn.execute(text("SELECT pg_try_advisory_lock(2026051007)"))
+                lock_acquired = bool(lock_result.scalar())
+                if not lock_acquired:
+                    return False
+
+                timeout_ms = max(1_000, _env_int("ANALYTICS_FLUSH_REFRESH_TIMEOUT_MS", 10_000))
+                await conn.execute(text(f"SET statement_timeout = {timeout_ms}"))
+                await conn.execute(text("SELECT analysis.refresh_latest_post_insight()"))
+                return True
+            except Exception:
+                return False
+            finally:
+                if lock_acquired:
+                    try:
+                        await conn.execute(text("SELECT pg_advisory_unlock(2026051007)"))
+                    except Exception:
+                        pass
+
     def _source_identity_expr(self, alias: str) -> str:
         """Canonical source identity expression used for dedup and grouping.
 
@@ -1210,7 +1295,8 @@ ORDER BY project_id, volume DESC
         include_content_type: bool = False,
         alias: str = "pi",
     ) -> list[str]:
-        filters = self._source_kind_pre_filters(scope.source_kind, alias)
+        filters = [self._hidden_target_filter_expr(alias)]
+        filters.extend(self._source_kind_pre_filters(scope.source_kind, alias))
         keyword_filter = self._keyword_filter_expr(scope.keywords, alias)
         if keyword_filter:
             filters.append(keyword_filter)
@@ -1219,6 +1305,12 @@ ORDER BY project_id, volume DESC
             if content_filter:
                 filters.append(content_filter)
         return filters
+
+    def _hidden_target_filter_expr(self, alias: str = "pi") -> str:
+        return (
+            f"COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,visibility}}', '') <> 'flushed' "
+            f"AND COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,deleted_at}}', '') = ''"
+        )
 
     def _apply_relevance_filter(self, pre_filters: list[str] | None = None) -> bool:
         joined_filters = " ".join(pre_filters or [])

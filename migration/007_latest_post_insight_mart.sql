@@ -127,7 +127,7 @@ SECURITY DEFINER
 SET search_path = analysis, public
 AS $$
 BEGIN
-  REFRESH MATERIALIZED VIEW analysis.latest_post_insight;
+  REFRESH MATERIALIZED VIEW CONCURRENTLY analysis.latest_post_insight;
 END;
 $$;
 
