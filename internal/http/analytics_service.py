@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import csv
+import html
+import io
 import json
 import os
 import time
@@ -22,6 +25,132 @@ PLATFORM_META: dict[str, dict[str, str]] = {
     "FACEBOOK": {"name": "Facebook", "color": "#1877f2", "chartColor": "var(--chart-2)"},
     "YOUTUBE": {"name": "YouTube", "color": "#ff0000", "chartColor": "var(--chart-3)"},
 }
+PLATFORM_CHANGE_MIN_PREVIOUS_MENTIONS = 30
+POST_EXPORT_COLUMNS = [
+    "id",
+    "platform",
+    "contentType",
+    "author",
+    "authorUsername",
+    "time",
+    "sentiment",
+    "sentimentScore",
+    "engagement",
+    "views",
+    "likes",
+    "comments",
+    "shares",
+    "sourceKind",
+    "dataSourceId",
+    "targetId",
+    "rootId",
+    "parentId",
+    "url",
+    "keywords",
+    "content",
+]
+
+
+def is_reliable_platform_mentions_change(current: int | float, previous: int | float) -> bool:
+    current_n = float(current)
+    previous_n = float(previous)
+    return not (current_n > previous_n and previous_n < PLATFORM_CHANGE_MIN_PREVIOUS_MENTIONS)
+
+
+def _csv_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "; ".join(str(item) for item in value)
+    return str(value)
+
+
+def posts_to_csv(posts: list[dict[str, Any]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=POST_EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    for post in posts:
+        writer.writerow({column: _csv_value(post.get(column)) for column in POST_EXPORT_COLUMNS})
+    return buffer.getvalue()
+
+
+def _svg_text(value: Any, limit: int | None = None) -> str:
+    text_value = _csv_value(value).replace("\n", " ").replace("\r", " ").strip()
+    if limit is not None and len(text_value) > limit:
+        text_value = f"{text_value[: max(0, limit - 1)]}…"
+    return html.escape(text_value, quote=False)
+
+
+def posts_to_svg(posts: list[dict[str, Any]], filters: dict[str, Any], total: int) -> str:
+    width = 1600
+    row_height = 34
+    top_offset = 118
+    height = max(260, top_offset + (len(posts) + 1) * row_height + 32)
+    generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    metadata = json.dumps(
+        {
+            "title": "Top Mentions by Platform",
+            "generatedAt": generated_at,
+            "filters": filters,
+            "returnedRows": len(posts),
+            "totalRows": total,
+        },
+        ensure_ascii=False,
+    ).replace("]]>", "]]]]><![CDATA[>")
+
+    header = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+<metadata><![CDATA[{metadata}]]></metadata>
+<style>
+  .bg {{ fill: #fbf8f2; }}
+  .panel {{ fill: #fffdf8; stroke: #e7dfd2; stroke-width: 1.2; }}
+  .title {{ font: 700 26px Inter, Arial, sans-serif; fill: #1d1a16; }}
+  .meta {{ font: 500 13px Inter, Arial, sans-serif; fill: #817363; }}
+  .th {{ font: 700 12px Inter, Arial, sans-serif; fill: #817363; text-transform: uppercase; }}
+  .td {{ font: 500 13px Inter, Arial, sans-serif; fill: #3d352b; }}
+  .muted {{ fill: #8f806e; }}
+  .positive {{ fill: #2f9d68; }}
+  .negative {{ fill: #d83a34; }}
+  .neutral {{ fill: #c47a22; }}
+  .line {{ stroke: #eee6da; stroke-width: 1; }}
+</style>
+<rect class="bg" width="{width}" height="{height}"/>
+<rect class="panel" x="24" y="24" width="{width - 48}" height="{height - 48}" rx="22"/>
+<text class="title" x="52" y="68">Top Mentions by Platform</text>
+<text class="meta" x="52" y="94">Rows: {len(posts)} of {total} · Generated: {_svg_text(generated_at)} · Filters: {_svg_text(filters)}</text>
+"""
+    columns = [
+        (52, "Platform"),
+        (150, "Type"),
+        (240, "Author"),
+        (420, "Time"),
+        (610, "Sentiment"),
+        (720, "Eng."),
+        (805, "Content"),
+    ]
+    rows = [header, f'<line class="line" x1="52" y1="{top_offset - 18}" x2="{width - 52}" y2="{top_offset - 18}"/>']
+    for x, label in columns:
+        rows.append(f'<text class="th" x="{x}" y="{top_offset}">{label}</text>')
+    rows.append(f'<line class="line" x1="52" y1="{top_offset + 12}" x2="{width - 52}" y2="{top_offset + 12}"/>')
+
+    for index, post in enumerate(posts):
+        y = top_offset + 38 + index * row_height
+        sentiment = str(post.get("sentiment") or "neutral").lower()
+        sentiment_class = sentiment if sentiment in {"positive", "negative", "neutral"} else "neutral"
+        rows.extend(
+            [
+                f'<text class="td muted" x="52" y="{y}">{_svg_text(post.get("platform"), 18)}</text>',
+                f'<text class="td muted" x="150" y="{y}">{_svg_text(post.get("contentType"), 18)}</text>',
+                f'<text class="td" x="240" y="{y}">{_svg_text(post.get("author"), 28)}</text>',
+                f'<text class="td muted" x="420" y="{y}">{_svg_text(post.get("time"), 28)}</text>',
+                f'<text class="td {sentiment_class}" x="610" y="{y}">{_svg_text(sentiment, 16)}</text>',
+                f'<text class="td" x="720" y="{y}">{_svg_text(post.get("engagement"), 10)}</text>',
+                f'<text class="td" x="805" y="{y}">{_svg_text(post.get("content"), 128)}</text>',
+            ]
+        )
+        rows.append(f'<line class="line" x1="52" y1="{y + 11}" x2="{width - 52}" y2="{y + 11}"/>')
+
+    rows.append("</svg>")
+    return "\n".join(rows)
 
 
 def public_sentiment_label(raw_label: Any, score: float | None = None) -> str:
@@ -156,6 +285,7 @@ class AnalyticsService:
         self._timeout_cache_ttl: float = 60.0
         self._posts_window_size: int = 240
         self._posts_cache_ttl: float = 120.0
+        self._posts_export_max_rows: int = max(100, _env_int("ANALYTICS_POSTS_EXPORT_MAX_ROWS", 20_000))
         self._use_latest_mart = str(os.getenv("ANALYTICS_USE_LATEST_MART", "true")).strip().lower() in {
             "1",
             "true",
@@ -467,11 +597,15 @@ ORDER BY 1
             meta = PLATFORM_META.get(platform, {"name": platform, "color": "#888", "chartColor": "#888"})
             current_mentions = int(row["current_mentions"])
             previous_mentions = int(row["previous_mentions"])
+            mentions_change = percent_change(current_mentions, previous_mentions)
             stats.append({
                 "platform": platform.lower(),
                 "name": meta["name"],
                 "mentions": int(row["mentions"]),
-                "mentionsChange": percent_change(current_mentions, previous_mentions),
+                "mentionsChange": mentions_change,
+                "mentionsChangeReliable": is_reliable_platform_mentions_change(current_mentions, previous_mentions),
+                "mentionsCurrentPeriod": current_mentions,
+                "mentionsPreviousPeriod": previous_mentions,
                 "engagement": fmt_number(float(row["sum_engagement"])),
                 "engagementRaw": int(float(row["sum_engagement"])),
                 "sentiment": round(float(row["avg_sentiment"])),
@@ -487,6 +621,9 @@ ORDER BY 1
                     "name": meta["name"],
                     "mentions": 0,
                     "mentionsChange": 0,
+                    "mentionsChangeReliable": True,
+                    "mentionsCurrentPeriod": 0,
+                    "mentionsPreviousPeriod": 0,
                     "engagement": "0",
                     "engagementRaw": 0,
                     "sentiment": 0,
@@ -692,6 +829,86 @@ LIMIT :limit
             timeout_scope,
         )
 
+    async def export_posts(
+        self,
+        campaign_id: str,
+        export_format: str = "csv",
+        platform: str = "all",
+        sentiment: str = "all",
+        sort: str = "engagement",
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+        content_type: str = "all",
+    ) -> dict[str, Any]:
+        normalized_format = str(export_format or "csv").strip().lower()
+        if normalized_format not in {"csv", "svg"}:
+            raise BadRequestError("format must be csv or svg")
+
+        scope = self.build_scope(source_kind, project_ids, keywords, content_type)
+        sort_key = "time" if str(sort or "").strip().lower() == "time" else "engagement"
+        timeout_scope = (
+            "posts-export",
+            normalized_format,
+            str(platform or "all").strip().lower(),
+            str(sentiment or "all").strip().lower(),
+            sort_key,
+            *scope.cache_key(include_content_type=True),
+        )
+        return await self._guarded(
+            campaign_id,
+            self._compute_posts_export(campaign_id, normalized_format, platform, sentiment, sort_key, scope),
+            timeout_scope,
+        )
+
+    async def _compute_posts_export(
+        self,
+        campaign_id: str,
+        export_format: str,
+        platform: str,
+        sentiment: str,
+        sort: str,
+        scope: AnalyticsScope,
+    ) -> dict[str, Any]:
+        payload = await self._compute_posts(
+            campaign_id,
+            platform,
+            sentiment,
+            sort,
+            self._posts_export_max_rows,
+            0,
+            scope,
+            max_limit=self._posts_export_max_rows,
+            cache_ttl=30.0,
+        )
+        posts = list(payload.get("posts") or [])
+        total = int(payload.get("total") or len(posts))
+        filters = {
+            "campaignId": campaign_id,
+            "platform": str(platform or "all").strip().lower() or "all",
+            "sentiment": str(sentiment or "all").strip().lower() or "all",
+            "contentType": scope.content_type,
+            "sourceKind": scope.source_kind,
+            "projectIds": list(scope.project_ids),
+            "keywords": list(scope.keywords),
+            "sort": "time" if str(sort or "").strip().lower() == "time" else "engagement",
+        }
+        safe_campaign = campaign_id.replace("-", "")[:12] or "campaign"
+        filename = f"top-mentions-{safe_campaign}.{export_format}"
+        if export_format == "svg":
+            body = posts_to_svg(posts, filters, total)
+            media_type = "image/svg+xml; charset=utf-8"
+        else:
+            body = posts_to_csv(posts)
+            media_type = "text/csv; charset=utf-8"
+        return {
+            "body": body,
+            "filename": filename,
+            "media_type": media_type,
+            "returned": len(posts),
+            "total": total,
+        }
+
     async def _compute_posts(
         self,
         campaign_id: str,
@@ -701,8 +918,10 @@ LIMIT :limit
         limit: int = 30,
         offset: int = 0,
         scope: AnalyticsScope = AnalyticsScope(),
+        max_limit: int = 100,
+        cache_ttl: float | None = None,
     ) -> dict[str, Any]:
-        limit = max(1, min(int(limit), 100))
+        limit = max(1, min(int(limit), max(1, int(max_limit))))
         offset = max(0, int(offset))
         platform_key = str(platform or "all").strip().lower()
         sentiment_key = str(sentiment or "all").strip().lower()
@@ -737,7 +956,7 @@ LIMIT :limit
                 return self._cache_set(
                     cache_key,
                     {"posts": window_posts[offset:requested_end], "total": total},
-                    ttl_seconds=self._posts_cache_ttl,
+                    ttl_seconds=cache_ttl or self._posts_cache_ttl,
                 )
 
         conditions = []
@@ -849,14 +1068,14 @@ ORDER BY {final_order_by}
             self._cache_set(
                 window_key,
                 {"posts": posts, "total": total},
-                ttl_seconds=self._posts_cache_ttl,
+                ttl_seconds=cache_ttl or self._posts_cache_ttl,
             )
             return self._cache_set(
                 cache_key,
                 {"posts": posts[offset:requested_end], "total": total},
-                ttl_seconds=self._posts_cache_ttl,
+                ttl_seconds=cache_ttl or self._posts_cache_ttl,
             )
-        return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=self._posts_cache_ttl)
+        return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=cache_ttl or self._posts_cache_ttl)
 
     async def get_project_stats(
         self,
@@ -1091,6 +1310,30 @@ ORDER BY project_id, volume DESC
         if data_source_id:
             self._validate_uuid(data_source_id)
         async with self.db.get_session() as session:
+            await session.execute(
+                text(
+                    """
+INSERT INTO analysis.hidden_crawl_targets (target_id, data_source_id, reason, hidden_by)
+VALUES (
+  CAST(:target_id AS uuid),
+  NULLIF(CAST(:data_source_id AS text), '')::uuid,
+  CAST(:reason AS text),
+  CAST(:hidden_by AS text)
+)
+ON CONFLICT (target_id) DO UPDATE
+SET data_source_id = COALESCE(EXCLUDED.data_source_id, analysis.hidden_crawl_targets.data_source_id),
+    reason = EXCLUDED.reason,
+    hidden_by = EXCLUDED.hidden_by,
+    hidden_at = NOW()
+"""
+                ),
+                {
+                    "target_id": target_id,
+                    "data_source_id": data_source_id,
+                    "reason": reason or "stalker_flush",
+                    "hidden_by": hidden_by or "ingest-srv",
+                },
+            )
             result = await session.execute(
                 text(
                     """
@@ -1118,6 +1361,8 @@ SET uap_metadata = jsonb_set(
     ),
     updated_at = NOW()
 WHERE uap_metadata @> CAST(:target_filter AS jsonb)
+  AND COALESCE(uap_metadata #>> '{platform_meta,smap,visibility}', '') <> 'flushed'
+  AND COALESCE(uap_metadata #>> '{platform_meta,smap,deleted_at}', '') = ''
 """
                 ),
                 {
@@ -1128,7 +1373,6 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
             )
             await session.commit()
         hidden_rows = int(result.rowcount or 0)
-        refreshed = await self._refresh_latest_mart_once() if hidden_rows > 0 else False
         self._response_cache.clear()
         self._timeout_cache.clear()
         return {
@@ -1136,7 +1380,7 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
             "target_id": target_id,
             "data_source_id": data_source_id,
             "hidden_rows": hidden_rows,
-            "mart_refreshed": refreshed,
+            "mart_refreshed": False,
         }
 
     async def _refresh_latest_mart_once(self) -> bool:
@@ -1310,6 +1554,10 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
         return (
             f"COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,visibility}}', '') <> 'flushed' "
             f"AND COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,deleted_at}}', '') = ''"
+            " AND NOT EXISTS ("
+            "SELECT 1 FROM analysis.hidden_crawl_targets hct "
+            f"WHERE hct.target_id::text = COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,target_id}}', '')"
+            ")"
         )
 
     def _apply_relevance_filter(self, pre_filters: list[str] | None = None) -> bool:

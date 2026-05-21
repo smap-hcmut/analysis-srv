@@ -1,4 +1,20 @@
-"""crisis/usecase/assess_crisis.py — rule-based 3-signal crisis scorer."""
+"""crisis/usecase/assess_crisis.py — rule-based 3-signal crisis scorer.
+
+Project crisis config is wider than the current runtime scorer. The scorer is
+intentionally limited to dashboard-grade BI signals that are already available
+for every project:
+
+- volume_trigger.rules[].threshold_percent_growth tunes the issue_pressure
+  thresholds derived from top_issues_report.
+- sentiment_trigger.rules[type=NEGATIVE_SPIKE].threshold_percent tunes the
+  sentiment_collapse proxy derived from SOV entity deltas.
+- influencer_trigger.rules[type=VIRAL_NEGATIVE].min_comments tunes the
+  controversy_spike thresholds derived from thread_controversy_report.
+
+keywords_trigger and the remaining subfields are stored for issue
+classification, UI presets, and future crisis scorer expansion. They are not
+direct CRISIS_ALERT gates in this runtime version.
+"""
 
 from __future__ import annotations
 
@@ -146,6 +162,23 @@ def _thresholds_from_config(crisis_config: dict | None) -> dict[str, float]:
     if not isinstance(crisis_config, dict):
         return thresholds
 
+    _apply_issue_pressure_thresholds(thresholds, crisis_config)
+    _apply_sentiment_collapse_thresholds(thresholds, crisis_config)
+    _apply_controversy_spike_thresholds(thresholds, crisis_config)
+
+    return thresholds
+
+
+def _apply_issue_pressure_thresholds(
+    thresholds: dict[str, float],
+    crisis_config: dict,
+) -> None:
+    """Map volume_trigger growth rules to BI issue_pressure thresholds.
+
+    Runtime source: top_issues_report.issues[0].issue_pressure_proxy.
+    Wired config: threshold_percent_growth only. Metric, comparison window,
+    and baseline are reserved until historical baseline scoring is added.
+    """
     volume = crisis_config.get("volume_trigger") or {}
     if isinstance(volume, dict) and volume.get("enabled", True):
         rules = volume.get("rules") or []
@@ -163,6 +196,18 @@ def _thresholds_from_config(crisis_config: dict | None) -> dict[str, float]:
             elif level == "CRITICAL":
                 thresholds["issue_critical"] = pressure
 
+
+def _apply_sentiment_collapse_thresholds(
+    thresholds: dict[str, float],
+    crisis_config: dict,
+) -> None:
+    """Map NEGATIVE_SPIKE threshold to the sentiment_collapse proxy.
+
+    Runtime source: count of SOV entities where delta_mention_count < 0.
+    Wired config: NEGATIVE_SPIKE.threshold_percent only. Min sample size,
+    aspect lists, and ASPECT_NEGATIVE are reserved until mart-level sentiment
+    joins are evaluated directly.
+    """
     sentiment = crisis_config.get("sentiment_trigger") or {}
     if isinstance(sentiment, dict) and sentiment.get("enabled", True):
         rules = sentiment.get("rules") or []
@@ -174,25 +219,54 @@ def _thresholds_from_config(crisis_config: dict | None) -> dict[str, float]:
             warning = _float(rule.get("threshold_percent"), 0.0) / 100.0
             if warning > 0:
                 thresholds["sentiment_warning"] = min(max(warning, 0.05), 0.95)
-                thresholds["sentiment_watch"] = min(thresholds["sentiment_warning"] * 0.75, thresholds["sentiment_warning"])
-                thresholds["sentiment_critical"] = min(max(thresholds["sentiment_warning"] * 1.5, thresholds["sentiment_warning"]), 0.98)
+                thresholds["sentiment_watch"] = min(
+                    thresholds["sentiment_warning"] * 0.75,
+                    thresholds["sentiment_warning"],
+                )
+                thresholds["sentiment_critical"] = min(
+                    max(
+                        thresholds["sentiment_warning"] * 1.5,
+                        thresholds["sentiment_warning"],
+                    ),
+                    0.98,
+                )
                 break
 
+
+def _apply_controversy_spike_thresholds(
+    thresholds: dict[str, float],
+    crisis_config: dict,
+) -> None:
+    """Map VIRAL_NEGATIVE comment threshold to controversy_spike thresholds.
+
+    Runtime source: thread_controversy_report.threads[0].controversy_score_proxy.
+    Wired config: VIRAL_NEGATIVE.min_comments only. HIGH_REACH, followers,
+    shares, sentiment, and trigger logic are reserved until author/reach fields
+    are joined into crisis scoring.
+    """
     influencer = crisis_config.get("influencer_trigger") or {}
     if isinstance(influencer, dict) and influencer.get("enabled", True):
         rules = influencer.get("rules") or []
         viral_comments = [
             _float(rule.get("min_comments"), 0.0)
             for rule in rules
-            if isinstance(rule, dict) and str(rule.get("type") or "").upper() == "VIRAL_NEGATIVE"
+            if isinstance(rule, dict)
+            if str(rule.get("type") or "").upper() == "VIRAL_NEGATIVE"
         ]
         if viral_comments:
             strictness = min(max(min(viral_comments) / 200.0, 0.6), 2.0)
-            thresholds["controversy_watch"] = max(0.25, C.CONTROVERSY_WATCH * strictness)
-            thresholds["controversy_warning"] = max(thresholds["controversy_watch"], C.CONTROVERSY_WARNING * strictness)
-            thresholds["controversy_critical"] = max(thresholds["controversy_warning"], min(0.98, C.CONTROVERSY_CRITICAL * strictness))
-
-    return thresholds
+            thresholds["controversy_watch"] = max(
+                0.25,
+                C.CONTROVERSY_WATCH * strictness,
+            )
+            thresholds["controversy_warning"] = max(
+                thresholds["controversy_watch"],
+                C.CONTROVERSY_WARNING * strictness,
+            )
+            thresholds["controversy_critical"] = max(
+                thresholds["controversy_warning"],
+                min(0.98, C.CONTROVERSY_CRITICAL * strictness),
+            )
 
 
 def _float(value: object, fallback: float) -> float:

@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -349,6 +349,41 @@ async def get_posts(
         projectIds,
         keywords,
         contentType,
+    )
+
+
+@app.get("/api/v1/analytics/posts/export")
+async def export_posts(
+    request: Request,
+    campaignId: str,
+    format: str = "csv",
+    platform: str = "all",
+    sentiment: str = "all",
+    sort: str = "engagement",
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+    contentType: str = "all",
+):
+    export = await request.app.state.analytics.export_posts(
+        campaignId,
+        format,
+        platform,
+        sentiment,
+        sort,
+        sourceKind,
+        projectIds,
+        keywords,
+        contentType,
+    )
+    return Response(
+        content=export["body"],
+        media_type=export["media_type"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{export["filename"]}"',
+            "X-Export-Returned": str(export["returned"]),
+            "X-Export-Total": str(export["total"]),
+        },
     )
 
 
