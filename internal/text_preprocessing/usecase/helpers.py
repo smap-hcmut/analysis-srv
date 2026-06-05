@@ -3,7 +3,7 @@ import unicodedata
 from typing import Optional, Pattern, Tuple, List
 
 from pkg.logger.logger import Logger
-from internal.text_preprocessing.type import CommentInput, Stats, SourceBreakdown
+from internal.text_preprocessing.type import CommentInput, Stats
 from internal.text_preprocessing.constant import *
 
 

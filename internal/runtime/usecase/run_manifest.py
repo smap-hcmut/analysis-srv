@@ -5,7 +5,7 @@ Does NOT depend on pydantic, file I/O, or DuckDB.
 """
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from internal.runtime.type import RunContext

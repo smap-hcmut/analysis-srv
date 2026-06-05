@@ -23,7 +23,7 @@ class _Session:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, _exc_type, _exc, _tb):
         return False
 
     async def execute(self, statement, params):

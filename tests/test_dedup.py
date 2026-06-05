@@ -11,7 +11,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from internal.dedup.usecase.annotate_dedup import DeduplicationService
 from internal.normalization.type import MentionRecord

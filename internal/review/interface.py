@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from internal.review.type import ReviewItem, ReviewDecision, ReviewQueueSummary
+    from internal.review.type import ReviewItem, ReviewQueueSummary
 
 
 class IReviewRepository(ABC):

@@ -2,7 +2,6 @@
 
 from internal.normalization.type import MentionRecord
 from ..type import ThreadBundle
-from ..interface import IThreadsUseCase
 from .build_threads import build_threads
 
 

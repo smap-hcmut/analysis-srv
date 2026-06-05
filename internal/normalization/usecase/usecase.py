@@ -2,7 +2,6 @@
 
 from internal.pipeline.type import IngestedBatchBundle
 from ..type import NormalizationBatch
-from ..interface import INormalizationUseCase
 from .normalize_mentions import normalize_mentions
 
 

@@ -1,7 +1,7 @@
 """Pipeline stage helpers — timing wrapper and stage runner."""
 
 import time
-from typing import Callable, Any
+from typing import Callable
 
 from ..type import PipelineFacts, StageResult, IngestedBatchBundle, PipelineConfig
 from ..errors import StageError

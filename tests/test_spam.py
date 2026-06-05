@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from internal.normalization.type import MentionRecord
 from internal.spam.usecase.score_authors import SpamScoringService

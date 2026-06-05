@@ -26,7 +26,7 @@ Self-contained: no external smap.* imports.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -44,7 +44,6 @@ from internal.enrichment.type import (
 from internal.enrichment.usecase._anchors import (
     ASPECT_SEEDS,
     ISSUE_SEEDS,
-    build_target_anchors,
     contains_first_person,
     extract_lexical_anchors,
     normalize_alias,
@@ -60,7 +59,6 @@ from internal.enrichment.usecase._semantic_models import (
     AspectOpinionHypothesis,
     EvidenceMode,
     EvidenceScope,
-    EvidenceSpan,
     IssueSignalHypothesis,
     MentionSentimentHypothesis,
     ScoreComponent,
@@ -217,10 +215,8 @@ class SimplifiedSemanticInferenceEnricher:
         contexts: list[Any],
         explicit_targets_by_mention: dict[str, list[TargetReference]],
     ) -> SemanticHypothesisBatch:
-        context_map = {context.mention_id: context for context in contexts}
         batch = SemanticHypothesisBatch()
         for mention in mentions:
-            context = context_map.get(mention.mention_id)
             explicit_targets = explicit_targets_by_mention.get(mention.mention_id, [])
             # No inherited targets in Phase 4 (all entities are unresolved)
             inherited_targets: list[TargetReference] = []
@@ -566,14 +562,6 @@ class SimplifiedSemanticInferenceEnricher:
                     segment_ids=[segment.segment_id],
                 )
             )
-
-        # Also check for aspect + target combinations
-        aspect_anchors = [
-            anchor for anchor in anchors if anchor.anchor_type == AnchorType.ASPECT
-        ]
-        issue_anchors = [
-            anchor for anchor in anchors if anchor.anchor_type == AnchorType.ISSUE
-        ]
 
         return results
 

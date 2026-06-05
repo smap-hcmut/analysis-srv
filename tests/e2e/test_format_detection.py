@@ -11,7 +11,6 @@ Covered scenarios:
 Each test runs against a real Kafka broker (testcontainers or KAFKA_BOOTSTRAP_SERVERS).
 """
 
-import json
 
 import pytest
 

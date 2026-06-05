@@ -1,6 +1,6 @@
 import unicodedata
 import re
-from typing import List, Dict, Optional, Any
+from typing import List, Optional
 
 from pkg.logger.logger import Logger
 from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
@@ -17,11 +17,9 @@ from internal.sentiment_analysis.constant import (
     LABEL_NEGATIVE,
     DEFAULT_ASPECT,
     DEFAULT_RATING,
-    SCORE_RATING_1,
     SCORE_RATING_2,
     SCORE_RATING_3,
     SCORE_RATING_4,
-    SCORE_RATING_5,
     DELIMITERS,
     WHITESPACE_CHARS,
     STRIP_PUNCTUATION,

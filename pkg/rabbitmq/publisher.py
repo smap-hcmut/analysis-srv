@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Optional, Union
 
-import aio_pika
 from aio_pika import Message, DeliveryMode, ExchangeType
 from aio_pika.abc import AbstractRobustChannel, AbstractExchange
 from loguru import logger

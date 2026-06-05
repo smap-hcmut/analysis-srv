@@ -1,7 +1,7 @@
 """Ingestion helpers — depth detection and root_id derivation from UAPRecord."""
 
 from internal.model.uap import UAPRecord
-from ..constant import DOC_TYPE_DEPTH, ROOT_DOC_TYPES
+from ..constant import DOC_TYPE_DEPTH
 
 
 def detect_depth(record: UAPRecord) -> int:

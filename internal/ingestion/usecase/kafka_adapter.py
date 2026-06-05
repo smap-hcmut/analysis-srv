@@ -3,7 +3,6 @@
 from internal.model.uap import UAPRecord
 from internal.pipeline.type import IngestedBatchBundle
 from ..type import IngestionStats
-from .helpers import detect_depth, derive_root_id
 
 
 def adapt_kafka_records(
@@ -21,11 +20,6 @@ def adapt_kafka_records(
     Returns:
         (IngestedBatchBundle, IngestionStats)
     """
-    # First pass: build a doc_id → depth map so derive_root_id can resolve chains
-    depth_map: dict[str, int] = {
-        rec.content.doc_id: detect_depth(rec) for rec in records if rec.content.doc_id
-    }
-
     valid: list[UAPRecord] = []
     stats = IngestionStats(total_records=len(records))
 

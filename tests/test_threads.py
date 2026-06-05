@@ -12,11 +12,9 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from internal.normalization.type import MentionRecord
 from internal.threads.usecase.build_threads import build_threads
-from internal.threads.type import ThreadBundle
 
 
 # ---------------------------------------------------------------------------

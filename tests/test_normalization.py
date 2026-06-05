@@ -9,7 +9,6 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
 
 from internal.normalization.usecase.helpers import (
     TextNormResult,

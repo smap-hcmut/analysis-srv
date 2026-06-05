@@ -2,7 +2,6 @@
 
 from internal.normalization.type import MentionRecord
 from ..type import DedupAnalysisResult
-from ..interface import IDeduplicationUseCase
 from .annotate_dedup import DeduplicationService
 
 

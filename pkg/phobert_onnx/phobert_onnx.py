@@ -29,7 +29,6 @@ from onnxruntime import InferenceSession, SessionOptions  # type: ignore
 from .interface import IPhoBERTONNX
 from .constant import (
     MODEL_FILE_NAME,
-    DEFAULT_NEUTRAL_RESPONSE,
     DEFAULT_PROBABILITIES,
     SENTIMENT_INDEX_MAP,
     SENTIMENT_LABELS,

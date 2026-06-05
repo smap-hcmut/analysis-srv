@@ -20,8 +20,7 @@ from internal.enrichment.usecase._semantic_models import (
 )
 
 if TYPE_CHECKING:
-    from internal.normalization.type import MentionRecord
-    from internal.threads.type import ThreadBundle
+    pass
 
 # ---------------------------------------------------------------------------
 # Discovery method type alias
