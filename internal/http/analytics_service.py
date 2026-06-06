@@ -297,6 +297,19 @@ class AnalyticsScope:
             return (*base, self.content_type)
         return base
 
+    def is_unfiltered(self) -> bool:
+        """True when no scope-level filter would narrow the per-day rollup.
+
+        The kpi_daily rollup pre-aggregates the relevance-filtered slice; it
+        is correct only when the request does not further filter by
+        source_kind / content_type / keywords.
+        """
+        return (
+            self.source_kind in ("", "all")
+            and self.content_type in ("", "all")
+            and not self.keywords
+        )
+
 
 @dataclass
 class CachedResponse:
@@ -550,6 +563,15 @@ class AnalyticsService:
             return cached
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
+        # Fast path: when no scope filters narrow the query, the kpi_daily
+        # rollup already holds the answer. Falls back to the on-demand
+        # aggregate below if the rollup is empty (first deploy, refresh lag)
+        # or returns no rows.
+        if ctx.project_ids and scope.is_unfiltered():
+            rollup = await self._compute_kpis_from_rollup(ctx.project_ids)
+            if rollup is not None:
+                return self._cache_set(cache_key, rollup)
+
         if not ctx.project_ids:
             return self._cache_set(
                 cache_key,
@@ -694,6 +716,125 @@ ORDER BY 1
                 },
             },
         )
+
+    async def _compute_kpis_from_rollup(
+        self, project_ids: tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        """Read the KPI dashboard payload from kpi_daily.
+
+        Returns ``None`` if the rollup is empty for the requested projects so
+        the caller can fall back to the on-demand aggregate. Hot path for the
+        Insight tab: pulls O(rows-per-day) instead of O(rows-per-mention).
+        """
+        if not project_ids:
+            return None
+
+        rows = await self._fetch_all(
+            """
+WITH base AS (
+  SELECT * FROM analysis.kpi_daily WHERE project_id = ANY(:project_ids::text[])
+), summary AS (
+  SELECT
+    SUM(mentions)                                                           AS total_mentions,
+    CASE WHEN SUM(mentions) > 0 THEN SUM(sentiment_sum) / SUM(mentions) * 100 ELSE 0 END AS avg_sentiment,
+    SUM(engagement_sum)                                                     AS sum_engagement,
+    SUM(reach_sum)                                                          AS sum_reach,
+    SUM(views_sum)                                                          AS sum_views,
+    SUM(likes_sum)                                                          AS sum_likes,
+    SUM(comments_sum)                                                       AS sum_comments,
+    SUM(shares_sum)                                                         AS sum_shares,
+    SUM(mentions)        FILTER (WHERE bucket_date >= (CURRENT_DATE - 29))  AS current_mentions,
+    SUM(mentions)        FILTER (WHERE bucket_date BETWEEN (CURRENT_DATE - 59) AND (CURRENT_DATE - 30)) AS previous_mentions,
+    CASE WHEN SUM(mentions) FILTER (WHERE bucket_date >= (CURRENT_DATE - 29)) > 0
+         THEN SUM(sentiment_sum) FILTER (WHERE bucket_date >= (CURRENT_DATE - 29)) / SUM(mentions) FILTER (WHERE bucket_date >= (CURRENT_DATE - 29)) * 100
+         ELSE 0 END                                                          AS current_sentiment,
+    CASE WHEN SUM(mentions) FILTER (WHERE bucket_date BETWEEN (CURRENT_DATE - 59) AND (CURRENT_DATE - 30)) > 0
+         THEN SUM(sentiment_sum) FILTER (WHERE bucket_date BETWEEN (CURRENT_DATE - 59) AND (CURRENT_DATE - 30)) / SUM(mentions) FILTER (WHERE bucket_date BETWEEN (CURRENT_DATE - 59) AND (CURRENT_DATE - 30)) * 100
+         ELSE 0 END                                                          AS previous_sentiment,
+    SUM(engagement_sum)  FILTER (WHERE bucket_date >= (CURRENT_DATE - 29))  AS current_engagement,
+    SUM(engagement_sum)  FILTER (WHERE bucket_date BETWEEN (CURRENT_DATE - 59) AND (CURRENT_DATE - 30)) AS previous_engagement,
+    SUM(reach_sum)       FILTER (WHERE bucket_date >= (CURRENT_DATE - 29))  AS current_reach,
+    SUM(reach_sum)       FILTER (WHERE bucket_date BETWEEN (CURRENT_DATE - 59) AND (CURRENT_DATE - 30)) AS previous_reach
+  FROM base
+), sparkline AS (
+  SELECT
+    TO_CHAR(date_trunc('month', bucket_date), 'YYYY-MM') AS month,
+    SUM(mentions)                                          AS mentions,
+    CASE WHEN SUM(mentions) > 0 THEN SUM(sentiment_sum) / SUM(mentions) * 100 ELSE 0 END AS sentiment,
+    SUM(engagement_sum)                                    AS engagement,
+    SUM(reach_sum)                                         AS reach
+  FROM base
+  WHERE bucket_date >= (CURRENT_DATE - INTERVAL '12 months')
+  GROUP BY 1
+  ORDER BY 1
+)
+SELECT
+  (SELECT row_to_json(summary) FROM summary)                         AS summary,
+  COALESCE((SELECT json_agg(sparkline ORDER BY month) FROM sparkline), '[]'::json) AS sparkline
+""",
+            params={"project_ids": list(project_ids)},
+        )
+        if not rows or not rows[0].get("summary"):
+            return None
+        summary = rows[0]["summary"] or {}
+        if int(summary.get("total_mentions", 0) or 0) == 0:
+            return None
+        spark_rows = rows[0]["sparkline"] or []
+        return {
+            "metrics": [
+                {
+                    "label": "Total Mentions",
+                    "value": int(summary.get("total_mentions", 0) or 0),
+                    "formatted": fmt_number(int(summary.get("total_mentions", 0) or 0)),
+                    "change": percent_change(
+                        summary.get("current_mentions", 0) or 0,
+                        summary.get("previous_mentions", 0) or 0,
+                    ),
+                    "sparkline": [int(row.get("mentions", 0) or 0) for row in spark_rows],
+                    "icon": "activity",
+                },
+                {
+                    "label": "Sentiment Score",
+                    "value": round(float(summary.get("avg_sentiment", 0) or 0), 1),
+                    "formatted": f"{round(float(summary.get('avg_sentiment', 0) or 0), 1)}%",
+                    "change": percent_change(
+                        summary.get("current_sentiment", 0) or 0,
+                        summary.get("previous_sentiment", 0) or 0,
+                    ),
+                    "sparkline": [float(row.get("sentiment", 0) or 0) for row in spark_rows],
+                    "icon": "smile",
+                    "suffix": "%",
+                },
+                {
+                    "label": "Engagement",
+                    "value": int(summary.get("sum_engagement", 0) or 0),
+                    "formatted": fmt_number(int(summary.get("sum_engagement", 0) or 0)),
+                    "change": percent_change(
+                        summary.get("current_engagement", 0) or 0,
+                        summary.get("previous_engagement", 0) or 0,
+                    ),
+                    "sparkline": [float(row.get("engagement", 0) or 0) for row in spark_rows],
+                    "icon": "heart",
+                },
+                {
+                    "label": "Audience Reach",
+                    "value": int(summary.get("sum_reach", 0) or 0),
+                    "formatted": fmt_number(int(summary.get("sum_reach", 0) or 0)),
+                    "change": percent_change(
+                        summary.get("current_reach", 0) or 0,
+                        summary.get("previous_reach", 0) or 0,
+                    ),
+                    "sparkline": [int(row.get("reach", 0) or 0) for row in spark_rows],
+                    "icon": "users",
+                },
+            ],
+            "engagement": {
+                "views": int(summary.get("sum_views", 0) or 0),
+                "likes": int(summary.get("sum_likes", 0) or 0),
+                "comments": int(summary.get("sum_comments", 0) or 0),
+                "shares": int(summary.get("sum_shares", 0) or 0),
+            },
+        }
 
     async def get_platforms(
         self,
