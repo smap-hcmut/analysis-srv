@@ -6,7 +6,9 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Optional, List
+
+from sqlalchemy import text
 
 from pkg.kafka.consumer import KafkaConsumer
 from pkg.kafka.type import KafkaMessage
@@ -883,6 +885,14 @@ class ConsumerServer(IConsumerServer):
             for ref in getattr(signal, "evidence_references", []) or []:
                 sample_mentions.append(str(ref))
 
+        # Hydrate the first few evidence IDs with the underlying post URL +
+        # content snippet so the notification renderer can drop a clickable
+        # quote into the toast. Comments without any URL are skipped — the
+        # WebSocket message would have nothing to link to.
+        sample_references = await self._hydrate_crisis_references(
+            project_id, sample_mentions[:5]
+        )
+
         score = float(getattr(assessment, "composite_crisis_score", 0.0) or 0.0)
         threshold = self._alert_threshold_for_level(trigger_level)
         repeat_cooldown_minutes = 60
@@ -914,6 +924,7 @@ class ConsumerServer(IConsumerServer):
             "threshold": threshold,
             "affected_aspects": affected[:8],
             "sample_mentions": sample_mentions[:5],
+            "sample_references": sample_references,
             "time_window": "current analysis batch",
             "action_required": "Review negative drivers, align response owner, and monitor crawl acceleration.",
             "run_id": run_id,
@@ -939,6 +950,107 @@ class ConsumerServer(IConsumerServer):
                 "Crisis alert publish failed",
                 extra={"project_id": project_id, "level": level, "error": str(exc)},
             )
+
+    # Limit per snippet so a single toast cannot blow past WebSocket frame
+    # size; also keeps the Redis Stream entry small.
+    _CRISIS_CONTENT_LIMIT = 240
+    _CRISIS_REFERENCE_LIMIT = 3
+
+    async def _hydrate_crisis_references(
+        self, project_id: str, mention_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Look up evidence post/comment URLs + content snippets for the
+        crisis alert payload.
+
+        Comments without any resolvable URL are dropped — sending a
+        notification toast that points to nowhere is worse than omitting
+        the quote.
+        """
+        cleaned = [m.strip() for m in mention_ids if isinstance(m, str) and m.strip()]
+        if not project_id or not cleaned:
+            return []
+
+        try:
+            rows = await self._fetch_crisis_evidence(project_id, cleaned[: self._CRISIS_REFERENCE_LIMIT])
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to hydrate crisis references",
+                extra={"project_id": project_id, "error": str(exc)},
+            )
+            return []
+
+        if not rows:
+            return []
+
+        references: list[dict[str, Any]] = []
+        for row in rows:
+            metadata = row.get("uap_metadata") or {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            uap_type = str(metadata.get("uap_type") or metadata.get("type") or "").upper()
+            url = self._first_non_empty(
+                metadata.get("post_url"),
+                metadata.get("url"),
+                metadata.get("permalink_url"),
+                metadata.get("original_url"),
+                metadata.get("source_url"),
+                metadata.get("web_url"),
+                metadata.get("comment_url"),
+            )
+            if "COMMENT" in uap_type and not url:
+                # No way to surface this comment in the toast.
+                continue
+            content = row.get("content") or ""
+            references.append(
+                {
+                    "uap_id": row.get("source_id"),
+                    "uap_type": uap_type or "POST",
+                    "url": url,
+                    "content_excerpt": self._truncate_excerpt(content, self._CRISIS_CONTENT_LIMIT),
+                }
+            )
+        return references
+
+    async def _fetch_crisis_evidence(
+        self, project_id: str, mention_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        if not mention_ids or self.deps.db is None:
+            return []
+        query = (
+            "SELECT source_id, content, uap_metadata "
+            "FROM analysis.post_insight "
+            "WHERE project_id = :project_id "
+            "AND source_id = ANY(CAST(:ids AS text[])) "
+            "LIMIT :limit"
+        )
+        async with self.deps.db.get_session() as session:
+            result = await session.execute(
+                text(query),
+                {
+                    "project_id": project_id,
+                    "ids": mention_ids,
+                    "limit": self._CRISIS_REFERENCE_LIMIT,
+                },
+            )
+            return [dict(row._mapping) for row in result.fetchall()]
+
+    @staticmethod
+    def _first_non_empty(*values: Any) -> str:
+        for value in values:
+            if value is None:
+                continue
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _truncate_excerpt(content: str, limit: int) -> str:
+        text_value = str(content or "").strip()
+        if not text_value:
+            return ""
+        if len(text_value) <= limit:
+            return text_value
+        return text_value[: max(0, limit - 1)].rstrip() + "…"
 
     @staticmethod
     def _level_rank(level: str) -> int:
