@@ -513,16 +513,13 @@ class ConsumerServer(IConsumerServer):
                 self._probe_server.serve_forever(), name="probe-server"
             )
             self.logger.info(
-                "Probe server listening on :%d (/healthz, /readyz)",
-                self.PROBE_PORT,
+                f"Probe server listening on :{self.PROBE_PORT} (/healthz, /readyz)"
             )
         except Exception as exc:
             # Probe binding must not crash the consumer — fall back to the
             # /tmp/healthy file so the deployment still has *some* signal.
             self.logger.error(
-                "Failed to start probe server on :%d: %s",
-                self.PROBE_PORT,
-                exc,
+                f"Failed to start probe server on :{self.PROBE_PORT}: {exc}"
             )
 
     async def _stop_probe_server(self) -> None:
