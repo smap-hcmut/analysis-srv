@@ -11,7 +11,7 @@ knowledge-srv gate conditions) without loading ML models.
 
 Flow per test:
     1.  Start AIOKafkaConsumer on output topics BEFORE producing
-    2.  Parse envelope via UAPRecord.from_ingest_record() (or legacy parse)
+    2.  Parse envelope via UAPRecord.from_ingest_record()
     3.  Domain-route: inject _resolved_domain_overlay into uap_record.raw
     4.  Build stub InsightMessage (configurable: should_index, sentiment, etc.)
     5.  ContractPublisherUseCase.publish_one() + flush() → Kafka
@@ -45,7 +45,7 @@ from internal.model.insight_message import (
     RAG,
     RAGIndex,
 )
-from internal.model.uap import ErrUAPValidation, ErrUAPVersionUnsupported, UAPRecord
+from internal.model.uap import ErrUAPValidation, UAPRecord
 from pkg.kafka.producer import KafkaProducer
 from pkg.kafka.type import KafkaProducerConfig
 
@@ -330,51 +330,7 @@ class E2ETestHarness:
             await self._publisher.publish_one(uap=uap_record, msg=insight)
             await self._publisher.flush()
 
-        except (ErrUAPValidation, ErrUAPVersionUnsupported, ValueError) as exc:
-            # Known pipeline errors — cancel consumer, return error result
-            consumer_task.cancel()
-            try:
-                await consumer_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            return E2EResult(error=type(exc).__name__, raw_error=exc)
-
-        # 5. Collect output
-        captured, ordered = await consumer_task
-        return E2EResult(
-            batch=captured.get(TOPIC_BATCH, []),
-            insights=captured.get(TOPIC_INSIGHTS, []),
-            digest=captured.get(TOPIC_DIGEST, []),
-            arrival_order=ordered,
-        )
-
-    async def run_legacy(
-        self,
-        envelope: dict,
-        *,
-        should_index: bool = True,
-    ) -> E2EResult:
-        """Run the pipeline with a legacy UAP-format envelope (has uap_version)."""
-        group_id = f"e2e-{uuid.uuid4()}"
-        consumer_task = asyncio.create_task(
-            _collect_output(self.bootstrap_servers, group_id=group_id)
-        )
-        await asyncio.sleep(1.2)
-
-        try:
-            uap_record = UAPRecord.parse(envelope)
-            domain_cfg = self._domain_registry.lookup(
-                uap_record.raw.get("domain_type_code", "")
-            )
-            uap_record.raw["_resolved_domain_overlay"] = (
-                domain_cfg.contract_domain_overlay
-            )
-
-            insight = make_stub_insight(uap_record, should_index=should_index)
-            await self._publisher.publish_one(uap=uap_record, msg=insight)
-            await self._publisher.flush()
-
-        except (ErrUAPValidation, ErrUAPVersionUnsupported, ValueError) as exc:
+        except (ErrUAPValidation, ValueError) as exc:
             consumer_task.cancel()
             try:
                 await consumer_task
@@ -520,41 +476,4 @@ def make_ingest_envelope(
         "domain_type_code": domain_type_code,
         "crawl_keyword": crawl_keyword,
         "platform_meta": platform_meta or {},
-    }
-
-
-def make_legacy_uap_envelope(
-    *,
-    project_id: str = "proj-e2e-001",
-    uap_id: str | None = None,
-) -> dict:
-    """Build a minimal legacy UAP envelope (has uap_version field)."""
-    if uap_id is None:
-        uap_id = f"uap-{uuid.uuid4().hex[:12]}"
-
-    return {
-        "uap_version": "1.0",
-        "event_id": uap_id,
-        "ingest": {
-            "project_id": project_id,
-            "source": {"source_id": "fb-legacy", "source_type": "facebook"},
-            "batch": {"received_at": "2024-03-01T08:05:00Z"},
-            "trace": {"mapping_id": "task-legacy"},
-        },
-        "content": {
-            "doc_id": uap_id,
-            "doc_type": "post",
-            "text": "Legacy UAP format test post",
-            "language": "vi",
-        },
-        "signals": {
-            "engagement": {
-                "like_count": 10,
-                "comment_count": 2,
-                "share_count": 1,
-                "view_count": 100,
-                "save_count": 0,
-            }
-        },
-        "context": {"keywords_matched": ["test"]},
     }

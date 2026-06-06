@@ -116,14 +116,12 @@ class FileOntologyRegistry:
     def from_config(cls, ontology_config: object) -> "FileOntologyRegistry":
         """Load from an OntologyConfig dataclass (config.config.OntologyConfig).
 
-        Uses the new ``domain_ontology_path`` field for the self-contained
-        YAML.  Falls back to the legacy 3-file path if the domain file is
-        not found (but raises on empty content).
+        Uses the ``domain_ontology_path`` field for the self-contained YAML
+        and fails fast when the configured file is missing.
         """
         domain_path = getattr(ontology_config, "domain_ontology_path", None)
         if domain_path and Path(domain_path).exists():
             return cls.from_yaml(domain_path)
-        # Fallback: try legacy path — but warn
         logger.warning(
             "domain_ontology_path %s not found, cannot load ontology",
             domain_path,
@@ -170,7 +168,7 @@ class FileOntologyRegistry:
         return cls(ontology=registry)
 
     # ------------------------------------------------------------------
-    # Properties — convenience access matching old interface
+    # Properties — convenience access for registry callers
     # ------------------------------------------------------------------
 
     @property

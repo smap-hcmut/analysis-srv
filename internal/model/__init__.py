@@ -18,10 +18,6 @@ from .uap import (
     UAPContext,
     # Errors
     ErrUAPValidation,
-    ErrUAPVersionUnsupported,
-    # Constants
-    UAP_VERSION_1_0,
-    SUPPORTED_VERSIONS,
 )
 from .insight_message import (
     InsightMessage,
@@ -54,10 +50,6 @@ __all__ = [
     "UAPContext",
     # UAP Errors
     "ErrUAPValidation",
-    "ErrUAPVersionUnsupported",
-    # UAP Constants
-    "UAP_VERSION_1_0",
-    "SUPPORTED_VERSIONS",
     # Insight Message
     "InsightMessage",
     "Project",

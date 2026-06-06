@@ -192,16 +192,9 @@ class OntologyConfig:
     """Ontology configuration — points to domain ontology YAML.
 
     Uses self-contained domain ontology files (OntologyRegistry format).
-    The old 3-file split (entities/taxonomy/source_channels) is deprecated.
     """
 
-    # Primary: self-contained domain ontology path
     domain_ontology_path: str = "config/ontology/vinfast_vn.yaml"
-
-    # Legacy: kept for backwards compatibility, not used by new code
-    entities_path: str = "config/ontology/entities.yaml"
-    taxonomy_path: str = "config/ontology/taxonomy.yaml"
-    source_channels_path: str = "config/ontology/source_channels.yaml"
 
 
 @dataclass
@@ -538,16 +531,6 @@ class ConfigLoader:
                 domain_ontology_path=self._get_value(
                     "ontology.domain_ontology_path",
                     "config/ontology/vinfast_vn.yaml",
-                ),
-                entities_path=self._get_value(
-                    "ontology.entities_path", "config/ontology/entities.yaml"
-                ),
-                taxonomy_path=self._get_value(
-                    "ontology.taxonomy_path", "config/ontology/taxonomy.yaml"
-                ),
-                source_channels_path=self._get_value(
-                    "ontology.source_channels_path",
-                    "config/ontology/source_channels.yaml",
                 ),
             ),
             enrichment=EnrichmentConfig(

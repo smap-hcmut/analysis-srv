@@ -10,7 +10,7 @@ from typing import Optional, List
 
 from pkg.kafka.consumer import KafkaConsumer
 from pkg.kafka.type import KafkaMessage
-from internal.model.uap import UAPRecord, ErrUAPValidation, ErrUAPVersionUnsupported
+from internal.model.uap import UAPRecord, ErrUAPValidation
 from internal.runtime.type import RunContext
 from internal.analytics.usecase.batch_enricher import NLPBatchEnricher
 from internal.analytics.usecase.batch_enricher import enrich_nlp_facts_with_bundle
@@ -18,9 +18,6 @@ from pkg.logger.logger import set_trace_id, set_project_id, clear_project_id
 from internal.http.project_client import build_project_service_client
 from internal.enrichment.type import EnricherConfig
 from internal.enrichment.usecase.usecase import EnrichmentUseCase
-
-# UAP version header field (replaces internal.analytics.delivery.constant import)
-FIELD_UAP_VERSION = "uap_version"
 
 from .interface import IConsumerServer
 from .type import Dependencies
@@ -196,8 +193,7 @@ class ConsumerServer(IConsumerServer):
         """Decode and parse a single Kafka message into a UAPRecord.
 
         Returns None (with a debug/info log) for unknown formats or bad JSON.
-        Raises ErrUAPValidation / ErrUAPVersionUnsupported for the caller to
-        decide whether to skip.
+        Raises ErrUAPValidation for the caller to decide whether to skip.
         """
         if isinstance(message.value, bytes):
             body = message.value.decode("utf-8")
@@ -208,16 +204,13 @@ class ConsumerServer(IConsumerServer):
 
         envelope = json.loads(body)
 
-        if FIELD_UAP_VERSION in envelope:
-            return UAPRecord.parse(envelope)
-        elif "identity" in envelope:
+        if "identity" in envelope:
             return UAPRecord.from_ingest_record(envelope)
-        else:
-            self.logger.info(
-                "internal.consumer.server: unknown message format, skipping",
-                extra={"keys": list(envelope.keys())},
-            )
-            return None
+        self.logger.info(
+            "internal.consumer.server: unknown message format, skipping",
+            extra={"keys": list(envelope.keys())},
+        )
+        return None
 
     async def _handle_messages_batch(self, messages: List[KafkaMessage]) -> None:
         """Process a batch of Kafka messages through the full pipeline.
@@ -249,7 +242,7 @@ class ConsumerServer(IConsumerServer):
 
                 parsed.append((project_id, uap_record.domain_type_code, uap_record))
 
-            except (ErrUAPValidation, ErrUAPVersionUnsupported) as exc:
+            except ErrUAPValidation as exc:
                 self.logger.info(
                     f"internal.consumer.server: UAP error (skipped): {exc}"
                 )

@@ -15,6 +15,7 @@ from internal.model.uap import UAPRecord
 
 MIN_DIRECT_TEXT_LENGTH = 20
 PLATFORM_YOUTUBE = "YOUTUBE"
+MIN_DYNAMIC_TERM_LENGTH = 5
 
 BRAND_TERMS = (
     "ahamove",
@@ -219,6 +220,9 @@ def calculate_business_relevance(
     logistics_context = _contains_any(context_text, LOGISTICS_TERMS)
     competitor_direct = _contains_any(content_text, COMPETITOR_TERMS)
     competitor_context = _contains_any(context_text, COMPETITOR_TERMS)
+    domain_terms = _domain_terms(uap)
+    domain_direct = _contains_any(content_text, domain_terms)
+    domain_context = _contains_any(context_text, domain_terms)
 
     if _looks_cod_gaming(content_text) and not brand_direct:
         return 0.08, ["offtopic_cod_gaming"]
@@ -244,6 +248,13 @@ def calculate_business_relevance(
         score += 0.06
         reasons.append("competitor_in_context")
 
+    if domain_direct:
+        score += 0.46
+        reasons.append("domain_keyword_mentioned")
+    elif domain_context:
+        score += 0.40
+        reasons.append("domain_keyword_in_context")
+
     if result is not None:
         intent = str(getattr(result, "primary_intent", "") or "").upper()
         if intent in {"COMPLAINT", "CRISIS", "SUPPORT", "LEAD"}:
@@ -260,21 +271,36 @@ def calculate_business_relevance(
             reasons.append("negative_business_signal")
 
         aspects = getattr(result, "aspects_breakdown", {}) or {}
-        if isinstance(aspects, dict) and aspects.get("aspects") and (brand_direct or logistics_direct or brand_context):
+        if (
+            isinstance(aspects, dict)
+            and aspects.get("aspects")
+            and (brand_direct or logistics_direct or brand_context)
+        ):
             score += 0.08
             reasons.append("business_aspect_detected")
+        elif (
+            isinstance(aspects, dict)
+            and aspects.get("aspects")
+            and (domain_direct or domain_context)
+        ):
+            score += 0.06
+            reasons.append("domain_aspect_detected")
 
-    if len(content_text) >= 80 and (brand_direct or logistics_direct):
+    if len(content_text) >= 80 and (brand_direct or logistics_direct or domain_direct):
         score += 0.06
         reasons.append("substantive_direct_text")
 
     doc_type = (uap.content.doc_type or "").lower() if uap and uap.content else ""
-    direct_business_signal = brand_direct or logistics_direct or competitor_direct
-    context_business_signal = brand_context or logistics_context or competitor_context
+    direct_business_signal = (
+        brand_direct or logistics_direct or competitor_direct or domain_direct
+    )
+    context_business_signal = (
+        brand_context or logistics_context or competitor_context or domain_context
+    )
 
     if doc_type == "comment" and not direct_business_signal:
         if context_business_signal and len(content_text) >= MIN_DIRECT_TEXT_LENGTH:
-            score = min(score, 0.42)
+            score = min(score, 0.48)
             reasons.append("comment_relevant_by_parent_only")
         else:
             score = min(score, 0.18)
@@ -307,17 +333,27 @@ def build_context_summary(uap: UAPRecord) -> str:
     parts: list[str] = []
     _append(parts, raw.get("content_title"), "Title")
     _append(parts, raw.get("content_subtitle"), "Subtitle")
-    _append(parts, raw.get("crawl_keyword") or _first(uap.context.keywords_matched), "Crawl keyword")
+    _append(
+        parts,
+        raw.get("crawl_keyword") or _first(uap.context.keywords_matched),
+        "Crawl keyword",
+    )
     _append(parts, youtube_meta.get("parent_title"), "Parent video")
     _append(parts, youtube_meta.get("parent_channel_name"), "Parent channel")
     _append(parts, youtube_meta.get("parent_description_snippet"), "Parent description")
 
     parent_keywords = youtube_meta.get("parent_keywords")
     if isinstance(parent_keywords, list):
-        keywords = ", ".join(str(item).strip() for item in parent_keywords if str(item).strip())
+        keywords = ", ".join(
+            str(item).strip() for item in parent_keywords if str(item).strip()
+        )
         _append(parts, keywords, "Parent keywords")
 
-    if uap.ingest and uap.ingest.source and uap.ingest.source.source_type == PLATFORM_YOUTUBE:
+    if (
+        uap.ingest
+        and uap.ingest.source
+        and uap.ingest.source.source_type == PLATFORM_YOUTUBE
+    ):
         _append(parts, youtube_meta.get("parent_url"), "Parent url")
 
     return " | ".join(parts)
@@ -330,6 +366,51 @@ def has_direct_business_signal(text: str) -> bool:
         or _contains_any(lowered, LOGISTICS_TERMS)
         or _contains_any(lowered, COMPETITOR_TERMS)
     )
+
+
+def _domain_terms(uap: UAPRecord) -> tuple[str, ...]:
+    if not uap:
+        return ()
+
+    values: list[Any] = []
+    if uap.ingest and uap.ingest.entity:
+        values.extend(
+            [
+                uap.ingest.entity.brand,
+                uap.ingest.entity.entity_name,
+                uap.ingest.entity.entity_type,
+            ]
+        )
+    if uap.context:
+        values.extend(uap.context.keywords_matched or [])
+
+    raw = uap.raw or {}
+    values.extend(
+        [
+            raw.get("crawl_keyword"),
+            raw.get("domain_type_code"),
+        ]
+    )
+    content_keywords = raw.get("content_keywords")
+    if isinstance(content_keywords, list):
+        values.extend(content_keywords)
+
+    terms: list[str] = []
+    for value in values:
+        _extend_domain_terms(terms, value)
+
+    return tuple(_dedupe(terms))
+
+
+def _extend_domain_terms(terms: list[str], value: Any) -> None:
+    text = _norm(str(value or ""))
+    if not text:
+        return
+    terms.append(text)
+    for token in re.split(r"[^0-9a-zÀ-ỹ]+", text, flags=re.IGNORECASE):
+        token = token.strip()
+        if len(token) >= MIN_DYNAMIC_TERM_LENGTH:
+            terms.append(token)
 
 
 def _append(parts: list[str], value: Any, label: str) -> None:
@@ -360,7 +441,9 @@ def _contains_term(text: str, term: str) -> bool:
     # Avoid short ASCII aliases matching inside unrelated foreign words, e.g.
     # "grab" inside Tagalog "grabe" or "cod" inside "codm".
     if re.fullmatch(r"[a-z0-9][a-z0-9 ]*[a-z0-9]", term):
-        return bool(re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text))
+        return bool(
+            re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text)
+        )
     return term in text
 
 

@@ -1,4 +1,5 @@
-from internal.model.uap import UAPContent, UAPRecord
+from internal.analytics.type import AnalyticsResult
+from internal.model.uap import UAPContent, UAPContext, UAPRecord
 from internal.relevance import calculate_business_relevance
 
 
@@ -40,3 +41,36 @@ def test_grabe_foreign_word_does_not_match_grab_competitor():
 
     assert score < 0.45
     assert "competitor_logistics_comparison" not in reasons
+
+
+def test_domain_keyword_direct_text_is_relevant_for_non_logistics_domain():
+    uap = UAPRecord(
+        content=UAPContent(text="Kotex Anh Trai Good Night co concept rat bat mat"),
+        context=UAPContext(keywords_matched=["kotex anh trai good night"]),
+    )
+
+    score, reasons = calculate_business_relevance(uap)
+
+    assert score >= 0.45
+    assert "domain_keyword_mentioned" in reasons
+
+
+def test_domain_keyword_parent_context_can_index_substantive_comment():
+    uap = UAPRecord(
+        content=UAPContent(
+            doc_type="comment",
+            text="Minh thay concept nay hay va co cam xuc hon cac campaign cu",
+        ),
+        context=UAPContext(keywords_matched=["kotex anh trai good night"]),
+    )
+    result = AnalyticsResult(
+        id="doc-1",
+        primary_intent="DISCUSSION",
+        aspects_breakdown={"aspects": [{"aspect": "creative_hook"}]},
+    )
+
+    score, reasons = calculate_business_relevance(uap, result=result)
+
+    assert score >= 0.45
+    assert "domain_keyword_in_context" in reasons
+    assert "comment_relevant_by_parent_only" in reasons
