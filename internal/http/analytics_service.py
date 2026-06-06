@@ -345,8 +345,15 @@ class AnalyticsService:
         )
         self._query_timeout_ms = max(1, int(query_timeout_ms))
         # Keep analytics DB pressure bounded even when UI fires all dashboard
-        # endpoints at once (kpis/platforms/sentiment/keywords/posts).
-        self._db_concurrency_guard: asyncio.Semaphore = asyncio.Semaphore(8)
+        # endpoints at once (kpis/platforms/sentiment/keywords/posts). The
+        # default was 8, but the Insight page alone issues 5 endpoints x 2
+        # queries = 10 concurrent ops per render — half of them queued behind
+        # the semaphore before the SQLAlchemy pool (20 + 10 overflow) was even
+        # touched. Bumped to 16 so the bottleneck moves to Postgres itself,
+        # which is where the timeout/negative-cache guard already lives.
+        self._db_concurrency_guard: asyncio.Semaphore = asyncio.Semaphore(
+            max(1, _env_int("ANALYTICS_DB_CONCURRENCY", 16))
+        )
         # Negative cache for campaigns whose queries hit statement_timeout. Without
         # this, every UI refresh re-issues 7 expensive queries and burns 25s each
         # on the server, blocking the connection pool for the rest of the system.
