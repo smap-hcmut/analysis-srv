@@ -29,10 +29,19 @@ class ConsumerServer(IConsumerServer):
     # considers the pod ready when it is actually consuming messages.
     HEALTHZ_FILE = Path("/tmp/healthy")
 
+    # HTTP probe server bound to localhost so Kubernetes can reach a real
+    # /healthz endpoint that reflects the running flag instead of relying on
+    # a sentinel file alone. The file path stays as a defence-in-depth
+    # backstop for image-pull/restart races where the HTTP server has not
+    # yet bound the port.
+    PROBE_PORT = int(os.getenv("ANALYTICS_PROBE_PORT", "8080"))
+
     def __init__(self, deps: Dependencies):
         self.deps = deps
         self.logger = deps.logger
         self._running = False
+        self._probe_server: Optional[asyncio.AbstractServer] = None
+        self._probe_task: Optional[asyncio.Task] = None
 
         # Consumer management
         self.consumer: Optional[KafkaConsumer] = None
@@ -129,6 +138,7 @@ class ConsumerServer(IConsumerServer):
             self._running = True
             # Signal to Kubernetes probes that the consumer is fully up.
             self.HEALTHZ_FILE.write_text("ok")
+            await self._start_probe_server()
 
             self.consumer_task = asyncio.create_task(
                 self._consume_loop(), name="kafka-consumer"
@@ -460,6 +470,7 @@ class ConsumerServer(IConsumerServer):
                 self.HEALTHZ_FILE.unlink(missing_ok=True)
             except Exception:
                 pass
+            await self._stop_probe_server()
 
             if self.consumer_task and not self.consumer_task.done():
                 self.consumer_task.cancel()
@@ -485,6 +496,102 @@ class ConsumerServer(IConsumerServer):
 
     def is_running(self) -> bool:
         return self._running
+
+    async def _start_probe_server(self) -> None:
+        """Bind a minimal HTTP server for Kubernetes /healthz + /readyz probes.
+
+        Uses asyncio's stdlib TCP server so we do not add another framework
+        dependency to the consumer pod. The response body is small enough
+        that we can stream it inline; the only states we expose are 200 when
+        ``self._running`` is True and 503 when shutdown has started.
+        """
+        try:
+            self._probe_server = await asyncio.start_server(
+                self._handle_probe, host="0.0.0.0", port=self.PROBE_PORT
+            )
+            self._probe_task = asyncio.create_task(
+                self._probe_server.serve_forever(), name="probe-server"
+            )
+            self.logger.info(
+                "Probe server listening on :%d (/healthz, /readyz)",
+                self.PROBE_PORT,
+            )
+        except Exception as exc:
+            # Probe binding must not crash the consumer — fall back to the
+            # /tmp/healthy file so the deployment still has *some* signal.
+            self.logger.error(
+                "Failed to start probe server on :%d: %s",
+                self.PROBE_PORT,
+                exc,
+            )
+
+    async def _stop_probe_server(self) -> None:
+        if self._probe_server is not None:
+            self._probe_server.close()
+            try:
+                await self._probe_server.wait_closed()
+            except Exception:
+                pass
+            self._probe_server = None
+        if self._probe_task is not None and not self._probe_task.done():
+            self._probe_task.cancel()
+            try:
+                await self._probe_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._probe_task = None
+
+    async def _handle_probe(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        try:
+            request_line = await reader.readline()
+            # Drain headers so curl/kubelet do not see a connection reset.
+            while True:
+                header = await reader.readline()
+                if not header or header == b"\r\n":
+                    break
+            path = b"/"
+            try:
+                _, path, _ = request_line.split(b" ", 2)
+            except ValueError:
+                pass
+
+            healthy = self._running
+            status = b"200 OK" if healthy else b"503 Service Unavailable"
+            body = b'{"status":"ok"}' if healthy else b'{"status":"down"}'
+            if path.startswith(b"/readyz"):
+                # Readyz is stricter — consumer task must still be live.
+                ready = healthy and (
+                    self.consumer_task is not None
+                    and not self.consumer_task.done()
+                )
+                status = b"200 OK" if ready else b"503 Service Unavailable"
+                body = b'{"ready":true}' if ready else b'{"ready":false}'
+
+            response = (
+                b"HTTP/1.1 "
+                + status
+                + b"\r\nContent-Type: application/json\r\nContent-Length: "
+                + str(len(body)).encode()
+                + b"\r\nConnection: close\r\n\r\n"
+                + body
+            )
+            writer.write(response)
+            await writer.drain()
+        except Exception:
+            # Probe handler must not raise — close the connection silently
+            # so the kubelet receives a normal failure rather than a partial
+            # write.
+            pass
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     @staticmethod
     def _env_enabled(value: str) -> bool:
