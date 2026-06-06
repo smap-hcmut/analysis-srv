@@ -1,6 +1,6 @@
 """Interface for object storage operations."""
 
-from typing import Dict, List, Optional, Protocol, Union, runtime_checkable
+from typing import Dict, List, Protocol, Union, runtime_checkable
 
 from .type import UploadResult
 

@@ -2,7 +2,6 @@
 
 from internal.normalization.type import MentionRecord
 from ..type import QualityAnalysisResult
-from ..interface import ISpamUseCase
 from .score_authors import SpamScoringService
 
 

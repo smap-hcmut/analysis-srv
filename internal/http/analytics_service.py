@@ -21,8 +21,16 @@ from pkg.postgre.postgres import PostgresDatabase
 
 
 PLATFORM_META: dict[str, dict[str, str]] = {
-    "TIKTOK": {"name": "TikTok", "color": "var(--platform-tiktok)", "chartColor": "var(--chart-1)"},
-    "FACEBOOK": {"name": "Facebook", "color": "#1877f2", "chartColor": "var(--chart-2)"},
+    "TIKTOK": {
+        "name": "TikTok",
+        "color": "var(--platform-tiktok)",
+        "chartColor": "var(--chart-1)",
+    },
+    "FACEBOOK": {
+        "name": "Facebook",
+        "color": "#1877f2",
+        "chartColor": "var(--chart-2)",
+    },
     "YOUTUBE": {"name": "YouTube", "color": "#ff0000", "chartColor": "var(--chart-3)"},
 }
 PLATFORM_CHANGE_MIN_PREVIOUS_MENTIONS = 30
@@ -51,10 +59,14 @@ POST_EXPORT_COLUMNS = [
 ]
 
 
-def is_reliable_platform_mentions_change(current: int | float, previous: int | float) -> bool:
+def is_reliable_platform_mentions_change(
+    current: int | float, previous: int | float
+) -> bool:
     current_n = float(current)
     previous_n = float(previous)
-    return not (current_n > previous_n and previous_n < PLATFORM_CHANGE_MIN_PREVIOUS_MENTIONS)
+    return not (
+        current_n > previous_n and previous_n < PLATFORM_CHANGE_MIN_PREVIOUS_MENTIONS
+    )
 
 
 def _csv_value(value: Any) -> str:
@@ -67,10 +79,14 @@ def _csv_value(value: Any) -> str:
 
 def posts_to_csv(posts: list[dict[str, Any]]) -> str:
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=POST_EXPORT_COLUMNS, extrasaction="ignore")
+    writer = csv.DictWriter(
+        buffer, fieldnames=POST_EXPORT_COLUMNS, extrasaction="ignore"
+    )
     writer.writeheader()
     for post in posts:
-        writer.writerow({column: _csv_value(post.get(column)) for column in POST_EXPORT_COLUMNS})
+        writer.writerow(
+            {column: _csv_value(post.get(column)) for column in POST_EXPORT_COLUMNS}
+        )
     return buffer.getvalue()
 
 
@@ -81,7 +97,9 @@ def _svg_text(value: Any, limit: int | None = None) -> str:
     return html.escape(text_value, quote=False)
 
 
-def posts_to_svg(posts: list[dict[str, Any]], filters: dict[str, Any], total: int) -> str:
+def posts_to_svg(
+    posts: list[dict[str, Any]], filters: dict[str, Any], total: int
+) -> str:
     width = 1600
     row_height = 34
     top_offset = 118
@@ -127,15 +145,22 @@ def posts_to_svg(posts: list[dict[str, Any]], filters: dict[str, Any], total: in
         (720, "Eng."),
         (805, "Content"),
     ]
-    rows = [header, f'<line class="line" x1="52" y1="{top_offset - 18}" x2="{width - 52}" y2="{top_offset - 18}"/>']
+    rows = [
+        header,
+        f'<line class="line" x1="52" y1="{top_offset - 18}" x2="{width - 52}" y2="{top_offset - 18}"/>',
+    ]
     for x, label in columns:
         rows.append(f'<text class="th" x="{x}" y="{top_offset}">{label}</text>')
-    rows.append(f'<line class="line" x1="52" y1="{top_offset + 12}" x2="{width - 52}" y2="{top_offset + 12}"/>')
+    rows.append(
+        f'<line class="line" x1="52" y1="{top_offset + 12}" x2="{width - 52}" y2="{top_offset + 12}"/>'
+    )
 
     for index, post in enumerate(posts):
         y = top_offset + 38 + index * row_height
         sentiment = str(post.get("sentiment") or "neutral").lower()
-        sentiment_class = sentiment if sentiment in {"positive", "negative", "neutral"} else "neutral"
+        sentiment_class = (
+            sentiment if sentiment in {"positive", "negative", "neutral"} else "neutral"
+        )
         rows.extend(
             [
                 f'<text class="td muted" x="52" y="{y}">{_svg_text(post.get("platform"), 18)}</text>',
@@ -147,7 +172,9 @@ def posts_to_svg(posts: list[dict[str, Any]], filters: dict[str, Any], total: in
                 f'<text class="td" x="805" y="{y}">{_svg_text(post.get("content"), 128)}</text>',
             ]
         )
-        rows.append(f'<line class="line" x1="52" y1="{y + 11}" x2="{width - 52}" y2="{y + 11}"/>')
+        rows.append(
+            f'<line class="line" x1="52" y1="{y + 11}" x2="{width - 52}" y2="{y + 11}"/>'
+        )
 
     rows.append("</svg>")
     return "\n".join(rows)
@@ -194,24 +221,55 @@ def extract_source_url(metadata: dict[str, Any]) -> str:
         if value:
             return value
 
-    platform_meta = metadata.get("platform_meta") if isinstance(metadata.get("platform_meta"), dict) else {}
+    platform_meta = (
+        metadata.get("platform_meta")
+        if isinstance(metadata.get("platform_meta"), dict)
+        else {}
+    )
     for platform_key in ("youtube", "tiktok", "facebook"):
-        platform_data = platform_meta.get(platform_key) if isinstance(platform_meta.get(platform_key), dict) else {}
-        for key in ("comment_url", "parent_url", "video_url", "post_url", "permalink_url", "url"):
+        platform_data = (
+            platform_meta.get(platform_key)
+            if isinstance(platform_meta.get(platform_key), dict)
+            else {}
+        )
+        for key in (
+            "comment_url",
+            "parent_url",
+            "video_url",
+            "post_url",
+            "permalink_url",
+            "url",
+        ):
             value = str(platform_data.get(key) or "").strip()
             if value:
                 return value
 
-    youtube = platform_meta.get("youtube") if isinstance(platform_meta.get("youtube"), dict) else {}
+    youtube = (
+        platform_meta.get("youtube")
+        if isinstance(platform_meta.get("youtube"), dict)
+        else {}
+    )
     video_id = str(youtube.get("video_id") or metadata.get("video_id") or "").strip()
     if video_id:
-        comment_id = str(metadata.get("comment_id") or metadata.get("source_id") or "").strip()
+        comment_id = str(
+            metadata.get("comment_id") or metadata.get("source_id") or ""
+        ).strip()
         suffix = f"&lc={comment_id}" if comment_id.startswith("Ug") else ""
         return f"https://www.youtube.com/watch?v={video_id}{suffix}"
 
-    tiktok = platform_meta.get("tiktok") if isinstance(platform_meta.get("tiktok"), dict) else {}
-    tiktok_video_id = str(tiktok.get("video_id") or metadata.get("video_id") or "").strip()
-    author = str(metadata.get("author_username") or tiktok.get("author_username") or "").strip().lstrip("@")
+    tiktok = (
+        platform_meta.get("tiktok")
+        if isinstance(platform_meta.get("tiktok"), dict)
+        else {}
+    )
+    tiktok_video_id = str(
+        tiktok.get("video_id") or metadata.get("video_id") or ""
+    ).strip()
+    author = (
+        str(metadata.get("author_username") or tiktok.get("author_username") or "")
+        .strip()
+        .lstrip("@")
+    )
     if tiktok_video_id and author:
         return f"https://www.tiktok.com/@{author}/video/{tiktok_video_id}"
 
@@ -267,13 +325,24 @@ def _env_int(name: str, default: int) -> int:
 
 
 class AnalyticsService:
-    def __init__(self, db: PostgresDatabase, project_client: ProjectServiceClient, query_timeout_ms: int = 25_000):
+    def __init__(
+        self,
+        db: PostgresDatabase,
+        project_client: ProjectServiceClient,
+        query_timeout_ms: int = 25_000,
+    ):
         self.db = db
         self.project_client = project_client
         self._response_cache: dict[tuple[Any, ...], CachedResponse] = {}
-        self._response_cache_ttl: float = max(5.0, _env_float("ANALYTICS_RESPONSE_CACHE_TTL_SECONDS", 180.0))
-        self._context_cache_ttl: float = max(30.0, _env_float("ANALYTICS_CONTEXT_CACHE_TTL_SECONDS", 300.0))
-        self._response_cache_max_entries: int = max(64, _env_int("ANALYTICS_RESPONSE_CACHE_MAX_ENTRIES", 512))
+        self._response_cache_ttl: float = max(
+            5.0, _env_float("ANALYTICS_RESPONSE_CACHE_TTL_SECONDS", 180.0)
+        )
+        self._context_cache_ttl: float = max(
+            30.0, _env_float("ANALYTICS_CONTEXT_CACHE_TTL_SECONDS", 300.0)
+        )
+        self._response_cache_max_entries: int = max(
+            64, _env_int("ANALYTICS_RESPONSE_CACHE_MAX_ENTRIES", 512)
+        )
         self._query_timeout_ms = max(1, int(query_timeout_ms))
         # Keep analytics DB pressure bounded even when UI fires all dashboard
         # endpoints at once (kpis/platforms/sentiment/keywords/posts).
@@ -285,21 +354,29 @@ class AnalyticsService:
         self._timeout_cache_ttl: float = 60.0
         self._posts_window_size: int = 240
         self._posts_cache_ttl: float = 120.0
-        self._posts_export_max_rows: int = max(100, _env_int("ANALYTICS_POSTS_EXPORT_MAX_ROWS", 20_000))
-        self._use_latest_mart = str(os.getenv("ANALYTICS_USE_LATEST_MART", "true")).strip().lower() in {
+        self._posts_export_max_rows: int = max(
+            100, _env_int("ANALYTICS_POSTS_EXPORT_MAX_ROWS", 20_000)
+        )
+        self._use_latest_mart = str(
+            os.getenv("ANALYTICS_USE_LATEST_MART", "true")
+        ).strip().lower() in {
             "1",
             "true",
             "yes",
             "on",
         }
-        self._source_quality_gate = str(os.getenv("ANALYTICS_SOURCE_QUALITY_GATE", "true")).strip().lower() in {
+        self._source_quality_gate = str(
+            os.getenv("ANALYTICS_SOURCE_QUALITY_GATE", "true")
+        ).strip().lower() in {
             "1",
             "true",
             "yes",
             "on",
         }
 
-    def _resolve_query_timeout_ms(self, project_count: int, query_profile: str = "normal") -> int:
+    def _resolve_query_timeout_ms(
+        self, project_count: int, query_profile: str = "normal"
+    ) -> int:
         # Avoid long-running fan-out queries from saturating the Postgres pool.
         # Bigger campaigns are more likely to hit expensive joins, so give them
         # more time rather than fail earlier with a hard 30s cap.
@@ -320,10 +397,14 @@ class AnalyticsService:
         timeout_ms = max(8_000, min(timeout_ms, 70_000))
         return timeout_ms
 
-    def _timeout_key(self, campaign_id: str, scope: tuple[Any, ...] | None = None) -> tuple[Any, ...]:
+    def _timeout_key(
+        self, campaign_id: str, scope: tuple[Any, ...] | None = None
+    ) -> tuple[Any, ...]:
         return (campaign_id, *(scope or ()))
 
-    def _is_timed_out(self, campaign_id: str, scope: tuple[Any, ...] | None = None) -> bool:
+    def _is_timed_out(
+        self, campaign_id: str, scope: tuple[Any, ...] | None = None
+    ) -> bool:
         key = self._timeout_key(campaign_id, scope)
         until = self._timeout_cache.get(key)
         if not until:
@@ -333,8 +414,12 @@ class AnalyticsService:
             return False
         return True
 
-    def _mark_timed_out(self, campaign_id: str, scope: tuple[Any, ...] | None = None) -> None:
-        self._timeout_cache[self._timeout_key(campaign_id, scope)] = time.time() + self._timeout_cache_ttl
+    def _mark_timed_out(
+        self, campaign_id: str, scope: tuple[Any, ...] | None = None
+    ) -> None:
+        self._timeout_cache[self._timeout_key(campaign_id, scope)] = (
+            time.time() + self._timeout_cache_ttl
+        )
 
     def _cache_get(self, key: tuple[Any, ...]) -> dict[str, Any] | None:
         cached = self._response_cache.get(key)
@@ -344,7 +429,12 @@ class AnalyticsService:
             return None
         return copy.deepcopy(cached.value)
 
-    def _cache_set(self, key: tuple[Any, ...], value: dict[str, Any], ttl_seconds: float | None = None) -> dict[str, Any]:
+    def _cache_set(
+        self,
+        key: tuple[Any, ...],
+        value: dict[str, Any],
+        ttl_seconds: float | None = None,
+    ) -> dict[str, Any]:
         ttl = self._response_cache_ttl if ttl_seconds is None else ttl_seconds
         self._response_cache[key] = CachedResponse(
             value=copy.deepcopy(value),
@@ -361,10 +451,15 @@ class AnalyticsService:
             if cached.expires_at <= now:
                 self._response_cache.pop(key, None)
         while len(self._response_cache) > self._response_cache_max_entries:
-            oldest_key = min(self._response_cache, key=lambda key: self._response_cache[key].expires_at)
+            oldest_key = min(
+                self._response_cache,
+                key=lambda key: self._response_cache[key].expires_at,
+            )
             self._response_cache.pop(oldest_key, None)
 
-    async def build_context(self, campaign_id: str, requested_project_ids: tuple[str, ...] = ()) -> AnalyticsContext:
+    async def build_context(
+        self, campaign_id: str, requested_project_ids: tuple[str, ...] = ()
+    ) -> AnalyticsContext:
         self._validate_uuid(campaign_id)
         for project_id in requested_project_ids:
             self._validate_uuid(project_id)
@@ -374,14 +469,23 @@ class AnalyticsService:
             return AnalyticsContext(
                 campaign_id=str(cached.get("campaign_id") or campaign_id),
                 campaign_name=str(cached.get("campaign_name") or ""),
-                project_ids=[str(project_id) for project_id in cached.get("project_ids") or []],
-                project_names={str(key): str(value) for key, value in dict(cached.get("project_names") or {}).items()},
+                project_ids=[
+                    str(project_id) for project_id in cached.get("project_ids") or []
+                ],
+                project_names={
+                    str(key): str(value)
+                    for key, value in dict(cached.get("project_names") or {}).items()
+                },
             )
 
         campaign = await self.project_client.get_campaign_projects(campaign_id)
         if requested_project_ids:
             requested = set(requested_project_ids)
-            project_ids = [project_id for project_id in campaign.project_ids if project_id in requested]
+            project_ids = [
+                project_id
+                for project_id in campaign.project_ids
+                if project_id in requested
+            ]
         else:
             project_ids = campaign.project_ids
         context = AnalyticsContext(
@@ -424,9 +528,15 @@ class AnalyticsService:
         keywords: str | None = None,
     ) -> dict[str, Any]:
         scope = self.build_scope(source_kind, project_ids, keywords)
-        return await self._guarded(campaign_id, self._compute_kpis(campaign_id, scope), ("kpis", *scope.cache_key()))
+        return await self._guarded(
+            campaign_id,
+            self._compute_kpis(campaign_id, scope),
+            ("kpis", *scope.cache_key()),
+        )
 
-    async def _compute_kpis(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+    async def _compute_kpis(
+        self, campaign_id: str, scope: AnalyticsScope
+    ) -> dict[str, Any]:
         cache_key = ("kpis", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -434,15 +544,47 @@ class AnalyticsService:
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
-            return self._cache_set(cache_key, {
-                "metrics": [
-                    {"label": "Total Mentions", "value": 0, "formatted": "0", "change": 0, "sparkline": [], "icon": "activity"},
-                    {"label": "Sentiment Score", "value": 0, "formatted": "0%", "change": 0, "sparkline": [], "icon": "smile", "suffix": "%"},
-                    {"label": "Engagement", "value": 0, "formatted": "0", "change": 0, "sparkline": [], "icon": "heart"},
-                    {"label": "Audience Reach", "value": 0, "formatted": "0", "change": 0, "sparkline": [], "icon": "users"},
-                ],
-                "engagement": {"views": 0, "likes": 0, "comments": 0, "shares": 0},
-            })
+            return self._cache_set(
+                cache_key,
+                {
+                    "metrics": [
+                        {
+                            "label": "Total Mentions",
+                            "value": 0,
+                            "formatted": "0",
+                            "change": 0,
+                            "sparkline": [],
+                            "icon": "activity",
+                        },
+                        {
+                            "label": "Sentiment Score",
+                            "value": 0,
+                            "formatted": "0%",
+                            "change": 0,
+                            "sparkline": [],
+                            "icon": "smile",
+                            "suffix": "%",
+                        },
+                        {
+                            "label": "Engagement",
+                            "value": 0,
+                            "formatted": "0",
+                            "change": 0,
+                            "sparkline": [],
+                            "icon": "heart",
+                        },
+                        {
+                            "label": "Audience Reach",
+                            "value": 0,
+                            "formatted": "0",
+                            "change": 0,
+                            "sparkline": [],
+                            "icon": "users",
+                        },
+                    ],
+                    "engagement": {"views": 0, "likes": 0, "comments": 0, "shares": 0},
+                },
+            )
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
         source_filters = self._scope_pre_filters(scope)
@@ -489,49 +631,62 @@ ORDER BY 1
             query_timeout_ms=query_timeout_ms,
         )
         t = summary_rows[0] if summary_rows else {}
-        return self._cache_set(cache_key, {
-            "metrics": [
-                {
-                    "label": "Total Mentions",
-                    "value": int(t.get("total_mentions", 0)),
-                    "formatted": fmt_number(int(t.get("total_mentions", 0))),
-                    "change": percent_change(t.get("current_mentions", 0), t.get("previous_mentions", 0)),
-                    "sparkline": [int(row["mentions"]) for row in spark_rows],
-                    "icon": "activity",
+        return self._cache_set(
+            cache_key,
+            {
+                "metrics": [
+                    {
+                        "label": "Total Mentions",
+                        "value": int(t.get("total_mentions", 0)),
+                        "formatted": fmt_number(int(t.get("total_mentions", 0))),
+                        "change": percent_change(
+                            t.get("current_mentions", 0), t.get("previous_mentions", 0)
+                        ),
+                        "sparkline": [int(row["mentions"]) for row in spark_rows],
+                        "icon": "activity",
+                    },
+                    {
+                        "label": "Sentiment Score",
+                        "value": round(float(t.get("avg_sentiment", 0)), 1),
+                        "formatted": f"{round(float(t.get('avg_sentiment', 0)), 1)}%",
+                        "change": percent_change(
+                            t.get("current_sentiment", 0),
+                            t.get("previous_sentiment", 0),
+                        ),
+                        "sparkline": [float(row["sentiment"]) for row in spark_rows],
+                        "icon": "smile",
+                        "suffix": "%",
+                    },
+                    {
+                        "label": "Engagement",
+                        "value": int(t.get("sum_engagement", 0)),
+                        "formatted": fmt_number(int(t.get("sum_engagement", 0))),
+                        "change": percent_change(
+                            t.get("current_engagement", 0),
+                            t.get("previous_engagement", 0),
+                        ),
+                        "sparkline": [float(row["engagement"]) for row in spark_rows],
+                        "icon": "heart",
+                    },
+                    {
+                        "label": "Audience Reach",
+                        "value": int(t.get("sum_reach", 0)),
+                        "formatted": fmt_number(int(t.get("sum_reach", 0))),
+                        "change": percent_change(
+                            t.get("current_reach", 0), t.get("previous_reach", 0)
+                        ),
+                        "sparkline": [int(row["reach"]) for row in spark_rows],
+                        "icon": "users",
+                    },
+                ],
+                "engagement": {
+                    "views": int(t.get("sum_views", 0)),
+                    "likes": int(t.get("sum_likes", 0)),
+                    "comments": int(t.get("sum_comments", 0)),
+                    "shares": int(t.get("sum_shares", 0)),
                 },
-                {
-                    "label": "Sentiment Score",
-                    "value": round(float(t.get("avg_sentiment", 0)), 1),
-                    "formatted": f"{round(float(t.get('avg_sentiment', 0)), 1)}%",
-                    "change": percent_change(t.get("current_sentiment", 0), t.get("previous_sentiment", 0)),
-                    "sparkline": [float(row["sentiment"]) for row in spark_rows],
-                    "icon": "smile",
-                    "suffix": "%",
-                },
-                {
-                    "label": "Engagement",
-                    "value": int(t.get("sum_engagement", 0)),
-                    "formatted": fmt_number(int(t.get("sum_engagement", 0))),
-                    "change": percent_change(t.get("current_engagement", 0), t.get("previous_engagement", 0)),
-                    "sparkline": [float(row["engagement"]) for row in spark_rows],
-                    "icon": "heart",
-                },
-                {
-                    "label": "Audience Reach",
-                    "value": int(t.get("sum_reach", 0)),
-                    "formatted": fmt_number(int(t.get("sum_reach", 0))),
-                    "change": percent_change(t.get("current_reach", 0), t.get("previous_reach", 0)),
-                    "sparkline": [int(row["reach"]) for row in spark_rows],
-                    "icon": "users",
-                },
-            ],
-            "engagement": {
-                "views": int(t.get("sum_views", 0)),
-                "likes": int(t.get("sum_likes", 0)),
-                "comments": int(t.get("sum_comments", 0)),
-                "shares": int(t.get("sum_shares", 0)),
             },
-        })
+        )
 
     async def get_platforms(
         self,
@@ -541,9 +696,15 @@ ORDER BY 1
         keywords: str | None = None,
     ) -> dict[str, Any]:
         scope = self.build_scope(source_kind, project_ids, keywords)
-        return await self._guarded(campaign_id, self._compute_platforms(campaign_id, scope), ("platforms", *scope.cache_key()))
+        return await self._guarded(
+            campaign_id,
+            self._compute_platforms(campaign_id, scope),
+            ("platforms", *scope.cache_key()),
+        )
 
-    async def _compute_platforms(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+    async def _compute_platforms(
+        self, campaign_id: str, scope: AnalyticsScope
+    ) -> dict[str, Any]:
         cache_key = ("platforms", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -551,9 +712,13 @@ ORDER BY 1
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
-            return self._cache_set(cache_key, {"stats": [], "timeSeries": [], "months": []})
+            return self._cache_set(
+                cache_key, {"stats": [], "timeSeries": [], "months": []}
+            )
 
-        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
+        query_timeout_ms = self._resolve_query_timeout_ms(
+            len(ctx.project_ids), "normal"
+        )
         source_filters = self._scope_pre_filters(scope)
         platform_rows, ts_rows = await self._fetch_many(
             (
@@ -594,57 +759,78 @@ ORDER BY 1
         stats = []
         for row in platform_rows:
             platform = row["platform"]
-            meta = PLATFORM_META.get(platform, {"name": platform, "color": "#888", "chartColor": "#888"})
+            meta = PLATFORM_META.get(
+                platform, {"name": platform, "color": "#888", "chartColor": "#888"}
+            )
             current_mentions = int(row["current_mentions"])
             previous_mentions = int(row["previous_mentions"])
             mentions_change = percent_change(current_mentions, previous_mentions)
-            stats.append({
-                "platform": platform.lower(),
-                "name": meta["name"],
-                "mentions": int(row["mentions"]),
-                "mentionsChange": mentions_change,
-                "mentionsChangeReliable": is_reliable_platform_mentions_change(current_mentions, previous_mentions),
-                "mentionsCurrentPeriod": current_mentions,
-                "mentionsPreviousPeriod": previous_mentions,
-                "engagement": fmt_number(float(row["sum_engagement"])),
-                "engagementRaw": int(float(row["sum_engagement"])),
-                "sentiment": round(float(row["avg_sentiment"])),
-                "reach": int(row["sum_reach"]),
-                "status": "active",
-                "color": meta["color"],
-            })
+            stats.append(
+                {
+                    "platform": platform.lower(),
+                    "name": meta["name"],
+                    "mentions": int(row["mentions"]),
+                    "mentionsChange": mentions_change,
+                    "mentionsChangeReliable": is_reliable_platform_mentions_change(
+                        current_mentions, previous_mentions
+                    ),
+                    "mentionsCurrentPeriod": current_mentions,
+                    "mentionsPreviousPeriod": previous_mentions,
+                    "engagement": fmt_number(float(row["sum_engagement"])),
+                    "engagementRaw": int(float(row["sum_engagement"])),
+                    "sentiment": round(float(row["avg_sentiment"])),
+                    "reach": int(row["sum_reach"]),
+                    "status": "active",
+                    "color": meta["color"],
+                }
+            )
 
         for key, meta in PLATFORM_META.items():
             if not any(item["platform"] == key.lower() for item in stats):
-                stats.append({
-                    "platform": key.lower(),
-                    "name": meta["name"],
-                    "mentions": 0,
-                    "mentionsChange": 0,
-                    "mentionsChangeReliable": True,
-                    "mentionsCurrentPeriod": 0,
-                    "mentionsPreviousPeriod": 0,
-                    "engagement": "0",
-                    "engagementRaw": 0,
-                    "sentiment": 0,
-                    "reach": 0,
-                    "status": "inactive",
-                    "color": meta["color"],
-                })
+                stats.append(
+                    {
+                        "platform": key.lower(),
+                        "name": meta["name"],
+                        "mentions": 0,
+                        "mentionsChange": 0,
+                        "mentionsChangeReliable": True,
+                        "mentionsCurrentPeriod": 0,
+                        "mentionsPreviousPeriod": 0,
+                        "engagement": "0",
+                        "engagementRaw": 0,
+                        "sentiment": 0,
+                        "reach": 0,
+                        "status": "inactive",
+                        "color": meta["color"],
+                    }
+                )
 
         months = sorted({str(row["month"]) for row in ts_rows})
         time_series = []
         for key, meta in PLATFORM_META.items():
-            time_series.append({
-                "label": meta["name"],
-                "color": meta["chartColor"],
-                "data": [
-                    int(next((r["mentions"] for r in ts_rows if r["month"] == month and r["platform"] == key), 0))
-                    for month in months
-                ],
-            })
+            time_series.append(
+                {
+                    "label": meta["name"],
+                    "color": meta["chartColor"],
+                    "data": [
+                        int(
+                            next(
+                                (
+                                    r["mentions"]
+                                    for r in ts_rows
+                                    if r["month"] == month and r["platform"] == key
+                                ),
+                                0,
+                            )
+                        )
+                        for month in months
+                    ],
+                }
+            )
 
-        return self._cache_set(cache_key, {"stats": stats, "timeSeries": time_series, "months": months})
+        return self._cache_set(
+            cache_key, {"stats": stats, "timeSeries": time_series, "months": months}
+        )
 
     async def get_sentiment(
         self,
@@ -654,9 +840,15 @@ ORDER BY 1
         keywords: str | None = None,
     ) -> dict[str, Any]:
         scope = self.build_scope(source_kind, project_ids, keywords)
-        return await self._guarded(campaign_id, self._compute_sentiment(campaign_id, scope), ("sentiment", *scope.cache_key()))
+        return await self._guarded(
+            campaign_id,
+            self._compute_sentiment(campaign_id, scope),
+            ("sentiment", *scope.cache_key()),
+        )
 
-    async def _compute_sentiment(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+    async def _compute_sentiment(
+        self, campaign_id: str, scope: AnalyticsScope
+    ) -> dict[str, Any]:
         cache_key = ("sentiment", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -664,17 +856,20 @@ ORDER BY 1
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
-            return self._cache_set(cache_key, {
-                "donut": [
-                    {"label": "Positive", "value": 0, "color": "var(--success)"},
-                    {"label": "Neutral", "value": 0, "color": "var(--warning)"},
-                    {"label": "Negative", "value": 0, "color": "var(--danger)"},
-                ],
-                "timeline": [],
-                "months": [],
-                "pulse": 0,
-                "total": 0,
-            })
+            return self._cache_set(
+                cache_key,
+                {
+                    "donut": [
+                        {"label": "Positive", "value": 0, "color": "var(--success)"},
+                        {"label": "Neutral", "value": 0, "color": "var(--warning)"},
+                        {"label": "Negative", "value": 0, "color": "var(--danger)"},
+                    ],
+                    "timeline": [],
+                    "months": [],
+                    "pulse": 0,
+                    "total": 0,
+                },
+            )
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
         source_filters = self._scope_pre_filters(scope)
@@ -715,26 +910,55 @@ ORDER BY 1
         timeline = []
         for platform in platforms:
             meta = PLATFORM_META.get(platform, {"name": platform, "chartColor": "#888"})
-            timeline.append({
-                "label": meta["name"],
-                "color": meta["chartColor"],
-                "data": [
-                    round(float(next((r["avg_sentiment"] for r in timeline_rows if r["month"] == month and r["platform"] == platform), 0)))
-                    for month in months
-                ],
-            })
+            timeline.append(
+                {
+                    "label": meta["name"],
+                    "color": meta["chartColor"],
+                    "data": [
+                        round(
+                            float(
+                                next(
+                                    (
+                                        r["avg_sentiment"]
+                                        for r in timeline_rows
+                                        if r["month"] == month
+                                        and r["platform"] == platform
+                                    ),
+                                    0,
+                                )
+                            )
+                        )
+                        for month in months
+                    ],
+                }
+            )
 
-        return self._cache_set(cache_key, {
-            "donut": [
-                {"label": "positive", "value": int(summary.get("positive_count", 0)), "color": "var(--success)"},
-                {"label": "neutral", "value": int(summary.get("neutral_count", 0)), "color": "var(--warning)"},
-                {"label": "negative", "value": int(summary.get("negative_count", 0)), "color": "var(--danger)"},
-            ],
-            "timeline": timeline,
-            "months": months,
-            "pulse": round(float(summary.get("avg_sentiment", 0)), 1),
-            "total": int(summary.get("total", 0)),
-        })
+        return self._cache_set(
+            cache_key,
+            {
+                "donut": [
+                    {
+                        "label": "positive",
+                        "value": int(summary.get("positive_count", 0)),
+                        "color": "var(--success)",
+                    },
+                    {
+                        "label": "neutral",
+                        "value": int(summary.get("neutral_count", 0)),
+                        "color": "var(--warning)",
+                    },
+                    {
+                        "label": "negative",
+                        "value": int(summary.get("negative_count", 0)),
+                        "color": "var(--danger)",
+                    },
+                ],
+                "timeline": timeline,
+                "months": months,
+                "pulse": round(float(summary.get("avg_sentiment", 0)), 1),
+                "total": int(summary.get("total", 0)),
+            },
+        )
 
     async def get_keywords(
         self,
@@ -745,9 +969,18 @@ ORDER BY 1
         keywords: str | None = None,
     ) -> dict[str, Any]:
         scope = self.build_scope(source_kind, project_ids, keywords)
-        return await self._guarded(campaign_id, self._compute_keywords(campaign_id, limit, scope), ("keywords", limit, *scope.cache_key()))
+        return await self._guarded(
+            campaign_id,
+            self._compute_keywords(campaign_id, limit, scope),
+            ("keywords", limit, *scope.cache_key()),
+        )
 
-    async def _compute_keywords(self, campaign_id: str, limit: int = 50, scope: AnalyticsScope = AnalyticsScope()) -> dict[str, Any]:
+    async def _compute_keywords(
+        self,
+        campaign_id: str,
+        limit: int = 50,
+        scope: AnalyticsScope = AnalyticsScope(),
+    ) -> dict[str, Any]:
         cache_key = ("keywords", campaign_id, limit, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -785,22 +1018,32 @@ LIMIT :limit
         keywords = []
         for row in rows:
             sentiment = round(float(row["avg_sentiment"]))
-            keywords.append({
-                "text": str(row["keyword"]),
-                "volume": int(row["volume"]),
-                "sentiment": sentiment,
-                "change": percent_change(row["current_volume"], row["previous_volume"]),
-            })
+            keywords.append(
+                {
+                    "text": str(row["keyword"]),
+                    "volume": int(row["volume"]),
+                    "sentiment": sentiment,
+                    "change": percent_change(
+                        row["current_volume"], row["previous_volume"]
+                    ),
+                }
+            )
         word_cloud = [
             {
                 "text": item["text"],
                 "value": item["volume"],
                 "color": "var(--accent)",
-                "opacity": 0.4 if item["sentiment"] < 40 else 0.65 if item["sentiment"] < 70 else 1,
+                "opacity": 0.4
+                if item["sentiment"] < 40
+                else 0.65
+                if item["sentiment"] < 70
+                else 1,
             }
             for item in keywords
         ]
-        return self._cache_set(cache_key, {"keywords": keywords, "wordCloud": word_cloud})
+        return self._cache_set(
+            cache_key, {"keywords": keywords, "wordCloud": word_cloud}
+        )
 
     async def get_posts(
         self,
@@ -825,7 +1068,9 @@ LIMIT :limit
         )
         return await self._guarded(
             campaign_id,
-            self._compute_posts(campaign_id, platform, sentiment, sort, limit, offset, scope),
+            self._compute_posts(
+                campaign_id, platform, sentiment, sort, limit, offset, scope
+            ),
             timeout_scope,
         )
 
@@ -857,7 +1102,9 @@ LIMIT :limit
         )
         return await self._guarded(
             campaign_id,
-            self._compute_posts_export(campaign_id, normalized_format, platform, sentiment, sort_key, scope),
+            self._compute_posts_export(
+                campaign_id, normalized_format, platform, sentiment, sort_key, scope
+            ),
             timeout_scope,
         )
 
@@ -891,7 +1138,9 @@ LIMIT :limit
             "sourceKind": scope.source_kind,
             "projectIds": list(scope.project_ids),
             "keywords": list(scope.keywords),
-            "sort": "time" if str(sort or "").strip().lower() == "time" else "engagement",
+            "sort": "time"
+            if str(sort or "").strip().lower() == "time"
+            else "engagement",
         }
         safe_campaign = campaign_id.replace("-", "")[:12] or "campaign"
         filename = f"top-mentions-{safe_campaign}.{export_format}"
@@ -926,16 +1175,33 @@ LIMIT :limit
         platform_key = str(platform or "all").strip().lower()
         sentiment_key = str(sentiment or "all").strip().lower()
         sort_key = "time" if str(sort or "").strip().lower() == "time" else "engagement"
-        platform_filter = platform_key.upper() if platform_key.upper() in PLATFORM_META else "all"
-        sentiment_filter = sentiment_key if sentiment_key in {"positive", "negative", "neutral"} else "all"
-        cache_key = ("posts", campaign_id, platform_filter.lower(), sentiment_filter, sort_key, limit, offset, *scope.cache_key(include_content_type=True))
+        platform_filter = (
+            platform_key.upper() if platform_key.upper() in PLATFORM_META else "all"
+        )
+        sentiment_filter = (
+            sentiment_key
+            if sentiment_key in {"positive", "negative", "neutral"}
+            else "all"
+        )
+        cache_key = (
+            "posts",
+            campaign_id,
+            platform_filter.lower(),
+            sentiment_filter,
+            sort_key,
+            limit,
+            offset,
+            *scope.cache_key(include_content_type=True),
+        )
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
         if not ctx.project_ids:
-            return self._cache_set(cache_key, {"posts": [], "total": 0}, ttl_seconds=10.0)
+            return self._cache_set(
+                cache_key, {"posts": [], "total": 0}, ttl_seconds=10.0
+            )
 
         requested_end = offset + limit
         use_window_cache = requested_end <= self._posts_window_size
@@ -963,11 +1229,15 @@ LIMIT :limit
         query_limit = self._posts_window_size if use_window_cache else limit
         query_offset = 0 if use_window_cache else offset
         params: dict[str, Any] = {"limit": query_limit, "offset": query_offset}
-        pre_filters: list[str] = self._scope_pre_filters(scope, include_content_type=True)
+        pre_filters: list[str] = self._scope_pre_filters(
+            scope, include_content_type=True
+        )
         if platform_filter != "all":
             platform_expr = "COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN')"
             pre_filters.append(f"{platform_expr} = '{self._escape(platform_filter)}'")
-            conditions.append("COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') = :platform")
+            conditions.append(
+                "COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') = :platform"
+            )
             params["platform"] = platform_filter
         if sentiment_filter == "positive":
             pre_filters.append("UPPER(COALESCE(pi.overall_sentiment, '')) = 'POSITIVE'")
@@ -979,8 +1249,16 @@ LIMIT :limit
             pre_filters.append("UPPER(COALESCE(pi.overall_sentiment, '')) = 'NEUTRAL'")
             conditions.append("UPPER(COALESCE(overall_sentiment, '')) = 'NEUTRAL'")
         where = " AND ".join(conditions) if conditions else "1 = 1"
-        order_by = "content_created_at DESC NULLS LAST" if sort_key == "time" else "engagement_score DESC NULLS LAST"
-        final_order_by = "p.content_created_at DESC NULLS LAST" if sort_key == "time" else "p.engagement_score DESC NULLS LAST"
+        order_by = (
+            "content_created_at DESC NULLS LAST"
+            if sort_key == "time"
+            else "engagement_score DESC NULLS LAST"
+        )
+        final_order_by = (
+            "p.content_created_at DESC NULLS LAST"
+            if sort_key == "time"
+            else "p.engagement_score DESC NULLS LAST"
+        )
 
         sql = (
             self._posts_base_cte(ctx.project_ids, pre_filters)
@@ -1025,45 +1303,57 @@ CROSS JOIN total_post_insight t
 ORDER BY {final_order_by}
 """
         )
-        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
+        query_timeout_ms = self._resolve_query_timeout_ms(
+            len(ctx.project_ids), "normal"
+        )
         rows = await self._fetch_all(sql, params, timeout_ms=query_timeout_ms)
         total = int(rows[0]["total_count"]) if rows else 0
         posts = []
         for row in rows:
             try:
-                uap = json.loads(row["uap_metadata"]) if isinstance(row["uap_metadata"], str) else (row["uap_metadata"] or {})
+                uap = (
+                    json.loads(row["uap_metadata"])
+                    if isinstance(row["uap_metadata"], str)
+                    else (row["uap_metadata"] or {})
+                )
             except json.JSONDecodeError:
                 uap = {}
             engagement = uap.get("engagement") or {}
             score = float(row["overall_sentiment_score"])
             label = public_sentiment_label(row["overall_sentiment"], score)
-            posts.append({
-                "id": str(row["id"]),
-                "platform": str(row["platform"] or "unknown"),
-                "author": str(uap.get("author_display_name") or uap.get("author_username") or "Unknown"),
-                "authorUsername": str(uap.get("author_username") or ""),
-                "authorFollowers": int(uap.get("author_followers") or 0),
-                "authorVerified": bool(uap.get("author_is_verified") or False),
-                "content": str(row["content"] or ""),
-                "time": str(row["content_created_at"] or ""),
-                "url": extract_source_url(uap),
-                "sentiment": label,
-                "sentimentScore": score,
-                "engagement": int(float(row["engagement_score"])),
-                "views": int(engagement.get("views") or 0),
-                "likes": int(engagement.get("likes") or 0),
-                "comments": int(engagement.get("comments") or 0),
-                "shares": int(engagement.get("shares") or 0),
-                "keywords": as_list(row["keywords"]),
-                "riskLevel": str(row["risk_level"]),
-                "hashtags": [str(item) for item in (uap.get("hashtags") or [])],
-                "sourceKind": str(row["source_kind"] or "legacy"),
-                "dataSourceId": str(row["data_source_id"] or ""),
-                "targetId": str(row["target_id"] or ""),
-                "contentType": str(row["content_type"] or "mention"),
-                "rootId": str(row["root_id"] or ""),
-                "parentId": str(row["parent_id"] or ""),
-            })
+            posts.append(
+                {
+                    "id": str(row["id"]),
+                    "platform": str(row["platform"] or "unknown"),
+                    "author": str(
+                        uap.get("author_display_name")
+                        or uap.get("author_username")
+                        or "Unknown"
+                    ),
+                    "authorUsername": str(uap.get("author_username") or ""),
+                    "authorFollowers": int(uap.get("author_followers") or 0),
+                    "authorVerified": bool(uap.get("author_is_verified") or False),
+                    "content": str(row["content"] or ""),
+                    "time": str(row["content_created_at"] or ""),
+                    "url": extract_source_url(uap),
+                    "sentiment": label,
+                    "sentimentScore": score,
+                    "engagement": int(float(row["engagement_score"])),
+                    "views": int(engagement.get("views") or 0),
+                    "likes": int(engagement.get("likes") or 0),
+                    "comments": int(engagement.get("comments") or 0),
+                    "shares": int(engagement.get("shares") or 0),
+                    "keywords": as_list(row["keywords"]),
+                    "riskLevel": str(row["risk_level"]),
+                    "hashtags": [str(item) for item in (uap.get("hashtags") or [])],
+                    "sourceKind": str(row["source_kind"] or "legacy"),
+                    "dataSourceId": str(row["data_source_id"] or ""),
+                    "targetId": str(row["target_id"] or ""),
+                    "contentType": str(row["content_type"] or "mention"),
+                    "rootId": str(row["root_id"] or ""),
+                    "parentId": str(row["parent_id"] or ""),
+                }
+            )
         if use_window_cache:
             self._cache_set(
                 window_key,
@@ -1075,7 +1365,11 @@ ORDER BY {final_order_by}
                 {"posts": posts[offset:requested_end], "total": total},
                 ttl_seconds=cache_ttl or self._posts_cache_ttl,
             )
-        return self._cache_set(cache_key, {"posts": posts, "total": total}, ttl_seconds=cache_ttl or self._posts_cache_ttl)
+        return self._cache_set(
+            cache_key,
+            {"posts": posts, "total": total},
+            ttl_seconds=cache_ttl or self._posts_cache_ttl,
+        )
 
     async def get_project_stats(
         self,
@@ -1085,9 +1379,15 @@ ORDER BY {final_order_by}
         keywords: str | None = None,
     ) -> dict[str, Any]:
         scope = self.build_scope(source_kind, project_ids, keywords)
-        return await self._guarded(campaign_id, self._compute_project_stats(campaign_id, scope), ("project-stats", *scope.cache_key()))
+        return await self._guarded(
+            campaign_id,
+            self._compute_project_stats(campaign_id, scope),
+            ("project-stats", *scope.cache_key()),
+        )
 
-    async def _compute_project_stats(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+    async def _compute_project_stats(
+        self, campaign_id: str, scope: AnalyticsScope
+    ) -> dict[str, Any]:
         cache_key = ("project-stats", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -1110,19 +1410,28 @@ WHERE platform IS NOT NULL
 GROUP BY project_id
 """
         )
-        query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "normal")
+        query_timeout_ms = self._resolve_query_timeout_ms(
+            len(ctx.project_ids), "normal"
+        )
         rows = await self._fetch_all(sql, timeout_ms=query_timeout_ms)
-        return self._cache_set(cache_key, {
-            "stats": [
-                {
-                    "project_id": str(row["project_id"]),
-                    "mentions": int(row["mentions"]),
-                    "avg_sentiment": round(float(row["avg_sentiment"]), 1),
-                    "platforms": [item for item in str(row["platforms"] or "").split(",") if item],
-                }
-                for row in rows
-            ]
-        })
+        return self._cache_set(
+            cache_key,
+            {
+                "stats": [
+                    {
+                        "project_id": str(row["project_id"]),
+                        "mentions": int(row["mentions"]),
+                        "avg_sentiment": round(float(row["avg_sentiment"]), 1),
+                        "platforms": [
+                            item
+                            for item in str(row["platforms"] or "").split(",")
+                            if item
+                        ],
+                    }
+                    for row in rows
+                ]
+            },
+        )
 
     async def get_heap(
         self,
@@ -1132,9 +1441,15 @@ GROUP BY project_id
         keywords: str | None = None,
     ) -> dict[str, Any]:
         scope = self.build_scope(source_kind, project_ids, keywords)
-        return await self._guarded(campaign_id, self._compute_heap(campaign_id, scope), ("heap", *scope.cache_key()))
+        return await self._guarded(
+            campaign_id,
+            self._compute_heap(campaign_id, scope),
+            ("heap", *scope.cache_key()),
+        )
 
-    async def _compute_heap(self, campaign_id: str, scope: AnalyticsScope) -> dict[str, Any]:
+    async def _compute_heap(
+        self, campaign_id: str, scope: AnalyticsScope
+    ) -> dict[str, Any]:
         cache_key = ("heap", campaign_id, *scope.cache_key())
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -1155,54 +1470,79 @@ GROUP BY project_id
         keywords_by_project: dict[str, list[dict[str, Any]]] = {}
         for row in keyword_rows:
             pid = str(row["project_id"])
-            keywords_by_project.setdefault(pid, []).append({
-                "id": f"kw-{pid}-{row['keyword']}",
-                "type": "keyword",
-                "name": str(row["keyword"]),
-                "metrics": {
-                    "mentions": int(row["volume"]),
-                    "engagement": int(float(row["sum_engagement"])),
-                    "sentiment": round(float(row["avg_sentiment"])),
-                    "childCount": 0,
-                },
-            })
+            keywords_by_project.setdefault(pid, []).append(
+                {
+                    "id": f"kw-{pid}-{row['keyword']}",
+                    "type": "keyword",
+                    "name": str(row["keyword"]),
+                    "metrics": {
+                        "mentions": int(row["volume"]),
+                        "engagement": int(float(row["sum_engagement"])),
+                        "sentiment": round(float(row["avg_sentiment"])),
+                        "childCount": 0,
+                    },
+                }
+            )
 
         project_children = []
         for project_id in ctx.project_ids:
             stats = project_stats.get(project_id)
             children = keywords_by_project.get(project_id, [])
-            project_children.append({
-                "id": f"proj-{project_id}",
-                "type": "project",
-                "name": project_names.get(project_id, project_id),
-                "metrics": {
-                    "mentions": int(stats["mentions"]) if stats else 0,
-                    "engagement": int(float(stats["sum_engagement"])) if stats else 0,
-                    "sentiment": round(float(stats["avg_sentiment"])) if stats else 0,
-                    "childCount": len(children),
-                },
-                "children": children,
-            })
+            project_children.append(
+                {
+                    "id": f"proj-{project_id}",
+                    "type": "project",
+                    "name": project_names.get(project_id, project_id),
+                    "metrics": {
+                        "mentions": int(stats["mentions"]) if stats else 0,
+                        "engagement": int(float(stats["sum_engagement"]))
+                        if stats
+                        else 0,
+                        "sentiment": round(float(stats["avg_sentiment"]))
+                        if stats
+                        else 0,
+                        "childCount": len(children),
+                    },
+                    "children": children,
+                }
+            )
 
         total_mentions = sum(item["metrics"]["mentions"] for item in project_children)
-        total_engagement = sum(item["metrics"]["engagement"] for item in project_children)
-        avg_sentiment = round(sum(item["metrics"]["sentiment"] for item in project_children) / len(project_children)) if project_children else 0
-        return self._cache_set(cache_key, {
-            "tree": {
-                "id": f"camp-{ctx.campaign_id}",
-                "type": "campaign",
-                "name": ctx.campaign_name,
-                "metrics": {
-                    "mentions": total_mentions,
-                    "engagement": total_engagement,
-                    "sentiment": avg_sentiment,
-                    "childCount": len(project_children),
-                },
-                "children": project_children,
-            }
-        })
+        total_engagement = sum(
+            item["metrics"]["engagement"] for item in project_children
+        )
+        avg_sentiment = (
+            round(
+                sum(item["metrics"]["sentiment"] for item in project_children)
+                / len(project_children)
+            )
+            if project_children
+            else 0
+        )
+        return self._cache_set(
+            cache_key,
+            {
+                "tree": {
+                    "id": f"camp-{ctx.campaign_id}",
+                    "type": "campaign",
+                    "name": ctx.campaign_name,
+                    "metrics": {
+                        "mentions": total_mentions,
+                        "engagement": total_engagement,
+                        "sentiment": avg_sentiment,
+                        "childCount": len(project_children),
+                    },
+                    "children": project_children,
+                }
+            },
+        )
 
-    async def _fetch_heap_parts(self, ctx: AnalyticsContext, query_timeout_ms: int, scope: AnalyticsScope = AnalyticsScope()):
+    async def _fetch_heap_parts(
+        self,
+        ctx: AnalyticsContext,
+        query_timeout_ms: int,
+        scope: AnalyticsScope = AnalyticsScope(),
+    ):
         source_filters = self._scope_pre_filters(scope)
         project_stats_rows, keyword_rows = await self._fetch_many(
             (
@@ -1245,7 +1585,9 @@ ORDER BY project_id, volume DESC
         )
         return ctx.project_names, project_stats_rows, keyword_rows
 
-    async def _fetch_many(self, *queries: str, project_count: int, query_timeout_ms: int):
+    async def _fetch_many(
+        self, *queries: str, project_count: int, query_timeout_ms: int
+    ):
         # Keep query fan-out serialized per endpoint and bounded by an explicit
         # semaphore. Concurrent fan-out can create DB pool storms during
         # dashboard refresh bursts.
@@ -1254,7 +1596,8 @@ ORDER BY project_id, volume DESC
             rows.append(
                 await self._fetch_all(
                     query,
-                    timeout_ms=query_timeout_ms or self._resolve_query_timeout_ms(project_count),
+                    timeout_ms=query_timeout_ms
+                    or self._resolve_query_timeout_ms(project_count),
                 )
             )
         return rows
@@ -1266,9 +1609,14 @@ ORDER BY project_id, volume DESC
         if sqlstate == "57014":
             return True
         msg = str(exc).lower()
-        return "statement timeout" in msg or "querycancelederror" in type(exc).__name__.lower()
+        return (
+            "statement timeout" in msg
+            or "querycancelederror" in type(exc).__name__.lower()
+        )
 
-    async def _guarded(self, campaign_id: str, coro, timeout_scope: tuple[Any, ...] | None = None):
+    async def _guarded(
+        self, campaign_id: str, coro, timeout_scope: tuple[Any, ...] | None = None
+    ):
         """Run an analytics coroutine, mark the campaign as 'too heavy' on
         statement_timeout so later requests fail fast instead of spending
         another timeout window holding pool slots."""
@@ -1280,7 +1628,9 @@ ORDER BY project_id, volume DESC
         except Exception as exc:
             if self._is_statement_timeout(exc):
                 self._mark_timed_out(campaign_id, timeout_scope)
-                raise APIError(504, "analytics query exceeded server time limit") from exc
+                raise APIError(
+                    504, "analytics query exceeded server time limit"
+                ) from exc
             raise
 
     async def _fetch_all(
@@ -1294,7 +1644,9 @@ ORDER BY project_id, volume DESC
         timeout_ms = max(1, int(timeout_ms))
         async with self._db_concurrency_guard:
             async with self.db.get_session() as session:
-                await session.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
+                await session.execute(
+                    text(f"SET LOCAL statement_timeout = {timeout_ms}")
+                )
                 await session.execute(text("SET LOCAL work_mem = '64MB'"))
                 result = await session.execute(text(query), params or {})
                 return [dict(row._mapping) for row in result.fetchall()]
@@ -1366,7 +1718,9 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
 """
                 ),
                 {
-                    "target_filter": json.dumps({"platform_meta": {"smap": {"target_id": target_id}}}),
+                    "target_filter": json.dumps(
+                        {"platform_meta": {"smap": {"target_id": target_id}}}
+                    ),
                     "reason": reason or "stalker_flush",
                     "hidden_by": hidden_by or "ingest-srv",
                 },
@@ -1391,21 +1745,29 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
             conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
             lock_acquired = False
             try:
-                lock_result = await conn.execute(text("SELECT pg_try_advisory_lock(2026051007)"))
+                lock_result = await conn.execute(
+                    text("SELECT pg_try_advisory_lock(2026051007)")
+                )
                 lock_acquired = bool(lock_result.scalar())
                 if not lock_acquired:
                     return False
 
-                timeout_ms = max(1_000, _env_int("ANALYTICS_FLUSH_REFRESH_TIMEOUT_MS", 10_000))
+                timeout_ms = max(
+                    1_000, _env_int("ANALYTICS_FLUSH_REFRESH_TIMEOUT_MS", 10_000)
+                )
                 await conn.execute(text(f"SET statement_timeout = {timeout_ms}"))
-                await conn.execute(text("SELECT analysis.refresh_latest_post_insight()"))
+                await conn.execute(
+                    text("SELECT analysis.refresh_latest_post_insight()")
+                )
                 return True
             except Exception:
                 return False
             finally:
                 if lock_acquired:
                     try:
-                        await conn.execute(text("SELECT pg_advisory_unlock(2026051007)"))
+                        await conn.execute(
+                            text("SELECT pg_advisory_unlock(2026051007)")
+                        )
                     except Exception:
                         pass
 
@@ -1486,7 +1848,9 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
         raw = aliases.get(raw, raw)
         return raw if raw in {"all", "post", "comment", "reply"} else "all"
 
-    def _source_kind_pre_filters(self, source_kind: str, alias: str = "pi") -> list[str]:
+    def _source_kind_pre_filters(
+        self, source_kind: str, alias: str = "pi"
+    ) -> list[str]:
         kind = self._normalize_source_kind(source_kind)
         source_expr = f"COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,source_kind}}', '')"
         if kind == "stalker":
@@ -1495,13 +1859,16 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
             return [f"({source_expr} = '' OR {source_expr} = 'keyword_search')"]
         return []
 
-    def _keyword_filter_expr(self, keywords: tuple[str, ...], alias: str = "pi") -> str | None:
+    def _keyword_filter_expr(
+        self, keywords: tuple[str, ...], alias: str = "pi"
+    ) -> str | None:
         if not keywords:
             return None
         escaped_keywords = [self._escape(keyword.lower()) for keyword in keywords]
         values = ", ".join(f"'{keyword}'" for keyword in escaped_keywords)
         like_conditions = " OR ".join(
-            f"LOWER(COALESCE({alias}.content, '')) LIKE '%{keyword}%'" for keyword in escaped_keywords
+            f"LOWER(COALESCE({alias}.content, '')) LIKE '%{keyword}%'"
+            for keyword in escaped_keywords
         )
         return (
             "("
@@ -1527,7 +1894,9 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
             "ELSE 'mention' END"
         )
 
-    def _content_type_filter_expr(self, content_type: str, alias: str = "pi") -> str | None:
+    def _content_type_filter_expr(
+        self, content_type: str, alias: str = "pi"
+    ) -> str | None:
         kind = self._normalize_content_type(content_type)
         if kind == "all":
             return None
@@ -1562,10 +1931,17 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
 
     def _apply_relevance_filter(self, pre_filters: list[str] | None = None) -> bool:
         joined_filters = " ".join(pre_filters or [])
-        return "focused_page" not in joined_filters and "focused_profile" not in joined_filters
+        return (
+            "focused_page" not in joined_filters
+            and "focused_profile" not in joined_filters
+        )
 
     def _analytics_source_table(self) -> str:
-        return "analysis.latest_post_insight" if self._use_latest_mart else "analysis.post_insight"
+        return (
+            "analysis.latest_post_insight"
+            if self._use_latest_mart
+            else "analysis.post_insight"
+        )
 
     def _has_source_url_expr(self, alias: str = "pi") -> str:
         return (
@@ -1628,7 +2004,6 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
         source_expr = f"COALESCE({alias}.uap_metadata #>> '{{platform_meta,smap,source_kind}}', '')"
         has_url_expr = self._has_source_url_expr(alias)
         business_signal_expr = self._business_signal_expr(alias)
-        service_intent_expr = self._service_intent_expr(alias)
         quality_guard_expr = self._quality_guard_expr(alias)
         candidate_expr = (
             "("
@@ -1644,14 +2019,24 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
             ")"
         )
 
-    def _base_cte(self, project_ids: list[str], pre_filters: list[str] | None = None) -> str:
-        quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
+    def _base_cte(
+        self, project_ids: list[str], pre_filters: list[str] | None = None
+    ) -> str:
+        quoted_ids = ", ".join(
+            f"'{self._escape(project_id)}'" for project_id in project_ids
+        )
         identity_expr = self._source_identity_expr("pi")
-        extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
+        extra_where = "\n".join(
+            f"    AND {condition}" for condition in (pre_filters or [])
+        )
         apply_relevance = self._apply_relevance_filter(pre_filters)
-        relevance_where = "    AND pi.business_relevance_score >= 0.45" if apply_relevance else ""
+        relevance_where = (
+            "    AND pi.business_relevance_score >= 0.45" if apply_relevance else ""
+        )
         quality_where = (
-            f"    AND {self._source_quality_filter_expr('pi')}" if self._source_quality_gate and apply_relevance else ""
+            f"    AND {self._source_quality_filter_expr('pi')}"
+            if self._source_quality_gate and apply_relevance
+            else ""
         )
         source_table = self._analytics_source_table()
         if self._use_latest_mart:
@@ -1687,14 +2072,24 @@ WITH latest_post_insight AS (
 )
 """
 
-    def _posts_base_cte(self, project_ids: list[str], pre_filters: list[str] | None = None) -> str:
-        quoted_ids = ", ".join(f"'{self._escape(project_id)}'" for project_id in project_ids)
+    def _posts_base_cte(
+        self, project_ids: list[str], pre_filters: list[str] | None = None
+    ) -> str:
+        quoted_ids = ", ".join(
+            f"'{self._escape(project_id)}'" for project_id in project_ids
+        )
         identity_expr = self._source_identity_expr("pi")
-        extra_where = "\n".join(f"    AND {condition}" for condition in (pre_filters or []))
+        extra_where = "\n".join(
+            f"    AND {condition}" for condition in (pre_filters or [])
+        )
         apply_relevance = self._apply_relevance_filter(pre_filters)
-        relevance_where = "    AND pi.business_relevance_score >= 0.45" if apply_relevance else ""
+        relevance_where = (
+            "    AND pi.business_relevance_score >= 0.45" if apply_relevance else ""
+        )
         quality_where = (
-            f"    AND {self._source_quality_filter_expr('pi')}" if self._source_quality_gate and apply_relevance else ""
+            f"    AND {self._source_quality_filter_expr('pi')}"
+            if self._source_quality_gate and apply_relevance
+            else ""
         )
         source_table = self._analytics_source_table()
         if self._use_latest_mart:

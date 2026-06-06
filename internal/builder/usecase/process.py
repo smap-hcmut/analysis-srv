@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from pkg.logger.logger import Logger
 from internal.model.uap import UAPRecord

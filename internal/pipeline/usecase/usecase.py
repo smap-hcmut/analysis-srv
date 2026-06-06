@@ -2,7 +2,6 @@ from typing import Optional
 
 from pkg.logger.logger import Logger
 from ..type import IngestedBatchBundle, PipelineRunResult, PipelineConfig
-from ..interface import IPipelineUseCase
 from .run_pipeline import run_pipeline
 from internal.runtime.type import RunContext
 

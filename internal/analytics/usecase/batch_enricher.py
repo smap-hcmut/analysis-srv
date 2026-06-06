@@ -40,7 +40,7 @@ from internal.post_insight.repository.postgre.helpers import _parse_datetime
 
 from ..type import Config, AnalyticsResult
 from ..constant import PLATFORM_UNKNOWN
-from .helpers import normalize_platform, add_uap_metadata, build_error_result
+from .helpers import normalize_platform, add_uap_metadata
 
 
 class NLPBatchEnricher:
@@ -241,7 +241,9 @@ class NLPBatchEnricher:
             raise ValueError(
                 "NLPFact.analytics_result is None — cannot build post_insight input"
             )
-        enrichment_summary = _serialize_enrichment_summary(fact.insight_message.enrichment)
+        enrichment_summary = _serialize_enrichment_summary(
+            fact.insight_message.enrichment
+        )
         if enrichment_summary is None:
             enrichment_summary = _build_enrichment_summary(fact, enrichment_bundle)
         return CreatePostInsightInput(
@@ -309,7 +311,6 @@ class NLPBatchEnricher:
 
         author = content.author if content else None
         author_followers = author.followers if author and author.followers else 0
-        author_is_verified = author.is_verified if author else False
 
         signals = uap.signals
         engagement = signals.engagement if signals else None
@@ -536,7 +537,9 @@ def _group_enrichment_summary_by_uap_id(
     for fact in bundle.topic_facts:
         summary = summaries.setdefault(fact.source_uap_id, EnrichmentSummary())
         summary.topic_count += 1
-        label = fact.reporting_topic_label or fact.effective_topic_label or fact.topic_label
+        label = (
+            fact.reporting_topic_label or fact.effective_topic_label or fact.topic_label
+        )
         if label and label not in summary.topic_labels:
             summary.topic_labels.append(label)
 

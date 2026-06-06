@@ -5,6 +5,7 @@ from pkg.phobert_onnx.phobert_onnx import PhoBERTONNX
 from internal.sentiment_analysis.type import (
     Input,
     Output,
+    KeywordInput,
     SentimentResult,
     AspectSentiment,
     Config,

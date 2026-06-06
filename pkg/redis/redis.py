@@ -7,7 +7,6 @@ import redis.asyncio as aioredis
 from loguru import logger
 from redis.asyncio import ConnectionPool
 
-from .interface import ICache
 from .type import RedisConfig
 
 

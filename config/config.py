@@ -314,7 +314,7 @@ class ConfigLoader:
         try:
             with open(config_file, "r", encoding="utf-8") as f:
                 self._raw_config = yaml.safe_load(f) or {}
-        except Exception as e:
+        except Exception:
             raise
 
     def _load_env_files(self) -> None:

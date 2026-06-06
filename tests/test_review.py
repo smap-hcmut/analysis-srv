@@ -74,8 +74,6 @@ def test_review_item_is_resolved_for_all_statuses():
     """is_resolved() must return False for pending, True for all resolution statuses."""
     from internal.review.type import ReviewItem
 
-    base = ReviewItem.new("r", "p", "m", "entity", {}, 0.5)
-
     for status in ("approved", "rejected", "skipped"):
         item = ReviewItem.new("r", "p", "m", "entity", {}, 0.5)
         item.status = status  # type: ignore[assignment]
@@ -328,7 +326,7 @@ def test_review_queue_summary_counts():
     item1 = enqueue_review_item(repo, "run", "proj", "m1", "entity", {}, 0.3)
     item2 = enqueue_review_item(repo, "run", "proj", "m2", "topic", {}, 0.4)
     item3 = enqueue_review_item(repo, "run", "proj", "m3", "intent", {}, 0.5)
-    item4 = enqueue_review_item(repo, "run", "proj", "m4", "entity", {}, 0.6)
+    enqueue_review_item(repo, "run", "proj", "m4", "entity", {}, 0.6)
 
     resolve_review_item(repo, item1.id, "approve")
     resolve_review_item(repo, item2.id, "reject")

@@ -3,7 +3,7 @@
 from typing import Protocol
 
 from internal.pipeline.type import IngestedBatchBundle
-from .type import MentionRecord, NormalizationBatch
+from .type import NormalizationBatch
 
 
 class INormalizationUseCase(Protocol):

@@ -6,7 +6,6 @@ Enrichment / reporting stages remain stubs for Phases 4–5.
 """
 
 import dataclasses
-import time
 
 from ..type import (
     IngestedBatchBundle,

@@ -382,7 +382,10 @@ class ConsumerServer(IConsumerServer):
                         f"internal.consumer.server: post_insight persist failed: {exc}"
                     )
 
-            # Publish to contract topics (auto-flushes at batch_size)
+            # Publish to contract topics.
+            # publish_one() buffers and auto-flushes at batch_size; the explicit
+            # flush after this loop makes small Kafka batches visible to
+            # knowledge-srv instead of waiting indefinitely for batch_size.
             if self.contract_publisher and nlp_fact.insight_message is not None:
                 try:
                     await self.contract_publisher.publish_one(
@@ -393,6 +396,27 @@ class ConsumerServer(IConsumerServer):
                     self.logger.error(
                         f"internal.consumer.server: contract publish failed: {exc}"
                     )
+
+        if self.contract_publisher:
+            try:
+                output = await self.contract_publisher.flush()
+                if output.documents_published > 0:
+                    self.logger.info(
+                        "internal.consumer.server: contract flush completed",
+                        extra={
+                            "documents_published": output.documents_published,
+                            "insights_published": output.insights_published,
+                        },
+                    )
+                elif not output.success:
+                    self.logger.error(
+                        f"internal.consumer.server: contract flush failed: "
+                        f"{output.error_message}"
+                    )
+            except Exception as exc:
+                self.logger.error(
+                    f"internal.consumer.server: contract flush failed: {exc}"
+                )
 
     async def _consume_loop(self) -> None:
         try:

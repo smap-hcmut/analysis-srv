@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 from internal.model.uap import UAPRecord
 from internal.model.insight_message import InsightMessage
-from internal.runtime.type import RunContext
 
 
 @dataclass

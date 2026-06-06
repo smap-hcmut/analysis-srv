@@ -1,24 +1,16 @@
 import sys
-import json
 import email.utils
 from datetime import timezone, timedelta
-from typing import Optional, Iterator
+from typing import Optional
 from contextvars import ContextVar
 from contextlib import contextmanager
 from loguru import logger as _loguru_logger  # type: ignore
 
 from .interface import ILogger
 from .constant import (
-    DEFAULT_SERVICE_NAME,
-    DEFAULT_LEVEL,
-    DEFAULT_ENABLE_CONSOLE,
-    DEFAULT_COLORIZE,
-    DEFAULT_JSON_OUTPUT,
     LOG_FORMAT_TIME,
     LOG_FORMAT_LEVEL,
     LOG_FORMAT_TRACE,
-    LOG_FORMAT_LOCATION,
-    LOG_FORMAT_MESSAGE,
     TRACE_ID_KEY,
     REQUEST_ID_KEY,
 )

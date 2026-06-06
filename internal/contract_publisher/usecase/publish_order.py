@@ -10,7 +10,7 @@ before batch/insights, the NotebookLM export will be triggered prematurely.
 """
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from pkg.kafka.interface import IKafkaProducer
 from pkg.logger.logger import Logger
