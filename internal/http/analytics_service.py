@@ -732,7 +732,7 @@ ORDER BY 1
         rows = await self._fetch_all(
             """
 WITH base AS (
-  SELECT * FROM analysis.kpi_daily WHERE project_id = ANY(:project_ids::text[])
+  SELECT * FROM analysis.kpi_daily WHERE project_id = ANY(CAST(:project_ids AS text[]))
 ), summary AS (
   SELECT
     SUM(mentions)                                                           AS total_mentions,
