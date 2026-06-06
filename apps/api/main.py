@@ -17,6 +17,7 @@ from sqlalchemy import text
 from internal.http.analytics_service import AnalyticsService
 from internal.http.errors import APIError
 from internal.http.project_client import build_project_service_client
+from internal.observability.metrics import PROMETHEUS_AVAILABLE
 from internal.model.constant import (
     LOGGER_COLORIZE,
     LOGGER_ENABLE_CONSOLE,
@@ -207,6 +208,82 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="analysis-api", lifespan=lifespan)
+
+
+# Prometheus metrics endpoint. Mounted only when prometheus_client is installed
+# (graceful no-op otherwise). Counters are wired through internal.observability
+# and updated by request middleware below.
+if PROMETHEUS_AVAILABLE:
+    from prometheus_client import (
+        CONTENT_TYPE_LATEST,
+        REGISTRY,
+        Counter,
+        Histogram,
+        generate_latest,
+    )
+
+    # The module is imported twice: once as __main__ when the deployment runs
+    # `python -m apps.api.main`, then again by uvicorn as `apps.api.main` so it
+    # can locate the `app` symbol. Without this guard the second import double-
+    # registers the same time series and crashes startup with "Duplicated
+    # timeseries in CollectorRegistry".
+    def _get_or_create_counter(name: str, doc: str, labels: list[str]) -> Counter:
+        existing = REGISTRY._names_to_collectors.get(name)
+        if existing is not None:
+            return existing
+        return Counter(name, doc, labels)
+
+    def _get_or_create_histogram(
+        name: str, doc: str, labels: list[str], buckets: tuple[float, ...]
+    ) -> Histogram:
+        existing = REGISTRY._names_to_collectors.get(name)
+        if existing is not None:
+            return existing
+        return Histogram(name, doc, labels, buckets=buckets)
+
+    _http_requests_total = _get_or_create_counter(
+        "analysis_api_http_requests_total",
+        "Total HTTP requests received by analysis-api",
+        ["method", "route", "status"],
+    )
+    _http_request_duration_seconds = _get_or_create_histogram(
+        "analysis_api_http_request_duration_seconds",
+        "HTTP request duration in seconds",
+        ["method", "route"],
+        (0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120),
+    )
+
+    @app.middleware("http")
+    async def _prometheus_middleware(request: Request, call_next):
+        # Skip /metrics itself so scrapes don't show up as application traffic.
+        if request.url.path == "/metrics":
+            return await call_next(request)
+        # Use the route template (e.g. "/api/v1/analytics/posts") instead of
+        # the concrete path to keep cardinality bounded.
+        route_template = request.scope.get("route").path if request.scope.get("route") else request.url.path
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception:
+            status_code = 500
+            raise
+        finally:
+            elapsed = time.perf_counter() - start
+            _http_requests_total.labels(
+                method=request.method,
+                route=route_template,
+                status=str(status_code),
+            ).inc()
+            _http_request_duration_seconds.labels(
+                method=request.method,
+                route=route_template,
+            ).observe(elapsed)
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> Response:
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 class HiddenCrawlTargetRequest(BaseModel):
