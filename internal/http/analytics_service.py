@@ -836,6 +836,120 @@ SELECT
             },
         }
 
+    async def _compute_platforms_from_rollup(
+        self, project_ids: tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        """Fast path for /api/analytics/platforms backed by metrics_daily."""
+        if not project_ids:
+            return None
+        rows = await self._fetch_all(
+            """
+WITH base AS (
+  SELECT * FROM analysis.metrics_daily
+  WHERE project_id = ANY(CAST(:project_ids AS text[]))
+), totals AS (
+  SELECT platform,
+         SUM(mentions)                    AS mentions,
+         SUM(mentions * sentiment_score)  AS weighted_sentiment,
+         SUM(engagement_sum)              AS engagement_sum
+  FROM base
+  GROUP BY platform
+), ts AS (
+  SELECT TO_CHAR(date_trunc('month', bucket_date), 'YYYY-MM') AS month,
+         platform,
+         SUM(mentions) AS mentions
+  FROM base
+  WHERE bucket_date >= (CURRENT_DATE - INTERVAL '12 months')
+  GROUP BY 1, 2
+  ORDER BY 1
+)
+SELECT
+  (SELECT COALESCE(json_agg(row_to_json(totals)), '[]'::json) FROM totals) AS stats,
+  (SELECT COALESCE(json_agg(row_to_json(ts) ORDER BY ts.month), '[]'::json) FROM ts) AS time_series
+""",
+            params={"project_ids": list(project_ids)},
+        )
+        if not rows:
+            return None
+        stats_raw = rows[0].get("stats") or []
+        ts_raw = rows[0].get("time_series") or []
+        total_mentions = sum(int(r.get("mentions", 0) or 0) for r in stats_raw)
+        if total_mentions == 0:
+            return None
+        stats = []
+        for r in stats_raw:
+            mentions = int(r.get("mentions", 0) or 0)
+            weighted = float(r.get("weighted_sentiment", 0) or 0)
+            stats.append(
+                {
+                    "platform": r.get("platform", "UNKNOWN"),
+                    "count": mentions,
+                    "percentage": round(mentions / total_mentions * 100, 1) if total_mentions else 0,
+                    "avg_sentiment": round(weighted / mentions * 100, 1) if mentions else 0,
+                    "engagement": int(r.get("engagement_sum", 0) or 0),
+                }
+            )
+        months = sorted({str(r.get("month", "")) for r in ts_raw if r.get("month")})
+        return {"stats": stats, "timeSeries": ts_raw, "months": months}
+
+    async def _compute_sentiment_from_rollup(
+        self, project_ids: tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        """Fast path for /api/analytics/sentiment backed by metrics_daily."""
+        if not project_ids:
+            return None
+        rows = await self._fetch_all(
+            """
+WITH base AS (
+  SELECT * FROM analysis.metrics_daily
+  WHERE project_id = ANY(CAST(:project_ids AS text[]))
+), totals AS (
+  SELECT sentiment, SUM(mentions) AS mentions
+  FROM base
+  GROUP BY sentiment
+), monthly AS (
+  SELECT TO_CHAR(date_trunc('month', bucket_date), 'YYYY-MM') AS month,
+         sentiment,
+         SUM(mentions) AS mentions
+  FROM base
+  WHERE bucket_date >= (CURRENT_DATE - INTERVAL '12 months')
+  GROUP BY 1, 2
+  ORDER BY 1
+)
+SELECT
+  (SELECT COALESCE(json_agg(row_to_json(totals)), '[]'::json) FROM totals) AS totals,
+  (SELECT COALESCE(json_agg(row_to_json(monthly) ORDER BY monthly.month), '[]'::json) FROM monthly) AS monthly
+""",
+            params={"project_ids": list(project_ids)},
+        )
+        if not rows:
+            return None
+        totals_raw = rows[0].get("totals") or []
+        monthly_raw = rows[0].get("monthly") or []
+        grand_total = sum(int(r.get("mentions", 0) or 0) for r in totals_raw)
+        if grand_total == 0:
+            return None
+        donut_colors = {
+            "POSITIVE": "var(--success)",
+            "NEUTRAL": "var(--warning)",
+            "NEGATIVE": "var(--danger)",
+        }
+        label_for = {"POSITIVE": "Positive", "NEUTRAL": "Neutral", "NEGATIVE": "Negative"}
+        donut = []
+        for label_key in ("POSITIVE", "NEUTRAL", "NEGATIVE"):
+            value = next(
+                (int(r.get("mentions", 0) or 0) for r in totals_raw if str(r.get("sentiment", "")).upper() == label_key),
+                0,
+            )
+            donut.append(
+                {
+                    "label": label_for[label_key],
+                    "value": round(value / grand_total * 100, 1) if grand_total else 0,
+                    "color": donut_colors[label_key],
+                }
+            )
+        return {"donut": donut, "monthly": monthly_raw}
+
     async def get_platforms(
         self,
         campaign_id: str,
@@ -859,6 +973,10 @@ SELECT
             return cached
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
+        if ctx.project_ids and scope.is_unfiltered():
+            rollup = await self._compute_platforms_from_rollup(ctx.project_ids)
+            if rollup is not None:
+                return self._cache_set(cache_key, rollup)
         if not ctx.project_ids:
             return self._cache_set(
                 cache_key, {"stats": [], "timeSeries": [], "months": []}
@@ -1003,6 +1121,10 @@ ORDER BY 1
             return cached
 
         ctx = await self.build_context(campaign_id, scope.project_ids)
+        if ctx.project_ids and scope.is_unfiltered():
+            rollup = await self._compute_sentiment_from_rollup(ctx.project_ids)
+            if rollup is not None:
+                return self._cache_set(cache_key, rollup)
         if not ctx.project_ids:
             return self._cache_set(
                 cache_key,
@@ -1306,6 +1428,66 @@ LIMIT :limit
             "total": total,
         }
 
+    async def _compute_posts_from_rollup(
+        self,
+        project_ids: tuple[str, ...],
+        sort_key: str,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any] | None:
+        """Fast path for /api/analytics/posts backed by posts_recent_top.
+
+        Covers the unfiltered query, which is what the dashboard hits on every
+        Insight tab open. Filtered queries (platform / sentiment / scope) keep
+        falling back to the original full-table query path.
+        """
+        if not project_ids:
+            return None
+        order_clause = (
+            "ORDER BY content_created_at DESC NULLS LAST, engagement_score DESC NULLS LAST"
+            if sort_key == "time"
+            else "ORDER BY engagement_score DESC NULLS LAST, content_created_at DESC NULLS LAST"
+        )
+        rows = await self._fetch_all(
+            f"""
+WITH base AS (
+  SELECT * FROM analysis.posts_recent_top
+  WHERE project_id = ANY(CAST(:project_ids AS text[]))
+), counted AS (
+  SELECT COUNT(*) AS total FROM base
+)
+SELECT
+  (SELECT total FROM counted) AS total,
+  (
+    SELECT COALESCE(json_agg(row_to_json(p)), '[]'::json)
+    FROM (
+      SELECT uap_id AS id,
+             COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') AS platform,
+             author,
+             content_excerpt AS content,
+             content_created_at AS time,
+             overall_sentiment AS sentiment,
+             COALESCE(engagement_score, 0) AS engagement,
+             url
+      FROM base
+      {order_clause}
+      LIMIT :limit OFFSET :offset
+    ) p
+  ) AS posts
+""",
+            params={
+                "project_ids": list(project_ids),
+                "limit": int(limit),
+                "offset": int(offset),
+            },
+        )
+        if not rows:
+            return None
+        total = int(rows[0].get("total", 0) or 0)
+        if total == 0:
+            return None
+        return {"posts": rows[0].get("posts") or [], "total": total}
+
     async def _compute_posts(
         self,
         campaign_id: str,
@@ -1350,6 +1532,19 @@ LIMIT :limit
             return self._cache_set(
                 cache_key, {"posts": [], "total": 0}, ttl_seconds=10.0
             )
+
+        if (
+            scope.is_unfiltered()
+            and platform_filter == "all"
+            and sentiment_filter == "all"
+        ):
+            rollup = await self._compute_posts_from_rollup(
+                ctx.project_ids, sort_key, limit, offset
+            )
+            if rollup is not None:
+                return self._cache_set(
+                    cache_key, rollup, ttl_seconds=cache_ttl or self._posts_cache_ttl
+                )
 
         requested_end = offset + limit
         use_window_cache = requested_end <= self._posts_window_size

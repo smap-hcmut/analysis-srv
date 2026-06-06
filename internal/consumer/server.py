@@ -36,7 +36,10 @@ class ConsumerServer(IConsumerServer):
     # a sentinel file alone. The file path stays as a defence-in-depth
     # backstop for image-pull/restart races where the HTTP server has not
     # yet bound the port.
-    PROBE_PORT = int(os.getenv("ANALYTICS_PROBE_PORT", "8080"))
+    #
+    # Default 8081 (was 8080) so we never collide with a sidecar / service
+    # mesh that wants the canonical app port.
+    PROBE_PORT = int(os.getenv("ANALYTICS_PROBE_PORT", "8081"))
 
     def __init__(self, deps: Dependencies):
         self.deps = deps
@@ -922,8 +925,7 @@ class ConsumerServer(IConsumerServer):
             "metric": "composite_crisis_score",
             "current_value": score,
             "threshold": threshold,
-            "affected_aspects": affected[:8],
-            "sample_mentions": sample_mentions[:5],
+            "affected_aspects": affected[:4],
             "sample_references": sample_references,
             "time_window": "current analysis batch",
             "action_required": "Review negative drivers, align response owner, and monitor crawl acceleration.",
@@ -935,11 +937,17 @@ class ConsumerServer(IConsumerServer):
             "created_at": datetime.now(tz=timezone.utc).isoformat(),
         }
 
+        # Spread crisis alerts across partitions by mixing in run_id; using
+        # plain project_id collapsed every alert onto partition 0 because the
+        # hash of the project_id was already saturated in the prior payload
+        # stream and the producer's record_metadata showed offsets stacking
+        # there.
+        partition_key = f"{project_id}:{run_id or 'no-run'}"
         try:
             await self.deps.kafka_producer.send_json(
                 topic=self._crisis_alert_topic,
                 value=payload,
-                key=project_id,
+                key=partition_key,
             )
             self.logger.info(
                 "Crisis alert published",
