@@ -10,6 +10,6 @@ operator can review or override them from the UI before they're trusted
 for crisis triggers.
 """
 
-from .updater import AutoOntologyUpdater  # noqa: F401
+from .updater import AutoOntologyConfig, AutoOntologyUpdater  # noqa: F401
 
-__all__ = ["AutoOntologyUpdater"]
+__all__ = ["AutoOntologyConfig", "AutoOntologyUpdater"]
