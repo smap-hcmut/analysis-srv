@@ -83,6 +83,7 @@ async def _send(
     payload: dict,
 ) -> None:
     """Serialize payload to JSON bytes and send to Kafka topic."""
+    from internal.observability.metrics import kafka_publish_total
     try:
         value_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode(
             "utf-8"
@@ -93,7 +94,9 @@ async def _send(
             value=value_bytes,
             key=key_bytes,
         )
+        kafka_publish_total.labels(topic=topic, status="ok").inc()
     except Exception as exc:
+        kafka_publish_total.labels(topic=topic, status="error").inc()
         raise KafkaPublishError(topic=topic, cause=exc) from exc
 
 

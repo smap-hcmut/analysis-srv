@@ -4,6 +4,7 @@ from pkg.logger.logger import Logger
 from ..type import IngestedBatchBundle, PipelineRunResult, PipelineConfig
 from .run_pipeline import run_pipeline
 from internal.runtime.type import RunContext
+from internal.observability.metrics import pipeline_runs_total, stage_duration_seconds
 
 
 class PipelineUseCase:
@@ -31,6 +32,12 @@ class PipelineUseCase:
                 f"internal.pipeline.usecase: Completed run_id={ctx.run_id}, "
                 f"timings={result.stage_timings}"
             )
+
+        # --- Prometheus instrumentation ---
+        status = "error" if result.errors else "ok"
+        pipeline_runs_total.labels(status=status).inc()
+        for stage_name, duration_s in (result.stage_timings or {}).items():
+            stage_duration_seconds.labels(stage=stage_name).observe(duration_s)
 
         return result
 

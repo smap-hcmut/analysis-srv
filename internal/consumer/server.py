@@ -602,22 +602,40 @@ class ConsumerServer(IConsumerServer):
             except ValueError:
                 pass
 
-            healthy = self._running
-            status = b"200 OK" if healthy else b"503 Service Unavailable"
-            body = b'{"status":"ok"}' if healthy else b'{"status":"down"}'
-            if path.startswith(b"/readyz"):
-                # Readyz is stricter — consumer task must still be live.
+            # --- /metrics — Prometheus scrape endpoint ---
+            if path.startswith(b"/metrics"):
+                content_type = b"text/plain; version=0.0.4; charset=utf-8"
+                try:
+                    from internal.observability.metrics import PROMETHEUS_AVAILABLE
+                    if PROMETHEUS_AVAILABLE:
+                        from prometheus_client import generate_latest
+                        body = generate_latest()
+                    else:
+                        body = b""
+                except Exception:
+                    body = b""
+                status = b"200 OK"
+            elif path.startswith(b"/readyz"):
+                healthy = self._running
                 ready = healthy and (
                     self.consumer_task is not None
                     and not self.consumer_task.done()
                 )
                 status = b"200 OK" if ready else b"503 Service Unavailable"
+                content_type = b"application/json"
                 body = b'{"ready":true}' if ready else b'{"ready":false}'
+            else:
+                healthy = self._running
+                status = b"200 OK" if healthy else b"503 Service Unavailable"
+                content_type = b"application/json"
+                body = b'{"status":"ok"}' if healthy else b'{"status":"down"}'
 
             response = (
                 b"HTTP/1.1 "
                 + status
-                + b"\r\nContent-Type: application/json\r\nContent-Length: "
+                + b"\r\nContent-Type: "
+                + content_type
+                + b"\r\nContent-Length: "
                 + str(len(body)).encode()
                 + b"\r\nConnection: close\r\n\r\n"
                 + body
@@ -731,6 +749,15 @@ class ConsumerServer(IConsumerServer):
 
         crisis_level = str(getattr(assessment, "crisis_level", "none"))
         target_status = self._map_crisis_level_to_status(crisis_level)
+
+        # Update Prometheus gauge so the dashboard tracks per-project
+        # crisis level without having to scrape the project-srv API.
+        _level_rank = {"none": 0, "watch": 1, "warning": 2, "critical": 3}
+        from internal.observability.metrics import crisis_level_gauge
+        crisis_level_gauge.labels(project_id=project_id).set(
+            _level_rank.get(crisis_level.lower(), 0)
+        )
+
         cooldown_seconds = self._adaptive_cooldown_seconds(runtime_config)
         last_status, last_updated_at = await self._get_crisis_runtime_state(project_id)
 
