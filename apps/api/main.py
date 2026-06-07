@@ -501,6 +501,17 @@ async def get_project_stats(
     return await request.app.state.analytics.get_project_stats(campaignId, sourceKind, projectIds, keywords)
 
 
+@app.get("/api/v1/analytics/heap")
+async def get_heap(
+    request: Request,
+    campaignId: str,
+    sourceKind: str = "all",
+    projectIds: str = "",
+    keywords: str = "",
+):
+    return await request.app.state.analytics.get_heap(campaignId, sourceKind, projectIds, keywords)
+
+
 @app.post("/api/v1/internal/analytics/hidden-crawl-targets")
 async def hide_crawl_target(request: Request, payload: HiddenCrawlTargetRequest):
     auth_error = _require_internal_key(request)

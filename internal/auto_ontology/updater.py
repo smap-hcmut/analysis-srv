@@ -217,17 +217,29 @@ class AutoOntologyUpdater:
             )
             return []
 
+        if not getattr(extracted, "success", False):
+            return []
         ranked = []
-        for kw in getattr(extracted, "yake_keywords", []) or []:
-            phrase = str(getattr(kw, "phrase", "") or "").strip()
-            score = float(getattr(kw, "score", 0.0) or 0.0)
-            if not phrase or score < self._cfg.min_keyword_score:
+        for kw in getattr(extracted, "keywords", []) or []:
+            phrase = str(getattr(kw, "keyword", "") or "").strip()
+            relevance = float(getattr(kw, "relevance", 0.0) or 0.0)
+            if not phrase or relevance < self._cfg.min_keyword_score:
                 continue
             if len(phrase.split()) > 5:
                 continue
-            ranked.append((phrase, score))
+            ranked.append((phrase, relevance))
         ranked.sort(key=lambda p: p[1], reverse=True)
-        return [phrase for phrase, _ in ranked[: self._cfg.top_keywords]]
+        seen: set[str] = set()
+        out: list[str] = []
+        for phrase, _ in ranked:
+            low = phrase.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            out.append(phrase)
+            if len(out) >= self._cfg.top_keywords:
+                break
+        return out
 
     async def _publish(self, cand: _ProjectCandidate, keywords: list[str]) -> bool:
         """Merge discovered keywords into the project's ontology Redis key.

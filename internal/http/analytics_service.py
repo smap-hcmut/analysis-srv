@@ -1714,6 +1714,159 @@ ORDER BY {final_order_by}
             ttl_seconds=cache_ttl or self._posts_cache_ttl,
         )
 
+    async def get_heap(
+        self,
+        campaign_id: str,
+        source_kind: str = "all",
+        project_ids: str | None = None,
+        keywords: str | None = None,
+    ) -> dict[str, Any]:
+        scope = self.build_scope(source_kind, project_ids, keywords)
+        return await self._guarded(
+            campaign_id,
+            self._compute_heap(campaign_id, scope),
+            ("heap", *scope.cache_key()),
+        )
+
+    async def _compute_heap(
+        self, campaign_id: str, scope: AnalyticsScope
+    ) -> dict[str, Any]:
+        cache_key = ("heap", campaign_id, *scope.cache_key())
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        ctx = await self.build_context(campaign_id, scope.project_ids)
+        if not ctx.project_ids:
+            return self._cache_set(cache_key, {"tree": None})
+
+        pre_filters = self._scope_pre_filters(scope)
+        query_timeout_ms = self._resolve_query_timeout_ms(
+            len(ctx.project_ids), "heavy"
+        )
+
+        project_sql = (
+            self._base_cte(ctx.project_ids, pre_filters)
+            + """
+SELECT
+  project_id::text AS project_id,
+  COUNT(*) AS mentions,
+  COALESCE(SUM(engagement_score), 0) AS engagement,
+  COALESCE(AVG(overall_sentiment_score) * 100, 0) AS sentiment
+FROM deduped_post_insight
+GROUP BY project_id
+"""
+        )
+        keyword_sql = (
+            self._base_cte(ctx.project_ids, pre_filters)
+            + """
+SELECT
+  project_id::text AS project_id,
+  kw AS keyword,
+  COUNT(*) AS mentions,
+  COALESCE(SUM(engagement_score), 0) AS engagement,
+  COALESCE(AVG(overall_sentiment_score) * 100, 0) AS sentiment,
+  MODE() WITHIN GROUP (ORDER BY COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN')) AS platform
+FROM deduped_post_insight,
+     LATERAL unnest(keywords) AS kw
+WHERE keywords IS NOT NULL
+  AND array_length(keywords, 1) > 0
+GROUP BY project_id, kw
+"""
+        )
+
+        project_rows, keyword_rows = await self._fetch_many(
+            project_sql,
+            keyword_sql,
+            project_count=len(ctx.project_ids),
+            query_timeout_ms=query_timeout_ms,
+        )
+
+        per_project_keywords: dict[str, list[dict[str, Any]]] = {}
+        for row in keyword_rows:
+            pid = str(row["project_id"])
+            per_project_keywords.setdefault(pid, []).append(
+                {
+                    "keyword": str(row["keyword"] or "").strip(),
+                    "mentions": int(row["mentions"] or 0),
+                    "engagement": int(row["engagement"] or 0),
+                    "sentiment": int(round(float(row["sentiment"] or 0))),
+                    "platform": str(row["platform"] or "UNKNOWN"),
+                }
+            )
+
+        KEYWORDS_PER_PROJECT = 8
+        project_nodes: list[dict[str, Any]] = []
+        total_mentions = 0
+        total_engagement = 0
+        weighted_sentiment = 0.0
+        for row in project_rows:
+            pid = str(row["project_id"])
+            mentions = int(row["mentions"] or 0)
+            engagement = int(row["engagement"] or 0)
+            sentiment = int(round(float(row["sentiment"] or 0)))
+
+            kw_list = sorted(
+                per_project_keywords.get(pid, []),
+                key=lambda k: k["mentions"],
+                reverse=True,
+            )[:KEYWORDS_PER_PROJECT]
+            keyword_children = [
+                {
+                    "id": f"{pid}-kw-{idx + 1}",
+                    "type": "keyword",
+                    "name": kw["keyword"] or "(empty)",
+                    "platform": kw["platform"],
+                    "metrics": {
+                        "mentions": kw["mentions"],
+                        "engagement": kw["engagement"],
+                        "sentiment": kw["sentiment"],
+                        "childCount": 0,
+                    },
+                }
+                for idx, kw in enumerate(kw_list)
+                if kw["keyword"]
+            ]
+
+            project_nodes.append(
+                {
+                    "id": pid,
+                    "type": "project",
+                    "name": ctx.project_names.get(pid) or pid,
+                    "metrics": {
+                        "mentions": mentions,
+                        "engagement": engagement,
+                        "sentiment": sentiment,
+                        "childCount": len(keyword_children),
+                    },
+                    "children": keyword_children,
+                }
+            )
+            total_mentions += mentions
+            total_engagement += engagement
+            weighted_sentiment += sentiment * max(mentions, 1)
+
+        if not project_nodes:
+            return self._cache_set(cache_key, {"tree": None})
+
+        denom = sum(max(int(p["metrics"]["mentions"]), 1) for p in project_nodes)
+        campaign_sentiment = (
+            int(round(weighted_sentiment / denom)) if denom else 0
+        )
+        tree = {
+            "id": ctx.campaign_id,
+            "type": "campaign",
+            "name": ctx.campaign_name or ctx.campaign_id,
+            "metrics": {
+                "mentions": total_mentions,
+                "engagement": total_engagement,
+                "sentiment": campaign_sentiment,
+                "childCount": len(project_nodes),
+            },
+            "children": project_nodes,
+        }
+        return self._cache_set(cache_key, {"tree": tree})
+
     async def get_project_stats(
         self,
         campaign_id: str,
