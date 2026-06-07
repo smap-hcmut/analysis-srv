@@ -34,7 +34,7 @@ class PipelineUseCase:
             )
 
         # --- Prometheus instrumentation ---
-        status = "error" if result.errors else "ok"
+        status = "error" if any(sr.error for sr in (result.stage_results or [])) else "ok"
         pipeline_runs_total.labels(status=status).inc()
         for stage_name, duration_s in (result.stage_timings or {}).items():
             stage_duration_seconds.labels(stage=stage_name).observe(duration_s)

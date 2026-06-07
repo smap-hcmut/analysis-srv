@@ -1582,22 +1582,19 @@ WITH base AS (
 )
 SELECT
   (SELECT total FROM counted) AS total,
-  (
-    SELECT COALESCE(json_agg(row_to_json(p)), '[]'::json)
-    FROM (
-      SELECT uap_id AS id,
-             COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') AS platform,
-             author,
-             content_excerpt AS content,
-             content_created_at AS time,
-             overall_sentiment AS sentiment,
-             COALESCE(engagement_score, 0) AS engagement,
-             url
-      FROM base
-      {order_clause}
-      LIMIT :limit OFFSET :offset
-    ) p
-  ) AS posts
+  uap_id AS id,
+  COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') AS platform,
+  author,
+  content_excerpt AS content,
+  content_created_at,
+  overall_sentiment,
+  COALESCE(sentiment_score, 0) AS overall_sentiment_score,
+  COALESCE(engagement_score, 0) AS engagement_score,
+  uap_metadata,
+  url
+FROM base
+{order_clause}
+LIMIT :limit OFFSET :offset
 """,
             params={
                 "project_ids": list(project_ids),
@@ -1610,7 +1607,44 @@ SELECT
         total = int(rows[0].get("total", 0) or 0)
         if total == 0:
             return None
-        return {"posts": rows[0].get("posts") or [], "total": total}
+        posts = []
+        for row in rows:
+            try:
+                uap = (
+                    json.loads(row["uap_metadata"])
+                    if isinstance(row["uap_metadata"], str)
+                    else (row["uap_metadata"] or {})
+                )
+            except json.JSONDecodeError:
+                uap = {}
+            engagement = uap.get("engagement") or {}
+            score = float(row["overall_sentiment_score"])
+            label = public_sentiment_label(row["overall_sentiment"], score)
+            posts.append(
+                {
+                    "id": str(row["id"]),
+                    "platform": str(row["platform"] or "unknown"),
+                    "author": str(
+                        uap.get("author_display_name")
+                        or uap.get("author_username")
+                        or "Unknown"
+                    ),
+                    "authorUsername": str(uap.get("author_username") or ""),
+                    "authorFollowers": int(uap.get("author_followers") or 0),
+                    "authorVerified": bool(uap.get("author_is_verified") or False),
+                    "content": str(row["content"] or ""),
+                    "time": str(row["content_created_at"] or ""),
+                    "url": extract_source_url(uap),
+                    "sentiment": label,
+                    "sentimentScore": score,
+                    "engagement": int(float(row["engagement_score"])),
+                    "views": int(engagement.get("views") or 0),
+                    "likes": int(engagement.get("likes") or 0),
+                    "comments": int(engagement.get("comments") or 0),
+                    "shares": int(engagement.get("shares") or 0),
+                }
+            )
+        return {"posts": posts, "total": total}
 
     async def _compute_posts(
         self,
