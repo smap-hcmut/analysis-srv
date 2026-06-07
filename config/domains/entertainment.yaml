@@ -1,0 +1,36 @@
+domain_code: "entertainment"
+display_name: "Entertainment / Celebrity (VN)"
+
+# Self-contained domain ontology file.
+ontology:
+  path: "config/ontology/entertainment_vn.yaml"
+  overlays: []
+
+# Runtime overlay values injected into OntologyConfig for the NLP pipeline.
+runtime:
+  brand_names:
+    - "Long Nhật"
+    - "Long Nhat"
+  topic_seeds:
+    - "ca sĩ"
+    - "nghệ sĩ"
+    - "scandal"
+    - "ma túy"
+    - "ma tuý"
+    - "showbiz"
+    - "vạ miệng"
+    - "fan"
+    - "tẩy chay"
+  stop_entities: []
+
+# Quality gate — consumer skips inserting post_insight rows below this score
+# when the project's domain resolves to "entertainment". Lower than the
+# logistics defaults because entertainment content tends to be shorter and
+# noisier.
+quality:
+  min_relevance_score: 0.25
+  spam_regex: '(zalo|inbox|chốt đơn|menu|sỉ|lẻ|đồng giá|bán hàng|ship toàn quốc|phí ship|0[0-9]{8,10})'
+
+# Contract layer — domain_overlay slug written into analytics.report.digest.
+contract:
+  domain_overlay: "domain-entertainment-vn"

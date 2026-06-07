@@ -148,7 +148,14 @@ async def init_api_dependencies() -> APIDependencies:
 
 
 async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
-    """Refresh the dashboard mart without blocking app startup or requests."""
+    """Refresh the dashboard mart without blocking app startup or requests.
+
+    Cancel-safe: every call checks pg_stat_activity for an existing backend
+    running the same refresh and bails out. Stops the cascade where a
+    restarting pod releases its advisory lock while a multi-minute CREATE /
+    REFRESH backend keeps burning Postgres I/O — the original cause of the
+    2026-06-07 monitor outage.
+    """
     if not deps.db.engine:
         return
     now = time.time()
@@ -159,12 +166,31 @@ async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
         conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
         lock_acquired = False
         try:
+            existing = await conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE state = 'active' "
+                    "AND pid <> pg_backend_pid() "
+                    "AND (query ILIKE '%REFRESH MATERIALIZED VIEW%latest_post_insight%' "
+                    "     OR query ILIKE '%CREATE MATERIALIZED VIEW%latest_post_insight%' "
+                    "     OR query ILIKE '%refresh_latest_post_insight%')"
+                )
+            )
+            if int(existing.scalar() or 0) > 0:
+                deps.logger.info(
+                    "analysis-api mart refresh skipped: another backend already running"
+                )
+                return
+
             lock_result = await conn.execute(text("SELECT pg_try_advisory_lock(2026051007)"))
             lock_acquired = bool(lock_result.scalar())
             if not lock_acquired:
                 return
 
-            await conn.execute(text(f"SET statement_timeout = {int(deps.mart_refresh_timeout_ms)}"))
+            timeout_ms = int(deps.mart_refresh_timeout_ms or 240_000)
+            timeout_ms = max(60_000, min(timeout_ms, 600_000))
+            await conn.execute(text(f"SET statement_timeout = {timeout_ms}"))
+            await conn.execute(text("SET lock_timeout = '15s'"))
             await conn.execute(text("SELECT analysis.refresh_latest_post_insight()"))
         except Exception as exc:  # pragma: no cover - operational guardrail
             deps._mart_refresh_failed_until = time.time() + max(300, min(1800, deps.mart_refresh_seconds * 3 or 900))

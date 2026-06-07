@@ -96,9 +96,15 @@ class DomainLoader:
         ontology_raw = data.get("ontology", {}) or {}
         runtime_raw = data.get("runtime", {}) or {}
         contract_raw = data.get("contract", {}) or {}
+        quality_raw = data.get("quality", {}) or {}
 
         ontology_path = ontology_raw.get("path", _DEFAULT_ONTOLOGY_PATH)
         overlay_paths = list(ontology_raw.get("overlays", []) or [])
+
+        try:
+            min_score = float(quality_raw.get("min_relevance_score", 0.30))
+        except (TypeError, ValueError):
+            min_score = 0.30
 
         return DomainRuntimeConfig(
             domain_code=domain_code,
@@ -109,6 +115,8 @@ class DomainLoader:
             brand_names=list(runtime_raw.get("brand_names", []) or []),
             topic_seeds=list(runtime_raw.get("topic_seeds", []) or []),
             stop_entities=list(runtime_raw.get("stop_entities", []) or []),
+            min_relevance_score=min_score,
+            spam_regex=str(quality_raw.get("spam_regex", "") or ""),
         )
 
 

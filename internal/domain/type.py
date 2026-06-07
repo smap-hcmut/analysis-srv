@@ -40,6 +40,13 @@ class DomainRuntimeConfig:
     topic_seeds: list[str] = field(default_factory=list)
     stop_entities: list[str] = field(default_factory=list)
 
+    # Quality gate applied by the consumer before inserting into post_insight.
+    # min_relevance_score drops low-confidence rows; spam_regex drops shop/sale
+    # noise. Both have safe per-domain defaults — fallback domain uses 0.30 +
+    # a generic regex; verticals can tighten or relax in their YAML.
+    min_relevance_score: float = 0.30
+    spam_regex: str = ""
+
     def to_runtime_ontology(self):
         """Build a pipeline OntologyConfig from this domain's runtime overlay."""
         from internal.runtime.type import OntologyConfig

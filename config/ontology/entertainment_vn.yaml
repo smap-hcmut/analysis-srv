@@ -1,0 +1,113 @@
+# ==============================================================================
+# Entertainment / Celebrity Vietnamese — Self-contained domain ontology
+#
+# Covers showbiz, music, scandal, drug-use, reputation crisis vocabulary for
+# Vietnamese social listening. Designed for monitoring artists / celebrities /
+# public figures (singers, actors, KOLs).
+# ==============================================================================
+
+metadata:
+  name: smap-entertainment-vn
+  version: "2026.06.07-initial"
+  description: >
+    Generic entertainment domain ontology for Vietnamese celebrity monitoring,
+    crisis tracking (drug, scandal, defamation) and fan sentiment.
+
+domain_id: entertainment_vn
+
+activation:
+  primary_min_score: 2.0
+  primary_min_matched_records: 1
+  signals:
+    - phrase: scandal
+      weight: 3.0
+    - phrase: bê bối
+      weight: 3.0
+    - phrase: phốt
+      weight: 2.5
+    - phrase: ma túy
+      weight: 3.5
+    - phrase: ma tuý
+      weight: 3.5
+    - phrase: sử dụng ma túy
+      weight: 4.0
+    - phrase: dương tính
+      weight: 3.0
+    - phrase: bắt giữ
+      weight: 3.0
+    - phrase: tạm giam
+      weight: 3.0
+    - phrase: công an
+      weight: 2.0
+    - phrase: ca sĩ
+      weight: 2.0
+    - phrase: nghệ sĩ
+      weight: 2.0
+    - phrase: showbiz
+      weight: 2.5
+    - phrase: tẩy chay
+      weight: 3.0
+    - phrase: cấm sóng
+      weight: 3.0
+    - phrase: vạ miệng
+      weight: 2.5
+    - phrase: xin lỗi
+      weight: 1.5
+    - phrase: fan
+      weight: 1.0
+    - phrase: hâm mộ
+      weight: 1.0
+    - phrase: đạo nhạc
+      weight: 2.5
+    - phrase: đời tư
+      weight: 1.5
+
+aspects:
+  - name: hình tượng
+    keywords:
+      - hình tượng
+      - phong cách
+      - đẳng cấp
+      - chuẩn mực
+  - name: đạo đức
+    keywords:
+      - đạo đức
+      - phẩm chất
+      - liêm chính
+      - lối sống
+  - name: pháp lý
+    keywords:
+      - pháp lý
+      - vi phạm
+      - hình sự
+      - dân sự
+      - khởi tố
+      - điều tra
+  - name: trách nhiệm
+    keywords:
+      - trách nhiệm
+      - chịu trách nhiệm
+      - chối bỏ
+      - đổ lỗi
+  - name: âm nhạc
+    keywords:
+      - hát
+      - bài hát
+      - album
+      - MV
+      - sản phẩm
+      - giọng hát
+      - phong cách
+
+crisis_signals:
+  - level: critical
+    pattern: "(ma túy|ma tuý|cocain|heroin|cần sa|dương tính)"
+  - level: warning
+    pattern: "(scandal|bê bối|phốt|tẩy chay|cấm sóng|đạo nhạc)"
+  - level: watch
+    pattern: "(đời tư|vạ miệng|đính chính|tranh cãi)"
+
+stop_phrases:
+  - "tổ chức biểu diễn"
+  - "khách mời"
+  - "vé sự kiện"

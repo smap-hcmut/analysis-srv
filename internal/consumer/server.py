@@ -4,6 +4,7 @@ import json
 import os
 import time
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, List
@@ -64,6 +65,7 @@ class ConsumerServer(IConsumerServer):
         self.post_insight_usecase = None
 
         self.project_service_client = None
+        self.auto_ontology_updater = None
         self._crisis_runtime_apply_enabled = self._env_enabled(
             os.getenv("ANALYTICS_ENABLE_CRISIS_RUNTIME_APPLY", "false")
         )
@@ -82,6 +84,36 @@ class ConsumerServer(IConsumerServer):
 
             # Publish domain registry to Redis for cross-service discovery
             await self._publish_domain_registry()
+
+            # Auto-ontology discovery loop. Off by default; opt in with
+            # ANALYTICS_AUTO_ONTOLOGY=true so the operator can verify
+            # discovered keywords before they start scoring traffic.
+            if self._env_enabled(os.getenv("ANALYTICS_AUTO_ONTOLOGY", "false")):
+                from internal.auto_ontology import (
+                    AutoOntologyConfig,
+                    AutoOntologyUpdater,
+                )
+
+                auto_cfg = AutoOntologyConfig(
+                    enabled=True,
+                    period_seconds=int(os.getenv("ANALYTICS_AUTO_ONTOLOGY_PERIOD", "1800")),
+                    window_hours=int(os.getenv("ANALYTICS_AUTO_ONTOLOGY_WINDOW_HOURS", "6")),
+                    min_rows_per_project=int(
+                        os.getenv("ANALYTICS_AUTO_ONTOLOGY_MIN_ROWS", "50")
+                    ),
+                    top_keywords=int(os.getenv("ANALYTICS_AUTO_ONTOLOGY_TOP_K", "12")),
+                )
+                self.auto_ontology_updater = AutoOntologyUpdater(
+                    deps=self.deps,
+                    keyword_extractor=self.deps.keyword_extractor,
+                    redis_client=self.deps.redis,
+                    cfg=auto_cfg,
+                )
+                self.auto_ontology_updater.start()
+                self.logger.info(
+                    "auto_ontology enabled period=%ds window=%dh",
+                    auto_cfg.period_seconds, auto_cfg.window_hours,
+                )
 
             # Grab pipeline references from registry
             self.pipeline_usecase = self.registry.pipeline_usecase
@@ -391,6 +423,11 @@ class ConsumerServer(IConsumerServer):
                         nlp_fact,
                         enrichment_bundle,
                     )
+                    # Quality gate — apply the project's domain config so
+                    # low-relevance noise and shop/sale spam never make it
+                    # into post_insight (the mart depends on this filter).
+                    if self._should_skip_insight(pi_input, nlp_fact):
+                        continue
                     await self.post_insight_usecase.create(pi_input)
                 except Exception as exc:
                     self.logger.error(
@@ -476,6 +513,10 @@ class ConsumerServer(IConsumerServer):
             except Exception:
                 pass
             await self._stop_probe_server()
+
+            if self.auto_ontology_updater is not None:
+                with suppress(Exception):
+                    await self.auto_ontology_updater.stop()
 
             if self.consumer_task and not self.consumer_task.done():
                 self.consumer_task.cancel()
@@ -1059,6 +1100,46 @@ class ConsumerServer(IConsumerServer):
         if len(text_value) <= limit:
             return text_value
         return text_value[: max(0, limit - 1)].rstrip() + "…"
+
+    # Cache compiled spam regexes per-domain so the gate stays cheap inside
+    # the hot path (per-row check across thousands of batches).
+    _SPAM_REGEX_CACHE: dict[str, "re.Pattern"] = {}
+
+    def _should_skip_insight(self, pi_input, nlp_fact) -> bool:
+        """Decide whether a post_insight row is too noisy to persist."""
+        try:
+            domain_code = getattr(nlp_fact, "domain_type_code", "") or ""
+            if not domain_code:
+                meta = getattr(pi_input, "uap_metadata", {}) or {}
+                if isinstance(meta, dict):
+                    domain_code = str(meta.get("domain_type_code", "") or "")
+            registry = self.registry.domain_registry if self.registry else None
+            cfg = registry.lookup(domain_code) if registry else None
+            min_score = float(cfg.min_relevance_score if cfg else 0.30)
+            spam_regex = (cfg.spam_regex if cfg else "") or ""
+        except Exception:
+            min_score, spam_regex = 0.30, ""
+
+        score = float(getattr(pi_input, "business_relevance_score", 0.0) or 0.0)
+        if score < min_score:
+            return True
+
+        if spam_regex:
+            import re as _re
+
+            pattern = self._SPAM_REGEX_CACHE.get(spam_regex)
+            if pattern is None:
+                try:
+                    pattern = _re.compile(spam_regex, _re.IGNORECASE)
+                except _re.error:
+                    pattern = None
+                self._SPAM_REGEX_CACHE[spam_regex] = pattern  # type: ignore[assignment]
+            if pattern is not None:
+                content = str(getattr(pi_input, "content", "") or "")
+                if pattern.search(content):
+                    return True
+
+        return False
 
     @staticmethod
     def _level_rank(level: str) -> int:

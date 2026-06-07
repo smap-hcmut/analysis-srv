@@ -13,6 +13,13 @@ runtime:
   topic_seeds: []
   stop_entities: []
 
+# Default quality gate — consumer applies these when a project has no
+# domain-specific override. Tuned conservatively so generic verticals do
+# not flood the mart with low-signal content.
+quality:
+  min_relevance_score: 0.30
+  spam_regex: '(zalo|inbox|chốt đơn|menu|sỉ|lẻ|đồng giá|shop|hàng có sẵn|ship toàn quốc|phí ship|0[0-9]{8,10})'
+
 # Contract layer — domain_overlay slug written into analytics.report.digest.
 contract:
   domain_overlay: "domain-default"
