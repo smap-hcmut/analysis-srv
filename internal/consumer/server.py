@@ -111,8 +111,8 @@ class ConsumerServer(IConsumerServer):
                 )
                 self.auto_ontology_updater.start()
                 self.logger.info(
-                    "auto_ontology enabled period=%ds window=%dh",
-                    auto_cfg.period_seconds, auto_cfg.window_hours,
+                    "auto_ontology enabled period=%ds window=%dh"
+                    % (auto_cfg.period_seconds, auto_cfg.window_hours)
                 )
 
             # Grab pipeline references from registry

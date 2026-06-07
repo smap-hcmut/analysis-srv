@@ -89,9 +89,8 @@ class AutoOntologyUpdater:
         self._stop = False
         self._task = asyncio.create_task(self._run(), name="auto-ontology")
         self._logger.info(
-            "auto_ontology: started, period=%ds window=%dh",
-            self._cfg.period_seconds,
-            self._cfg.window_hours,
+            "auto_ontology: started, period=%ds window=%dh"
+            % (self._cfg.period_seconds, self._cfg.window_hours)
         )
 
     async def stop(self) -> None:
@@ -111,7 +110,7 @@ class AutoOntologyUpdater:
             try:
                 await self.run_once()
             except Exception as exc:
-                self._logger.error("auto_ontology: sweep failed: %s", exc)
+                self._logger.error("auto_ontology: sweep failed: %s" % exc)
             try:
                 await asyncio.sleep(self._cfg.period_seconds)
             except asyncio.CancelledError:
@@ -133,13 +132,13 @@ class AutoOntologyUpdater:
                 if wrote:
                     touched += 1
                     self._logger.info(
-                        "auto_ontology: project=%s domain=%s suggested %d keywords",
-                        cand.project_id, cand.domain_code, len(keywords),
+                        "auto_ontology: project=%s domain=%s suggested %d keywords"
+                        % (cand.project_id, cand.domain_code, len(keywords))
                     )
             except Exception as exc:
                 self._logger.warning(
-                    "auto_ontology: project=%s failed: %s",
-                    cand.project_id, exc,
+                    "auto_ontology: project=%s failed: %s"
+                    % (cand.project_id, exc)
                 )
         return touched
 
@@ -213,8 +212,8 @@ class AutoOntologyUpdater:
             )
         except Exception as exc:
             self._logger.warning(
-                "auto_ontology: yake extract failed project=%s: %s",
-                cand.project_id, exc,
+                "auto_ontology: yake extract failed project=%s: %s"
+                % (cand.project_id, exc)
             )
             return []
 
@@ -285,7 +284,7 @@ class AutoOntologyUpdater:
         try:
             await self._redis.set(key, value)
         except Exception as exc:
-            self._logger.warning("auto_ontology: redis set failed key=%s err=%s", key, exc)
+            self._logger.warning("auto_ontology: redis set failed key=%s err=%s" % (key, exc))
 
     @staticmethod
     def _existing_phrases(rules: Iterable[dict[str, Any]]) -> set[str]:
