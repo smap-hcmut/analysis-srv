@@ -839,7 +839,14 @@ SELECT
     async def _compute_platforms_from_rollup(
         self, project_ids: tuple[str, ...]
     ) -> dict[str, Any] | None:
-        """Fast path for /api/analytics/platforms backed by metrics_daily."""
+        """Fast path for /api/analytics/platforms backed by metrics_daily.
+
+        Returns the same shape as ``_compute_platforms`` so the Insight tab
+        renders without breaking: keys ``stats[*].mentions/mentionsChange/
+        mentionsChangeReliable/mentionsCurrentPeriod/mentionsPreviousPeriod/
+        engagement/engagementRaw/sentiment/reach/status/color/name`` plus a
+        per-platform ``timeSeries`` aligned to ``months``.
+        """
         if not project_ids:
             return None
         rows = await self._fetch_all(
@@ -848,15 +855,21 @@ WITH base AS (
   SELECT * FROM analysis.metrics_daily
   WHERE project_id = ANY(CAST(:project_ids AS text[]))
 ), totals AS (
-  SELECT platform,
-         SUM(mentions)                    AS mentions,
-         SUM(mentions * sentiment_score)  AS weighted_sentiment,
-         SUM(engagement_sum)              AS engagement_sum
+  SELECT UPPER(platform) AS platform,
+         SUM(mentions)                                                                       AS mentions,
+         SUM(mentions * sentiment_score)                                                     AS weighted_sentiment,
+         SUM(engagement_sum)                                                                 AS engagement_sum,
+         SUM(reach_sum)                                                                      AS reach_sum,
+         SUM(mentions) FILTER (WHERE bucket_date >= (CURRENT_DATE - INTERVAL '30 days'))     AS current_mentions,
+         SUM(mentions) FILTER (
+           WHERE bucket_date >= (CURRENT_DATE - INTERVAL '60 days')
+             AND bucket_date <  (CURRENT_DATE - INTERVAL '30 days')
+         )                                                                                   AS previous_mentions
   FROM base
-  GROUP BY platform
+  GROUP BY UPPER(platform)
 ), ts AS (
   SELECT TO_CHAR(date_trunc('month', bucket_date), 'YYYY-MM') AS month,
-         platform,
+         UPPER(platform) AS platform,
          SUM(mentions) AS mentions
   FROM base
   WHERE bucket_date >= (CURRENT_DATE - INTERVAL '12 months')
@@ -876,26 +889,96 @@ SELECT
         total_mentions = sum(int(r.get("mentions", 0) or 0) for r in stats_raw)
         if total_mentions == 0:
             return None
-        stats = []
+
+        stats: list[dict[str, Any]] = []
+        seen_platforms: set[str] = set()
         for r in stats_raw:
+            platform = str(r.get("platform") or "UNKNOWN").upper()
             mentions = int(r.get("mentions", 0) or 0)
             weighted = float(r.get("weighted_sentiment", 0) or 0)
+            current_mentions = int(r.get("current_mentions") or 0)
+            previous_mentions = int(r.get("previous_mentions") or 0)
+            engagement_sum = float(r.get("engagement_sum", 0) or 0)
+            reach_sum = float(r.get("reach_sum", 0) or 0)
+            meta = PLATFORM_META.get(
+                platform, {"name": platform, "color": "#888", "chartColor": "#888"}
+            )
             stats.append(
                 {
-                    "platform": r.get("platform", "UNKNOWN"),
-                    "count": mentions,
-                    "percentage": round(mentions / total_mentions * 100, 1) if total_mentions else 0,
-                    "avg_sentiment": round(weighted / mentions * 100, 1) if mentions else 0,
-                    "engagement": int(r.get("engagement_sum", 0) or 0),
+                    "platform": platform.lower(),
+                    "name": meta["name"],
+                    "mentions": mentions,
+                    "mentionsChange": percent_change(current_mentions, previous_mentions),
+                    "mentionsChangeReliable": is_reliable_platform_mentions_change(
+                        current_mentions, previous_mentions
+                    ),
+                    "mentionsCurrentPeriod": current_mentions,
+                    "mentionsPreviousPeriod": previous_mentions,
+                    "engagement": fmt_number(engagement_sum),
+                    "engagementRaw": int(engagement_sum),
+                    "sentiment": round(weighted / mentions * 100) if mentions else 0,
+                    "reach": int(reach_sum),
+                    "status": "active",
+                    "color": meta["color"],
                 }
             )
+            seen_platforms.add(platform)
+
+        for key, meta in PLATFORM_META.items():
+            if key.upper() in seen_platforms:
+                continue
+            stats.append(
+                {
+                    "platform": key.lower(),
+                    "name": meta["name"],
+                    "mentions": 0,
+                    "mentionsChange": 0,
+                    "mentionsChangeReliable": True,
+                    "mentionsCurrentPeriod": 0,
+                    "mentionsPreviousPeriod": 0,
+                    "engagement": "0",
+                    "engagementRaw": 0,
+                    "sentiment": 0,
+                    "reach": 0,
+                    "status": "inactive",
+                    "color": meta["color"],
+                }
+            )
+
         months = sorted({str(r.get("month", "")) for r in ts_raw if r.get("month")})
-        return {"stats": stats, "timeSeries": ts_raw, "months": months}
+        time_series = []
+        for key, meta in PLATFORM_META.items():
+            time_series.append(
+                {
+                    "label": meta["name"],
+                    "color": meta["chartColor"],
+                    "data": [
+                        int(
+                            next(
+                                (
+                                    int(r.get("mentions", 0) or 0)
+                                    for r in ts_raw
+                                    if str(r.get("month", "")) == m
+                                    and str(r.get("platform", "")).upper() == key.upper()
+                                ),
+                                0,
+                            )
+                        )
+                        for m in months
+                    ],
+                }
+            )
+        return {"stats": stats, "timeSeries": time_series, "months": months}
 
     async def _compute_sentiment_from_rollup(
         self, project_ids: tuple[str, ...]
     ) -> dict[str, Any] | None:
-        """Fast path for /api/analytics/sentiment backed by metrics_daily."""
+        """Fast path for /api/analytics/sentiment backed by metrics_daily.
+
+        Mirrors ``_compute_sentiment``'s response: ``donut`` (raw counts so
+        the UI can build percentages itself), ``timeline`` (per-platform
+        avg sentiment series), ``months``, ``pulse``, ``total``.
+        """
         if not project_ids:
             return None
         rows = await self._fetch_all(
@@ -904,51 +987,92 @@ WITH base AS (
   SELECT * FROM analysis.metrics_daily
   WHERE project_id = ANY(CAST(:project_ids AS text[]))
 ), totals AS (
-  SELECT sentiment, SUM(mentions) AS mentions
+  SELECT UPPER(sentiment) AS sentiment, SUM(mentions) AS mentions
   FROM base
-  GROUP BY sentiment
-), monthly AS (
+  GROUP BY UPPER(sentiment)
+), summary AS (
+  SELECT SUM(mentions)                    AS total_mentions,
+         SUM(mentions * sentiment_score)  AS weighted_sentiment
+  FROM base
+), timeline AS (
   SELECT TO_CHAR(date_trunc('month', bucket_date), 'YYYY-MM') AS month,
-         sentiment,
-         SUM(mentions) AS mentions
+         UPPER(platform) AS platform,
+         SUM(mentions * sentiment_score) / NULLIF(SUM(mentions), 0) * 100 AS avg_sentiment
   FROM base
   WHERE bucket_date >= (CURRENT_DATE - INTERVAL '12 months')
+    AND platform IS NOT NULL
   GROUP BY 1, 2
   ORDER BY 1
 )
 SELECT
   (SELECT COALESCE(json_agg(row_to_json(totals)), '[]'::json) FROM totals) AS totals,
-  (SELECT COALESCE(json_agg(row_to_json(monthly) ORDER BY monthly.month), '[]'::json) FROM monthly) AS monthly
+  (SELECT row_to_json(summary) FROM summary) AS summary,
+  (SELECT COALESCE(json_agg(row_to_json(timeline) ORDER BY timeline.month), '[]'::json) FROM timeline) AS timeline
 """,
             params={"project_ids": list(project_ids)},
         )
         if not rows:
             return None
         totals_raw = rows[0].get("totals") or []
-        monthly_raw = rows[0].get("monthly") or []
-        grand_total = sum(int(r.get("mentions", 0) or 0) for r in totals_raw)
+        timeline_raw = rows[0].get("timeline") or []
+        summary = rows[0].get("summary") or {}
+        grand_total = int(summary.get("total_mentions") or 0)
         if grand_total == 0:
             return None
-        donut_colors = {
-            "POSITIVE": "var(--success)",
-            "NEUTRAL": "var(--warning)",
-            "NEGATIVE": "var(--danger)",
-        }
-        label_for = {"POSITIVE": "Positive", "NEUTRAL": "Neutral", "NEGATIVE": "Negative"}
-        donut = []
-        for label_key in ("POSITIVE", "NEUTRAL", "NEGATIVE"):
-            value = next(
-                (int(r.get("mentions", 0) or 0) for r in totals_raw if str(r.get("sentiment", "")).upper() == label_key),
+
+        def _count_for(label_key: str) -> int:
+            return next(
+                (
+                    int(r.get("mentions", 0) or 0)
+                    for r in totals_raw
+                    if str(r.get("sentiment", "")).upper() == label_key
+                ),
                 0,
             )
-            donut.append(
+
+        donut = [
+            {"label": "positive", "value": _count_for("POSITIVE"), "color": "var(--success)"},
+            {"label": "neutral", "value": _count_for("NEUTRAL"), "color": "var(--warning)"},
+            {"label": "negative", "value": _count_for("NEGATIVE"), "color": "var(--danger)"},
+        ]
+
+        months = sorted({str(r.get("month", "")) for r in timeline_raw if r.get("month")})
+        platforms_seen = sorted({str(r.get("platform", "")).upper() for r in timeline_raw if r.get("platform")})
+        timeline: list[dict[str, Any]] = []
+        for platform in platforms_seen:
+            meta = PLATFORM_META.get(platform, {"name": platform, "chartColor": "#888"})
+            timeline.append(
                 {
-                    "label": label_for[label_key],
-                    "value": round(value / grand_total * 100, 1) if grand_total else 0,
-                    "color": donut_colors[label_key],
+                    "label": meta["name"],
+                    "color": meta["chartColor"],
+                    "data": [
+                        round(
+                            float(
+                                next(
+                                    (
+                                        r.get("avg_sentiment") or 0
+                                        for r in timeline_raw
+                                        if str(r.get("month", "")) == m
+                                        and str(r.get("platform", "")).upper() == platform
+                                    ),
+                                    0,
+                                )
+                            )
+                        )
+                        for m in months
+                    ],
                 }
             )
-        return {"donut": donut, "monthly": monthly_raw}
+
+        weighted = float(summary.get("weighted_sentiment") or 0)
+        pulse = round((weighted / grand_total) * 100, 1) if grand_total else 0
+        return {
+            "donut": donut,
+            "timeline": timeline,
+            "months": months,
+            "pulse": pulse,
+            "total": grand_total,
+        }
 
     async def get_platforms(
         self,
