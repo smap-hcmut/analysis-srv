@@ -158,13 +158,35 @@ async def _list_projects_to_refresh(deps: APIDependencies) -> list[str]:
     """
     if not deps.db.engine:
         return []
-    window_seconds = max(60, int(deps.mart_refresh_seconds * 4 or 3600))
-    sql = text(
-        f"""
+    # Discovery prefers the rollup tables (cheap aggregates, always
+    # indexable). Falls back to a recent post_insight scan only when the
+    # rollups are empty — that path needs an index on analyzed_at and
+    # otherwise degrades to a parallel seq scan over 8M+ rows.
+    union_sql = text(
+        """
         SELECT DISTINCT project_id FROM analysis.kpi_daily
         UNION
         SELECT DISTINCT project_id FROM analysis.posts_recent_top
         UNION
+        SELECT DISTINCT project_id FROM analysis.metrics_daily
+        """
+    )
+    async with deps.db.engine.connect() as raw_conn:
+        conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
+        await conn.execute(text("SET statement_timeout = 15000"))
+        result = await conn.execute(union_sql)
+        rows = result.fetchall()
+    project_ids = [str(row[0]) for row in rows if row and row[0]]
+
+    # Only fall back to scanning post_insight when no rollup row exists at
+    # all — this only fires the first time a project arrives, and afterwards
+    # the rollup-driven loop keeps the project in the working set.
+    if project_ids:
+        return project_ids
+
+    window_seconds = max(60, int(deps.mart_refresh_seconds * 4 or 3600))
+    fallback_sql = text(
+        f"""
         SELECT DISTINCT project_id
           FROM analysis.post_insight
          WHERE analyzed_at > now() - interval '{window_seconds} seconds'
@@ -172,8 +194,8 @@ async def _list_projects_to_refresh(deps: APIDependencies) -> list[str]:
     )
     async with deps.db.engine.connect() as raw_conn:
         conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
-        await conn.execute(text("SET statement_timeout = 10000"))
-        result = await conn.execute(sql)
+        await conn.execute(text("SET statement_timeout = 30000"))
+        result = await conn.execute(fallback_sql)
         rows = result.fetchall()
     return [str(row[0]) for row in rows if row and row[0]]
 
