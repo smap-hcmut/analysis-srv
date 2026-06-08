@@ -147,66 +147,283 @@ async def init_api_dependencies() -> APIDependencies:
     )
 
 
-async def _refresh_latest_post_insight_mart(deps: APIDependencies) -> None:
-    """Refresh the dashboard mart without blocking app startup or requests.
+async def _list_projects_to_refresh(deps: APIDependencies) -> list[str]:
+    """Return project_ids whose rollups should be refreshed this tick.
 
-    Cancel-safe: every call checks pg_stat_activity for an existing backend
-    running the same refresh and bails out. Stops the cascade where a
-    restarting pod releases its advisory lock while a multi-minute CREATE /
-    REFRESH backend keeps burning Postgres I/O — the original cause of the
-    2026-06-07 monitor outage.
+    Combines projects that already have rollup rows (so the loop keeps them
+    warm) with projects that received fresh `analysis.post_insight` rows in
+    the recent window (so new campaigns get their first rollup quickly).
+    Both halves of the union ride on small indexes, so the lookup cost is
+    bounded regardless of how big `analysis.post_insight` becomes.
+    """
+    if not deps.db.engine:
+        return []
+    window_seconds = max(60, int(deps.mart_refresh_seconds * 4 or 3600))
+    sql = text(
+        f"""
+        SELECT DISTINCT project_id FROM analysis.kpi_daily
+        UNION
+        SELECT DISTINCT project_id FROM analysis.posts_recent_top
+        UNION
+        SELECT DISTINCT project_id
+          FROM analysis.post_insight
+         WHERE analyzed_at > now() - interval '{window_seconds} seconds'
+        """
+    )
+    async with deps.db.engine.connect() as raw_conn:
+        conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
+        await conn.execute(text("SET statement_timeout = 10000"))
+        result = await conn.execute(sql)
+        rows = result.fetchall()
+    return [str(row[0]) for row in rows if row and row[0]]
+
+
+async def _refresh_project_rollups(deps: APIDependencies, project_id: str) -> None:
+    """Refresh a single project's rollups via the SQL entry point.
+
+    The SQL function holds a per-project advisory lock so overlapping loop
+    iterations are a no-op rather than a stampede. `statement_timeout` is
+    capped per-project: each call processes one project's slice of
+    `post_insight`, which is bounded by the project's own data volume.
+
+    Falls back to direct DELETE+INSERT on `posts_recent_top` and
+    `metrics_daily` when `analysis.refresh_project_rollups` is not present
+    (e.g. migration 015 not yet applied). The fallback skips `kpi_daily`
+    because the analysis-api role typically lacks write privileges there;
+    kpi_daily refresh requires the SQL function to be installed.
+    """
+    if not deps.db.engine:
+        return
+    per_project_timeout_ms = max(15_000, min(int(deps.mart_refresh_timeout_ms or 60_000), 120_000))
+    async with deps.db.engine.connect() as raw_conn:
+        conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
+        await conn.execute(text(f"SET statement_timeout = {per_project_timeout_ms}"))
+        await conn.execute(text("SET lock_timeout = '5s'"))
+        try:
+            await conn.execute(
+                text("SELECT analysis.refresh_project_rollups(:project_id)"),
+                {"project_id": project_id},
+            )
+            return
+        except Exception as exc:
+            message = str(exc).lower()
+            missing = (
+                "does not exist" in message
+                or "undefinedfunction" in message
+                or "function analysis.refresh_project_rollups" in message
+            )
+            if not missing:
+                raise
+        # Fallback path: per-project refresh without the SQL function. Kept
+        # tight to the tables analysis_prod owns so it works before migration
+        # 015 lands.
+        await conn.execute(
+            text("DELETE FROM analysis.posts_recent_top WHERE project_id = :pid"),
+            {"pid": project_id},
+        )
+        await conn.execute(
+            text(
+                """
+                INSERT INTO analysis.posts_recent_top (
+                  project_id, uap_id, source_id, platform, content_excerpt, author,
+                  content_created_at, overall_sentiment, sentiment_score,
+                  engagement_score, reach_estimate, url, uap_metadata, refreshed_at
+                )
+                SELECT
+                  project_id,
+                  COALESCE(uap_metadata->>'uap_id', source_id) AS uap_id,
+                  source_id,
+                  COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') AS platform,
+                  LEFT(content, 320) AS content_excerpt,
+                  COALESCE(
+                    uap_metadata->>'author_display_name',
+                    uap_metadata->>'author_username',
+                    uap_metadata->>'author'
+                  ) AS author,
+                  content_created_at,
+                  overall_sentiment,
+                  overall_sentiment_score AS sentiment_score,
+                  engagement_score,
+                  reach_estimate,
+                  COALESCE(
+                    uap_metadata->>'post_url',
+                    uap_metadata->>'url',
+                    uap_metadata->>'permalink_url',
+                    uap_metadata->>'original_url'
+                  ) AS url,
+                  uap_metadata,
+                  NOW()
+                FROM (
+                  SELECT *,
+                         ROW_NUMBER() OVER (
+                           PARTITION BY project_id
+                           ORDER BY content_created_at DESC NULLS LAST,
+                                    engagement_score DESC NULLS LAST
+                         ) AS rn
+                  FROM (
+                    SELECT DISTINCT ON (
+                      COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'),
+                      COALESCE(
+                        NULLIF(source_id, ''),
+                        NULLIF(uap_metadata->>'post_id', ''),
+                        NULLIF(uap_metadata->>'comment_id', ''),
+                        NULLIF(uap_metadata->>'video_id', ''),
+                        NULLIF(uap_metadata->>'url', ''),
+                        id::text
+                      )
+                    ) *
+                    FROM analysis.post_insight
+                    WHERE project_id = :pid
+                      AND content_created_at IS NOT NULL
+                      AND (
+                        COALESCE(business_relevance_score, 0) >= 0.30
+                        OR COALESCE(uap_metadata #>> '{platform_meta,smap,source_kind}', '') IN ('focused_page', 'focused_profile')
+                      )
+                    ORDER BY
+                      COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'),
+                      COALESCE(
+                        NULLIF(source_id, ''),
+                        NULLIF(uap_metadata->>'post_id', ''),
+                        NULLIF(uap_metadata->>'comment_id', ''),
+                        NULLIF(uap_metadata->>'video_id', ''),
+                        NULLIF(uap_metadata->>'url', ''),
+                        id::text
+                      ),
+                      COALESCE(updated_at, analyzed_at, ingested_at, created_at) DESC NULLS LAST,
+                      created_at DESC NULLS LAST,
+                      id DESC
+                  ) deduped
+                ) ranked
+                WHERE ranked.rn <= 1000
+                """
+            ),
+            {"pid": project_id},
+        )
+        await conn.execute(
+            text("DELETE FROM analysis.metrics_daily WHERE project_id = :pid"),
+            {"pid": project_id},
+        )
+        await conn.execute(
+            text(
+                """
+                INSERT INTO analysis.metrics_daily (
+                  project_id, bucket_date, platform, sentiment,
+                  mentions, sentiment_score, engagement_sum, reach_sum, refreshed_at
+                )
+                SELECT
+                  project_id,
+                  DATE_TRUNC('day', content_created_at)::DATE AS bucket_date,
+                  COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN') AS platform,
+                  COALESCE(NULLIF(UPPER(overall_sentiment), ''), 'UNKNOWN') AS sentiment,
+                  COUNT(*) AS mentions,
+                  AVG(COALESCE(overall_sentiment_score, 0)) AS sentiment_score,
+                  SUM(COALESCE(engagement_score, 0)) AS engagement_sum,
+                  SUM(COALESCE(reach_estimate, 0)) AS reach_sum,
+                  NOW()
+                FROM (
+                  SELECT DISTINCT ON (
+                    COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'),
+                    COALESCE(
+                      NULLIF(source_id, ''),
+                      NULLIF(uap_metadata->>'post_id', ''),
+                      NULLIF(uap_metadata->>'comment_id', ''),
+                      NULLIF(uap_metadata->>'video_id', ''),
+                      NULLIF(uap_metadata->>'url', ''),
+                      id::text
+                    )
+                  )
+                    project_id,
+                    content_created_at,
+                    platform,
+                    overall_sentiment,
+                    overall_sentiment_score,
+                    engagement_score,
+                    reach_estimate
+                  FROM analysis.post_insight
+                  WHERE project_id = :pid
+                    AND content_created_at IS NOT NULL
+                    AND (
+                      COALESCE(business_relevance_score, 0) >= 0.30
+                      OR COALESCE(uap_metadata #>> '{platform_meta,smap,source_kind}', '') IN ('focused_page', 'focused_profile')
+                    )
+                  ORDER BY
+                    COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'),
+                    COALESCE(
+                      NULLIF(source_id, ''),
+                      NULLIF(uap_metadata->>'post_id', ''),
+                      NULLIF(uap_metadata->>'comment_id', ''),
+                      NULLIF(uap_metadata->>'video_id', ''),
+                      NULLIF(uap_metadata->>'url', ''),
+                      id::text
+                    ),
+                    COALESCE(updated_at, analyzed_at, ingested_at, created_at) DESC NULLS LAST,
+                    created_at DESC NULLS LAST,
+                    id DESC
+                ) deduped
+                GROUP BY
+                  project_id,
+                  DATE_TRUNC('day', content_created_at)::DATE,
+                  COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'),
+                  COALESCE(NULLIF(UPPER(overall_sentiment), ''), 'UNKNOWN')
+                """
+            ),
+            {"pid": project_id},
+        )
+
+
+async def _refresh_project_rollups_tick(deps: APIDependencies) -> None:
+    """Run one refresh tick across every project that needs rollup updates.
+
+    Projects are refreshed sequentially so the loop never bursts more than
+    one concurrent write into the rollup tables (TRUNCATE-equivalent DELETE +
+    INSERT chains are cheap per project but contend on the same partitions
+    across projects). A per-project failure does not abort the tick — the
+    next project still gets a chance.
     """
     if not deps.db.engine:
         return
     now = time.time()
     if now < deps._mart_refresh_failed_until:
         return
+    try:
+        project_ids = await _list_projects_to_refresh(deps)
+    except Exception as exc:  # pragma: no cover - operational guardrail
+        deps._mart_refresh_failed_until = time.time() + max(60, min(600, deps.mart_refresh_seconds))
+        deps.logger.warning(f"analysis-api rollup discovery failed: {exc}")
+        return
 
-    async with deps.db.engine.connect() as raw_conn:
-        conn = await raw_conn.execution_options(isolation_level="AUTOCOMMIT")
-        lock_acquired = False
+    if not project_ids:
+        deps.logger.info("analysis-api rollup tick: no active projects")
+        return
+
+    started = time.perf_counter()
+    succeeded = 0
+    failed_projects: list[str] = []
+    for project_id in project_ids:
         try:
-            existing = await conn.execute(
-                text(
-                    "SELECT count(*) FROM pg_stat_activity "
-                    "WHERE state = 'active' "
-                    "AND pid <> pg_backend_pid() "
-                    "AND (query ILIKE '%REFRESH MATERIALIZED VIEW%latest_post_insight%' "
-                    "     OR query ILIKE '%CREATE MATERIALIZED VIEW%latest_post_insight%' "
-                    "     OR query ILIKE '%refresh_latest_post_insight%')"
-                )
-            )
-            if int(existing.scalar() or 0) > 0:
-                deps.logger.info(
-                    "analysis-api mart refresh skipped: another backend already running"
-                )
-                return
-
-            lock_result = await conn.execute(text("SELECT pg_try_advisory_lock(2026051007)"))
-            lock_acquired = bool(lock_result.scalar())
-            if not lock_acquired:
-                return
-
-            timeout_ms = int(deps.mart_refresh_timeout_ms or 240_000)
-            timeout_ms = max(60_000, min(timeout_ms, 600_000))
-            await conn.execute(text(f"SET statement_timeout = {timeout_ms}"))
-            await conn.execute(text("SET lock_timeout = '15s'"))
-            await conn.execute(text("SELECT analysis.refresh_latest_post_insight()"))
+            await _refresh_project_rollups(deps, project_id)
+            succeeded += 1
         except Exception as exc:  # pragma: no cover - operational guardrail
-            deps._mart_refresh_failed_until = time.time() + max(300, min(1800, deps.mart_refresh_seconds * 3 or 900))
-            deps.logger.warning(f"analysis-api mart refresh skipped: {exc}")
-        finally:
-            if lock_acquired:
-                with suppress(Exception):
-                    await conn.execute(text("SELECT pg_advisory_unlock(2026051007)"))
+            failed_projects.append(project_id)
+            deps.logger.warning(
+                f"analysis-api rollup refresh failed for project {project_id}: {exc}"
+            )
+    elapsed = time.perf_counter() - started
+    deps.logger.info(
+        "analysis-api rollup tick complete: "
+        f"projects={len(project_ids)} succeeded={succeeded} "
+        f"failed={len(failed_projects)} duration_s={elapsed:.2f}"
+    )
 
 
-async def _latest_post_insight_mart_loop(deps: APIDependencies) -> None:
+async def _per_project_rollup_loop(deps: APIDependencies) -> None:
     if deps.mart_refresh_seconds <= 0:
         return
-    await asyncio.sleep(deps.mart_refresh_seconds)
+    # Initial delay so a fresh pod doesn't fight the readiness probe with a
+    # long refresh on the very first tick after a deploy.
+    await asyncio.sleep(min(deps.mart_refresh_seconds, 30))
     while True:
-        await _refresh_latest_post_insight_mart(deps)
+        await _refresh_project_rollups_tick(deps)
         await asyncio.sleep(deps.mart_refresh_seconds)
 
 
@@ -214,7 +431,7 @@ async def _latest_post_insight_mart_loop(deps: APIDependencies) -> None:
 async def lifespan(app: FastAPI):
     deps = await init_api_dependencies()
     project_client = build_project_service_client()
-    mart_task = asyncio.create_task(_latest_post_insight_mart_loop(deps))
+    mart_task = asyncio.create_task(_per_project_rollup_loop(deps))
     app.state.deps = deps
     app.state.project_client = project_client
     app.state.analytics = AnalyticsService(
