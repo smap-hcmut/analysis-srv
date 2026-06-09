@@ -69,12 +69,17 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                 if id_:
                     stmt = select(PostInsight).where(PostInsight.id == id_)
                     result = await session.execute(stmt)
-                    existing = result.scalar_one_or_none()
+                    existing = result.scalars().first()
 
                 # Match by (project_id, platform, source_id). Including
                 # platform stops a TikTok comment with the same source_id
                 # as a Facebook post from clobbering each other when the
                 # scrapers emit overlapping numeric IDs across networks.
+                #
+                # .first() (not scalar_one_or_none) because the table can
+                # still carry leftover duplicates from before this upsert
+                # path landed — picking the newest by analyzed_at is safe
+                # while migration 019 runs the one-shot dedupe.
                 if not existing and project_id and source_id:
                     where_clauses = [
                         PostInsight.project_id == project_id,
@@ -82,9 +87,18 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                     ]
                     if platform:
                         where_clauses.append(PostInsight.platform == platform)
-                    stmt = select(PostInsight).where(*where_clauses)
+                    stmt = (
+                        select(PostInsight)
+                        .where(*where_clauses)
+                        .order_by(
+                            PostInsight.analyzed_at.desc().nullslast(),
+                            PostInsight.updated_at.desc().nullslast(),
+                            PostInsight.created_at.desc().nullslast(),
+                        )
+                        .limit(1)
+                    )
                     result = await session.execute(stmt)
-                    existing = result.scalar_one_or_none()
+                    existing = result.scalars().first()
 
                 if existing:
                     for key, value in transformed.items():

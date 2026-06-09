@@ -15,5 +15,5 @@ async def create(self, input: CreatePostInsightInput) -> PostInsight:
     try:
         return await self.repository.upsert(UpsertOptions(data=input.to_dict()))
     except Exception as e:
-        self.logger.error("internal.post_insight.usecase.create: %s", e)
+        self.logger.error(f"internal.post_insight.usecase.create: {e}")
         raise ErrFailedToCreate(e)
