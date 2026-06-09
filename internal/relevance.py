@@ -252,7 +252,13 @@ def calculate_business_relevance(
         score += 0.46
         reasons.append("domain_keyword_mentioned")
     elif domain_context:
-        score += 0.40
+        # Being on the brand's parent page is a hint, not a guarantee.
+        # Lifestyle / spam / unrelated comments on Ahamove fan pages were
+        # scoring 0.40 here and clearing the 0.30 ingest gate even though
+        # the comment body had nothing to do with the brand. Drop the
+        # weight so context-only posts must combine with another signal
+        # (intent, aspect, logistics) to clear the gate.
+        score += 0.18
         reasons.append("domain_keyword_in_context")
 
     if result is not None:
@@ -385,9 +391,17 @@ def _domain_terms(uap: UAPRecord) -> tuple[str, ...]:
         values.extend(uap.context.keywords_matched or [])
 
     raw = uap.raw or {}
+    # NOTE: do NOT add raw.get("crawl_keyword") here. build_context_summary
+    # already includes the crawl keyword in context_text, so adding it to
+    # domain_terms creates a guaranteed match (domain_context = True for
+    # every keyword-crawled post) and inflates business_relevance_score by
+    # +0.40. The 2026-06-09 "Choose Happiness" false-positive — an
+    # unrelated FB lifestyle post that scored 0.62 in the Ahamove campaign
+    # because it was pulled by the "AhaTruck" keyword — was this loop.
+    # domain_type_code stays because it names the brand / vertical and is
+    # not directly embedded in context_summary.
     values.extend(
         [
-            raw.get("crawl_keyword"),
             raw.get("domain_type_code"),
         ]
     )
