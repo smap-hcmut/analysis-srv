@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.exc import SQLAlchemyError
 
 from pkg.logger.logger import Logger
@@ -105,6 +105,28 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                         if key != "id":
                             setattr(existing, key, value)
                     record = existing
+
+                    # Distributed self-dedupe. analysis.post_insight inherited
+                    # ~21x duplicates per (project_id, platform, source_id)
+                    # from before this upsert path existed; running a bulk
+                    # DELETE in one shot starves kine on the shared
+                    # PostgreSQL and dropped the apiserver VIP on 2026-06-09.
+                    # Instead, every UPSERT now also wipes the older copies
+                    # of the same key. Each call deletes 0-20 narrow rows so
+                    # WAL pressure stays bounded, and one or two crawl
+                    # cycles per post is enough to drain the entire backlog
+                    # without a maintenance window.
+                    if project_id and source_id:
+                        delete_clauses = [
+                            PostInsight.project_id == project_id,
+                            PostInsight.source_id == source_id,
+                            PostInsight.id != record.id,
+                        ]
+                        if platform:
+                            delete_clauses.append(PostInsight.platform == platform)
+                        await session.execute(
+                            delete(PostInsight).where(*delete_clauses)
+                        )
                 else:
                     if not project_id:
                         if self.logger:
