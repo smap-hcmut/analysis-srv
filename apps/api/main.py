@@ -396,11 +396,11 @@ async def _refresh_project_rollups(deps: APIDependencies, project_id: str) -> No
 async def _refresh_project_rollups_tick(deps: APIDependencies) -> None:
     """Run one refresh tick across every project that needs rollup updates.
 
-    Projects are refreshed sequentially so the loop never bursts more than
-    one concurrent write into the rollup tables (TRUNCATE-equivalent DELETE +
-    INSERT chains are cheap per project but contend on the same partitions
-    across projects). A per-project failure does not abort the tick — the
-    next project still gets a chance.
+    Projects are refreshed in parallel batches so a 19-project tick fits
+    in ~30 s instead of the ~220 s the sequential loop took. The
+    concurrency cap keeps the burst from saturating PostgreSQL connection
+    slots — kine shares this server and the apiserver VIP drops when
+    kine writes back up. A per-project failure does not abort the tick.
     """
     if not deps.db.engine:
         return
@@ -419,17 +419,25 @@ async def _refresh_project_rollups_tick(deps: APIDependencies) -> None:
         return
 
     started = time.perf_counter()
-    succeeded = 0
+    concurrency = max(1, int(os.getenv("ANALYTICS_MART_REFRESH_CONCURRENCY", "4")))
+    semaphore = asyncio.Semaphore(concurrency)
     failed_projects: list[str] = []
-    for project_id in project_ids:
-        try:
-            await _refresh_project_rollups(deps, project_id)
-            succeeded += 1
-        except Exception as exc:  # pragma: no cover - operational guardrail
-            failed_projects.append(project_id)
-            deps.logger.warning(
-                f"analysis-api rollup refresh failed for project {project_id}: {exc}"
-            )
+    succeeded_count = 0
+
+    async def _run_one(pid: str) -> None:
+        nonlocal succeeded_count
+        async with semaphore:
+            try:
+                await _refresh_project_rollups(deps, pid)
+                succeeded_count += 1
+            except Exception as exc:  # pragma: no cover - operational guardrail
+                failed_projects.append(pid)
+                deps.logger.warning(
+                    f"analysis-api rollup refresh failed for project {pid}: {exc}"
+                )
+
+    await asyncio.gather(*(_run_one(pid) for pid in project_ids))
+    succeeded = succeeded_count
     elapsed = time.perf_counter() - started
     deps.logger.info(
         "analysis-api rollup tick complete: "
