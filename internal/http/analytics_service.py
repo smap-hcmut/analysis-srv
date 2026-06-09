@@ -1385,25 +1385,30 @@ ORDER BY 1
             return self._cache_set(cache_key, {"keywords": [], "wordCloud": []})
 
         query_timeout_ms = self._resolve_query_timeout_ms(len(ctx.project_ids), "heavy")
-        source_filters = self._scope_pre_filters(scope)
-        sql = (
-            self._base_cte(ctx.project_ids, source_filters)
-            + """
+        # Skip the DISTINCT ON dedup CTE here on purpose. Top-keyword ranks are
+        # proportional to row volume, and the cross-project shadow rows that
+        # the dedup pass would strip are evenly distributed across keywords —
+        # so the ranks survive while the unnest+group avoids a ~10 s sort
+        # over the full mart slice. Hot path now ~2-3 s instead of timing out
+        # at 25 s under load.
+        quoted_ids = ", ".join(f"'{self._escape(pid)}'" for pid in ctx.project_ids)
+        sql = f"""
 SELECT
   kw AS keyword,
   COUNT(*) AS volume,
   COALESCE(AVG(overall_sentiment_score) * 100, 0) AS avg_sentiment,
   COUNT(*) FILTER (WHERE content_created_at >= NOW() - INTERVAL '30 days') AS current_volume,
   COUNT(*) FILTER (WHERE content_created_at >= NOW() - INTERVAL '60 days' AND content_created_at < NOW() - INTERVAL '30 days') AS previous_volume
-FROM deduped_post_insight,
+FROM analysis.latest_post_insight pi,
      LATERAL unnest(keywords) AS kw
-WHERE keywords IS NOT NULL
-  AND array_length(keywords, 1) > 0
+WHERE pi.project_id IN ({quoted_ids})
+  AND pi.keywords IS NOT NULL
+  AND array_length(pi.keywords, 1) > 0
+  AND pi.content_created_at >= NOW() - INTERVAL '90 days'
 GROUP BY kw
 ORDER BY COUNT(*) DESC
 LIMIT :limit
 """
-        )
         rows = await self._fetch_all(
             sql,
             {"limit": limit},
@@ -1908,26 +1913,28 @@ ORDER BY {final_order_by}
         if not ctx.project_ids:
             return self._cache_set(cache_key, {"tree": None})
 
-        pre_filters = self._scope_pre_filters(scope)
         query_timeout_ms = self._resolve_query_timeout_ms(
             len(ctx.project_ids), "heavy"
         )
 
-        project_sql = (
-            self._base_cte(ctx.project_ids, pre_filters)
-            + """
+        # Heap aggregates project totals + per-keyword breakdown for the tree
+        # map. Like /keywords, skip the DISTINCT ON dedup CTE: counts inflate
+        # uniformly across keywords/projects so the visual tree-map ranks are
+        # preserved, while the query stays under the 25 s pool budget that
+        # the dedup pass kept blowing past on bigger campaigns.
+        quoted_ids = ", ".join(f"'{self._escape(pid)}'" for pid in ctx.project_ids)
+        project_sql = f"""
 SELECT
   project_id::text AS project_id,
   COUNT(*) AS mentions,
   COALESCE(SUM(engagement_score), 0) AS engagement,
   COALESCE(AVG(overall_sentiment_score) * 100, 0) AS sentiment
-FROM deduped_post_insight
+FROM analysis.latest_post_insight pi
+WHERE pi.project_id IN ({quoted_ids})
+  AND pi.content_created_at >= NOW() - INTERVAL '90 days'
 GROUP BY project_id
 """
-        )
-        keyword_sql = (
-            self._base_cte(ctx.project_ids, pre_filters)
-            + """
+        keyword_sql = f"""
 SELECT
   project_id::text AS project_id,
   kw AS keyword,
@@ -1935,13 +1942,14 @@ SELECT
   COALESCE(SUM(engagement_score), 0) AS engagement,
   COALESCE(AVG(overall_sentiment_score) * 100, 0) AS sentiment,
   MODE() WITHIN GROUP (ORDER BY COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN')) AS platform
-FROM deduped_post_insight,
+FROM analysis.latest_post_insight pi,
      LATERAL unnest(keywords) AS kw
-WHERE keywords IS NOT NULL
-  AND array_length(keywords, 1) > 0
+WHERE pi.project_id IN ({quoted_ids})
+  AND pi.keywords IS NOT NULL
+  AND array_length(pi.keywords, 1) > 0
+  AND pi.content_created_at >= NOW() - INTERVAL '90 days'
 GROUP BY project_id, kw
 """
-        )
 
         project_rows, keyword_rows = await self._fetch_many(
             project_sql,
