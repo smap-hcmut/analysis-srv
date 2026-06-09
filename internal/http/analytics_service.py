@@ -1572,11 +1572,21 @@ LIMIT :limit
             if sort_key == "time"
             else "ORDER BY engagement_score DESC NULLS LAST, content_created_at DESC NULLS LAST"
         )
+        # posts_recent_top is rebuilt per project_id, so a TikTok comment that
+        # matches more than one project in the campaign appears once per
+        # project. DISTINCT ON collapses those shadows to a single row.
         rows = await self._fetch_all(
             f"""
 WITH base AS (
-  SELECT * FROM analysis.posts_recent_top
+  SELECT DISTINCT ON (COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'), uap_id)
+    *
+  FROM analysis.posts_recent_top
   WHERE project_id = ANY(CAST(:project_ids AS text[]))
+  ORDER BY
+    COALESCE(NULLIF(UPPER(platform), ''), 'UNKNOWN'),
+    uap_id,
+    engagement_score DESC NULLS LAST,
+    content_created_at DESC NULLS LAST
 ), counted AS (
   SELECT COUNT(*) AS total FROM base
 )
@@ -2542,12 +2552,26 @@ WHERE uap_metadata @> CAST(:target_filter AS jsonb)
         )
         source_table = self._analytics_source_table()
         if self._use_latest_mart:
+            # The mart deduplicates per (project_id, source_identity), but the
+            # same TikTok comment / FB post often gets ingested under several
+            # projects within the same campaign. Without a second pass, every
+            # cross-project shadow row leaks into the page and the user sees
+            # the same author repeat across pagination.
             return f"""
 WITH deduped_post_insight AS (
-  SELECT *
+  SELECT DISTINCT ON (
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr}
+  )
+    pi.*
   FROM {source_table} pi
   WHERE project_id IN ({quoted_ids})
 {extra_where}
+  ORDER BY
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr},
+    pi.engagement_score DESC NULLS LAST,
+    pi.id DESC
 )
 """
         return f"""
@@ -2595,9 +2619,16 @@ WITH latest_post_insight AS (
         )
         source_table = self._analytics_source_table()
         if self._use_latest_mart:
+            # Cross-project dedup: the same comment/post can sit under several
+            # projects in one campaign, and the mart only dedupes within a
+            # project. DISTINCT ON keeps the highest-engagement row so the
+            # paginated Insight list stops repeating the same author.
             return f"""
 WITH latest_post_insight AS (
-  SELECT
+  SELECT DISTINCT ON (
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr}
+  )
     pi.id,
     pi.platform,
     pi.content_created_at,
@@ -2610,6 +2641,11 @@ WITH latest_post_insight AS (
   FROM {source_table} pi
   WHERE project_id IN ({quoted_ids})
 {extra_where}
+  ORDER BY
+    COALESCE(NULLIF(UPPER(pi.platform), ''), 'UNKNOWN'),
+    {identity_expr},
+    pi.engagement_score DESC NULLS LAST,
+    pi.id DESC
 ),
 """
         return f"""
