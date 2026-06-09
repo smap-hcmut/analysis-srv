@@ -475,6 +475,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="analysis-api", lifespan=lifespan)
 
 
+# Force the browser / SWR / any HTTP cache in front of analysis-api to
+# re-fetch every Insight dashboard request. The backend keeps its own
+# short response cache for hot paths, but if the client caches by URL
+# the user sees stuck numbers even after a hard refresh — that was the
+# root cause of the "vẫn 3.2K" complaint on 2026-06-09.
+@app.middleware("http")
+async def _no_browser_cache(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/v1/analytics"):
+        response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 # Prometheus metrics endpoint. Mounted only when prometheus_client is installed
 # (graceful no-op otherwise). Counters are wired through internal.observability
 # and updated by request middleware below.
