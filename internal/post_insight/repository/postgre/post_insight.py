@@ -60,6 +60,7 @@ class PostInsightPostgresRepository(IPostInsightRepository):
         id_ = transformed.get("id")
         project_id = transformed.get("project_id")
         source_id = transformed.get("source_id")
+        platform = transformed.get("platform")
 
         try:
             async with self.db.get_session() as session:
@@ -70,11 +71,18 @@ class PostInsightPostgresRepository(IPostInsightRepository):
                     result = await session.execute(stmt)
                     existing = result.scalar_one_or_none()
 
+                # Match by (project_id, platform, source_id). Including
+                # platform stops a TikTok comment with the same source_id
+                # as a Facebook post from clobbering each other when the
+                # scrapers emit overlapping numeric IDs across networks.
                 if not existing and project_id and source_id:
-                    stmt = select(PostInsight).where(
+                    where_clauses = [
                         PostInsight.project_id == project_id,
                         PostInsight.source_id == source_id,
-                    )
+                    ]
+                    if platform:
+                        where_clauses.append(PostInsight.platform == platform)
+                    stmt = select(PostInsight).where(*where_clauses)
                     result = await session.execute(stmt)
                     existing = result.scalar_one_or_none()
 
